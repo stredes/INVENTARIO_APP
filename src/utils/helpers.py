@@ -1,0 +1,153 @@
+from __future__ import annotations
+import configparser
+from pathlib import Path
+from typing import Optional, Dict, Any, Tuple
+import os
+
+CONFIG_PATH = Path("config/settings.ini")
+
+
+# -----------------------------
+# CONFIG
+# -----------------------------
+def _ensure_config_dir() -> None:
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+
+def read_config() -> configparser.ConfigParser:
+    cfg = configparser.ConfigParser()
+    if CONFIG_PATH.exists():
+        cfg.read(CONFIG_PATH, encoding="utf-8")
+    return cfg
+
+
+def write_config(cfg: configparser.ConfigParser) -> None:
+    _ensure_config_dir()
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        cfg.write(f)
+
+
+# -----------------------------
+# EMPRESA / TÉRMINOS
+# -----------------------------
+def get_company_info() -> Dict[str, Any]:
+    cfg = read_config()
+    sec = cfg["company"] if "company" in cfg else {}
+    return {
+        "name": sec.get("name", "Mi Empresa"),
+        "rut": sec.get("rut", ""),
+        "address": sec.get("address", ""),
+        "phone": sec.get("phone", ""),
+        "email": sec.get("email", ""),
+        "logo": sec.get("logo", ""),
+    }
+
+
+def get_po_terms() -> str:
+    cfg = read_config()
+    return cfg.get("po", "footer_terms", fallback="Gracias por su preferencia.")
+
+
+# -----------------------------
+# DESCARGAS / NOMBRES ÚNICOS
+# -----------------------------
+def get_downloads_dir() -> Path:
+    """
+    Resuelve la carpeta Descargas del usuario y la crea si no existe.
+    """
+    home = Path.home()
+
+    if os.name == "nt":
+        d = Path(os.environ.get("USERPROFILE", str(home))) / "Downloads"
+    else:
+        d = home / "Downloads"
+
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        d = home
+
+    return d
+
+
+def unique_path(base_dir: Path, filename: str) -> Path:
+    """
+    Garantiza nombre único: <name> (1).ext, (2), ...
+    """
+    base_dir.mkdir(parents=True, exist_ok=True)
+    p = base_dir / filename
+    if not p.exists():
+        return p
+
+    stem = p.stem
+    suffix = p.suffix
+    i = 1
+    while True:
+        cand = base_dir / f"{stem} ({i}){suffix}"
+        if not cand.exists():
+            return cand
+        i += 1
+
+
+# -----------------------------
+# INVENTARIO: LÍMITES / REFRESH
+# -----------------------------
+def get_inventory_limits() -> Tuple[int, int]:
+    """
+    Retorna (critical_min, critical_max) desde settings.ini, con defaults seguros.
+    """
+    cfg = read_config()
+    sec = cfg["inventory"] if "inventory" in cfg else {}
+    try:
+        min_v = int(sec.get("critical_min", "5"))
+    except Exception:
+        min_v = 5
+    try:
+        max_v = int(sec.get("critical_max", "999999"))
+    except Exception:
+        max_v = 999_999
+    if min_v < 0:
+        min_v = 0
+    if max_v < min_v:
+        max_v = min_v
+    return min_v, max_v
+
+
+def set_inventory_limits(min_v: int, max_v: int) -> None:
+    """
+    Guarda límites críticos en settings.ini (normaliza valores).
+    """
+    if min_v < 0:
+        min_v = 0
+    if max_v < min_v:
+        max_v = min_v
+
+    cfg = read_config()
+    if "inventory" not in cfg:
+        cfg["inventory"] = {}
+    cfg["inventory"]["critical_min"] = str(min_v)
+    cfg["inventory"]["critical_max"] = str(max_v)
+    write_config(cfg)
+
+
+def get_inventory_refresh_ms() -> int:
+    """
+    Lee el intervalo de refresco (ms). Default: 3000 ms.
+    """
+    cfg = read_config()
+    try:
+        return int(cfg.get("inventory", "refresh_ms", fallback="3000"))
+    except Exception:
+        return 3000
+
+
+def set_inventory_refresh_ms(ms: int) -> None:
+    """
+    Guarda el intervalo de refresco (ms). Mínimo 500 ms, máximo 60_000 ms.
+    """
+    ms = max(500, min(60_000, int(ms)))
+    cfg = read_config()
+    if "inventory" not in cfg:
+        cfg["inventory"] = {}
+    cfg["inventory"]["refresh_ms"] = str(ms)
+    write_config(cfg)

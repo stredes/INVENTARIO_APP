@@ -1,0 +1,5 @@
+# ORM y base de datos
+SQLAlchemy>=2.0
+
+# Utilidades opcionales
+python-dotenv>=1.0   # si en el futuro usas .env para config
