@@ -17,7 +17,7 @@ class ProductsView(ttk.Frame):
     - % Ganancia (default 30)
     - Monto IVA (calculado, solo lectura)
     - Precio + IVA (calculado, solo lectura)
-    - Precio Venta (calculado, editable si quieres ajustar)
+    - Precio Venta (calculado, editable)
     """
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
@@ -26,7 +26,7 @@ class ProductsView(ttk.Frame):
 
         self._editing_id: Optional[int] = None
 
-        # ---------- Estado (variables) ----------
+        # ---------- Estado (variables UI) ----------
         self.var_nombre = tk.StringVar()
         self.var_codigo = tk.StringVar()        # mostrado como "Código", mapeado a .sku
         self.var_unidad = tk.StringVar(value="unidad")
@@ -36,7 +36,7 @@ class ProductsView(ttk.Frame):
         self.var_margen = tk.DoubleVar(value=30.0)    # % ganancia
         self.var_iva_monto = tk.DoubleVar(value=0.0)  # monto del IVA (calc)
         self.var_pmasiva = tk.DoubleVar(value=0.0)    # precio + IVA (calc)
-        self.var_pventa = tk.DoubleVar(value=0.0)     # precio venta (calc base margen; editable)
+        self.var_pventa = tk.DoubleVar(value=0.0)     # precio venta (calc; editable)
 
         # ---------- Formulario ----------
         frm = ttk.Labelframe(self, text="Producto", padding=10)
@@ -226,23 +226,63 @@ class ProductsView(ttk.Frame):
             messagebox.showerror("Error", f"No se pudo eliminar:\n{e}")
 
     def _on_row_dblclick(self, _event=None):
+        """
+        Carga los datos de la fila seleccionada al formulario.
+        Evita 'try' en una sola línea: usamos bloques multilínea válidos.
+        """
         sel = self.tree.selection()
         if not sel:
             return
+
         vals = self.tree.item(sel[0], "values")
+        # Orden de columnas:
+        # 0 id, 1 nombre, 2 codigo, 3 pcompra, 4 iva, 5 iva_monto, 6 pmasiva, 7 margen, 8 pventa, 9 unidad
+
         self._editing_id = int(vals[0])
         self.var_nombre.set(vals[1])
         self.var_codigo.set(vals[2])
 
-        # Recupera valores numéricos desde la fila seleccionada
-        try: self.var_pc.set(float(vals[3]));   except Exception: self.var_pc.set(0.0)
-        try: self.var_iva.set(float(vals[4]));  except Exception: self.var_iva.set(19.0)
-        try: self.var_iva_monto.set(float(vals[5])); except Exception: self.var_iva_monto.set(0.0)
-        try: self.var_pmasiva.set(float(vals[6]));   except Exception: self.var_pmasiva.set(0.0)
-        try: self.var_margen.set(float(vals[7]));    except Exception: self.var_margen.set(30.0)
-        try: self.var_pventa.set(float(vals[8]));    except Exception: self.var_pventa.set(0.0)
+        # pcompra
+        try:
+            self.var_pc.set(float(vals[3]))
+        except Exception:
+            self.var_pc.set(0.0)
 
-        self.var_unidad.set(vals[9] or "unidad")
+        # iva %
+        try:
+            self.var_iva.set(float(vals[4]))
+        except Exception:
+            self.var_iva.set(19.0)
+
+        # monto iva
+        try:
+            self.var_iva_monto.set(float(vals[5]))
+        except Exception:
+            self.var_iva_monto.set(0.0)
+
+        # p + iva
+        try:
+            self.var_pmasiva.set(float(vals[6]))
+        except Exception:
+            self.var_pmasiva.set(0.0)
+
+        # margen %
+        try:
+            self.var_margen.set(float(vals[7]))
+        except Exception:
+            self.var_margen.set(30.0)
+
+        # p venta
+        try:
+            self.var_pventa.set(float(vals[8]))
+        except Exception:
+            self.var_pventa.set(0.0)
+
+        # unidad
+        try:
+            self.var_unidad.set(vals[9] or "unidad")
+        except Exception:
+            self.var_unidad.set("unidad")
 
         self.btn_save.config(state="disabled")
         self.btn_update.config(state="normal")
@@ -342,4 +382,5 @@ class ProductsView(ttk.Frame):
             )
 
     def refresh_lookups(self):
+        # Nada particular por ahora.
         pass
