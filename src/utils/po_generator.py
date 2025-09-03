@@ -8,7 +8,14 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Table,
+    TableStyle,
+    Paragraph,
+    Spacer,
+    Image,
+)
 
 from src.utils.helpers import (
     get_company_info,
@@ -18,6 +25,27 @@ from src.utils.helpers import (
 )
 
 
+# -----------------------------
+# Utilidades internas
+# -----------------------------
+def _fmt_money(value: float, currency: str) -> str:
+    """
+    Formatea el valor según moneda.
+    - CLP: miles con punto, sin decimales (e.g., 1.234.567)
+    - Otras: miles con coma, 2 decimales (e.g., 1,234,567.89)
+    """
+    try:
+        if currency.upper() == "CLP":
+            return f"{value:,.0f}".replace(",", ".")
+        # fallback internacional
+        return f"{value:,.2f}"
+    except Exception:
+        return str(value)
+
+
+# -----------------------------
+# API pública
+# -----------------------------
 def generate_po_pdf(
     output_path: str,
     *,
@@ -29,13 +57,14 @@ def generate_po_pdf(
 ) -> str:
     """
     Genera un PDF de Orden de Compra en 'output_path'.
-    - supplier: dict con claves: id, nombre, contacto, telefono, email, direccion
+    - supplier: dict con claves: id, nombre, rut, contacto, telefono, email, direccion
     - items: lista de dicts con claves: id, nombre, cantidad, precio, subtotal
     Retorna la ruta del archivo creado.
     """
     comp = get_company_info()
     terms = get_po_terms()
 
+    # Documento
     doc = SimpleDocTemplate(
         output_path,
         pagesize=A4,
@@ -52,25 +81,35 @@ def generate_po_pdf(
     p = ParagraphStyle(name="p", fontName="Helvetica", fontSize=10, leading=13)
     small = ParagraphStyle(name="small", fontName="Helvetica", fontSize=9, leading=12, textColor=colors.grey)
 
-    # Encabezado
+    # --------------------------------
+    # Encabezado (logo + empresa + OC)
+    # --------------------------------
     header_table_data = []
 
-    # Col 1: Logo (si existe) o nombre
+    # Col 1: Logo (si existe) o nombre empresa en negrita
+    logo_cell: Any
     logo_path = (comp.get("logo") or "").strip()
     if logo_path and Path(logo_path).exists():
-        img = Image(logo_path)
-        img._restrictSize(35 * mm, 20 * mm)
-        logo_cell = img
+        try:
+            img = Image(logo_path)
+            img._restrictSize(35 * mm, 20 * mm)
+            logo_cell = img
+        except Exception:
+            logo_cell = Paragraph(f"<b>{comp.get('name','Mi Empresa')}</b>", h2)
     else:
-        logo_cell = Paragraph(comp.get("name", "Mi Empresa"), h2)
+        logo_cell = Paragraph(f"<b>{comp.get('name','Mi Empresa')}</b>", h2)
 
-    # Col 2: datos empresa
+    # Col 2: datos de la empresa
     comp_lines = [
         f"<b>{comp.get('name','')}</b>",
         f"RUT: {comp.get('rut','')}" if comp.get("rut") else "",
         comp.get("address", ""),
-        " · ".join([x for x in [f"Tel: {comp.get('phone','')}" if comp.get("phone") else "",
-                                comp.get("email","")] if x]),
+        " · ".join(
+            [x for x in [
+                f"Tel: {comp.get('phone','')}" if comp.get("phone") else "",
+                comp.get("email","") or "",
+            ] if x]
+        ),
     ]
     comp_html = "<br/>".join([x for x in comp_lines if x])
 
@@ -84,39 +123,49 @@ def generate_po_pdf(
     header_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("ALIGN", (2, 0), (2, 0), "RIGHT"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
     ]))
     story.append(header_table)
     story.append(Spacer(1, 6 * mm))
 
-    # Datos proveedor y fecha
+    # ------------------------------
+    # Datos proveedor y fecha actual
+    # ------------------------------
     sup_lines = [
         f"<b>Proveedor:</b> {supplier.get('nombre','')}",
-        f"<b>Contacto:</b> {supplier.get('contacto','') or '-'}",
+        f"<b>RUT:</b> {supplier.get('rut','') or '-'}",
+        f"<b>Vendedor:</b> {supplier.get('contacto','') or '-'}",
         f"<b>Tel:</b> {supplier.get('telefono','') or '-'}",
         f"<b>Email:</b> {supplier.get('email','') or '-'}",
         f"<b>Dirección:</b> {supplier.get('direccion','') or '-'}",
     ]
-    sup_table = Table([
-        [Paragraph("<b>Fecha:</b> " + datetime.now().strftime("%d-%m-%Y"), p),
-         Paragraph("<br/>".join(sup_lines), p)]
-    ], colWidths=[45 * mm, 135 * mm])
-    sup_table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+    sup_table = Table([[
+        Paragraph("<b>Fecha:</b> " + datetime.now().strftime("%d-%m-%Y"), p),
+        Paragraph("<br/>".join(sup_lines), p),
+    ]], colWidths=[45 * mm, 135 * mm])
+    sup_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
     story.append(sup_table)
     story.append(Spacer(1, 4 * mm))
 
-    # Detalle
+    # ---------------
+    # Detalle (tabla)
+    # ---------------
     data = [["ID", "Producto", "Cantidad", f"Precio ({currency})", f"Subtotal ({currency})"]]
     total = 0.0
     for it in items:
-        cantidad = it.get("cantidad", 0)
-        precio = float(it.get("precio", 0))
-        subtotal = float(it.get("subtotal", cantidad * precio))
+        cantidad = float(it.get("cantidad", 0) or 0)
+        precio = float(it.get("precio", 0) or 0)
+        # Permitimos que venga un subtotal prefijado; si no, calculamos
+        subtotal = float(it.get("subtotal", cantidad * precio) or 0)
+
         data.append([
-            str(it.get("id", "")),
-            it.get("nombre", ""),
-            f"{cantidad}",
-            f"{precio:.2f}",
-            f"{subtotal:.2f}",
+            str(it.get("id", "") or ""),
+            it.get("nombre", "") or "",
+            f"{int(cantidad) if cantidad.is_integer() else cantidad}",
+            _fmt_money(precio, currency),
+            _fmt_money(subtotal, currency),
         ])
         total += subtotal
 
@@ -128,26 +177,43 @@ def generate_po_pdf(
         ("ALIGN", (2, 1), (4, -1), "RIGHT"),
         ("GRID", (0, 0), (-1, -1), 0.3, colors.grey),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]))
     story.append(table)
     story.append(Spacer(1, 4 * mm))
 
+    # ------
     # Total
-    total_table = Table([
-        ["", Paragraph("<b>Total:</b>", p), Paragraph(f"<b>{total:.2f} {currency}</b>", p)]
-    ], colWidths=[128 * mm, 32 * mm, 28 * mm])
-    total_table.setStyle(TableStyle([("ALIGN", (-1, 0), (-1, 0), "RIGHT")]))
+    # ------
+    total_table = Table([[
+        "", Paragraph("<b>Total:</b>", p), Paragraph(f"<b>{_fmt_money(total, currency)} {currency}</b>", p)
+    ]], colWidths=[128 * mm, 32 * mm, 28 * mm])
+    total_table.setStyle(TableStyle([
+        ("ALIGN", (-1, 0), (-1, 0), "RIGHT"),
+        ("LINEABOVE", (1, 0), (-1, 0), 0.25, colors.black),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+    ]))
     story.append(total_table)
 
+    # ------
     # Notas
+    # ------
     if notes:
         story.append(Spacer(1, 3 * mm))
-        story.append(Paragraph(f"<b>Notas:</b> {notes}", p))
+        story.append(Paragraph("<b>Notas:</b>", p))
+        for line in str(notes).splitlines():
+            if line.strip():
+                story.append(Paragraph(line.strip(), p))
 
+    # --------
     # Términos
-    story.append(Spacer(1, 6 * mm))
-    story.append(Paragraph(terms, small))
+    # --------
+    if terms:
+        story.append(Spacer(1, 6 * mm))
+        story.append(Paragraph(terms, small))
 
+    # Construir PDF
     doc.build(story)
     return str(output_path)
 
@@ -162,6 +228,7 @@ def open_file(path: str) -> None:
         else:
             os.system(f"xdg-open '{path}'")
     except Exception:
+        # Silencioso: abrir el archivo es best-effort
         pass
 
 
