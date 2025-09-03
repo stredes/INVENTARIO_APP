@@ -31,7 +31,13 @@ class Supplier(Base):
     __tablename__ = "suppliers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    nombre: Mapped[str] = mapped_column(String, nullable=False)
+
+    # Antes 'nombre'
+    razon_social: Mapped[str] = mapped_column(String, nullable=False)
+
+    # RUT de la empresa (único)
+    rut: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+
     contacto: Mapped[Optional[str]] = mapped_column(String)
     telefono: Mapped[Optional[str]] = mapped_column(String)
     email: Mapped[Optional[str]] = mapped_column(String)
@@ -42,7 +48,7 @@ class Supplier(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Supplier nombre={self.nombre}>"
+        return f"<Supplier razon_social={self.razon_social} rut={self.rut}>"
 
 
 # ====================================================
@@ -162,7 +168,13 @@ class Customer(Base):
     __tablename__ = "customers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    nombre: Mapped[str] = mapped_column(String, nullable=False)
+
+    # Antes 'nombre'
+    razon_social: Mapped[str] = mapped_column(String, nullable=False)
+
+    # RUT (único)
+    rut: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+
     contacto: Mapped[Optional[str]] = mapped_column(String)
     telefono: Mapped[Optional[str]] = mapped_column(String)
     email: Mapped[Optional[str]] = mapped_column(String)
@@ -173,7 +185,7 @@ class Customer(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Customer nombre={self.nombre}>"
+        return f"<Customer razon_social={self.razon_social} rut={self.rut}>"
 
 
 # ====================================================

@@ -36,8 +36,8 @@ class MainWindow(ttk.Frame):
         self.notebook.add(self.products_tab, text="Productos")
         self.notebook.add(self.suppliers_tab, text="Proveedores")
         self.notebook.add(self.customers_tab, text="Clientes")
-        self.notebook.add(self.purchases_tab, text="Compras")
-        self.notebook.add(self.sales_tab, text="Ventas")
+        self.notebook.add(self.purchases_tab, text="ocmpra")
+        self.notebook.add(self.sales_tab, text="ocventa")
         self.notebook.add(self.inventory_tab, text="Inventario")
 
         self.notebook.pack(fill="both", expand=True)

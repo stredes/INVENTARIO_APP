@@ -1,22 +1,5 @@
-"""
-InventoryManager
-================
-Orquesta entradas/salidas de stock y mantiene el campo denormalizado
-Product.stock_actual coherente con los movimientos.
-
-Reglas:
-- No permite stock negativo.
-- Entradas opcionalmente pueden asociarse a una compra (id_compra).
-- Todas las operaciones se hacen en transacción (commit/rollback atómico).
-
-Uso típico:
-    inv = InventoryManager()
-    inv.register_entry(product_id=1, cantidad=10, motivo="Compra", id_compra=5)
-    inv.register_exit(product_id=1, cantidad=3, motivo="Venta mostrador")
-    stock = inv.get_stock(1)
-"""
-
 from __future__ import annotations
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
@@ -32,118 +15,103 @@ from src.data.repository import (
 
 
 class InventoryError(Exception):
-    """Errores de inventario (stock, ids inexistentes, etc.)."""
+    """Errores de inventario."""
+
+
+@dataclass(frozen=True)
+class MovementResult:
+    product_id: int
+    old_stock: int
+    new_stock: int
+    qty: int
+    movement: str  # "entry" | "exit"
 
 
 class InventoryManager:
-    def __init__(self, session: Optional[Session] = None) -> None:
-        # Usamos la sesión global (scoped_session) si no se entrega una explícita
-        self.session: Session = (session or get_session())
+    """
+    Alta/baja de stock y registro de movimientos.
+    """
 
-        # Repos
+    def __init__(self, session: Optional[Session] = None) -> None:
+        self.session: Session = session or get_session()
         self.products = ProductRepository(self.session)
         self.entries = StockEntryRepository(self.session)
         self.exits = StockExitRepository(self.session)
 
-    # -------------------------
-    # Consultas
-    # -------------------------
-    def get_stock(self, product_id: int) -> int:
-        """Retorna el stock_actual del producto."""
-        prod = self.products.get(product_id)
-        if not prod:
+    # ---------------------------
+    # Helpers
+    # ---------------------------
+    def _get_product(self, product_id: int) -> Product:
+        p = self.products.get(product_id)
+        if not p:
             raise InventoryError(f"Producto id={product_id} no existe")
-        return int(prod.stock_actual or 0)
+        return p
 
-    # -------------------------
-    # Movimientos
-    # -------------------------
+    # ---------------------------
+    # API
+    # ---------------------------
     def register_entry(
         self,
+        *,
         product_id: int,
         cantidad: int,
         motivo: Optional[str] = None,
-        id_compra: Optional[int] = None,
         when: Optional[datetime] = None,
-    ) -> StockEntry:
+    ) -> MovementResult:
         """
-        Registra una ENTRADA de stock:
-        - Crea StockEntry
-        - Suma a Product.stock_actual
+        Suma stock y registra en stock_entries.
+        `when` se guarda en el campo `fecha` (NO existe `fecha_entrada`).
         """
         if cantidad <= 0:
             raise InventoryError("La cantidad de entrada debe ser > 0")
 
-        prod = self.products.get(product_id)
-        if not prod:
-            raise InventoryError(f"Producto id={product_id} no existe")
+        p = self._get_product(product_id)
+        old = int(p.stock_actual or 0)
+        new = old + int(cantidad)
 
-        when = when or datetime.utcnow()
+        entry = StockEntry(
+            id_producto=p.id,
+            cantidad=int(cantidad),
+            motivo=motivo,
+            fecha=when or datetime.utcnow(),  # <--- campo correcto
+        )
+        self.entries.add(entry)
 
-        try:
-            entry = StockEntry(
-                id_producto=product_id,
-                cantidad=cantidad,
-                fecha_entrada=when,
-                id_compra=id_compra,
-            )
-            self.entries.add(entry)
-
-            # Actualizar stock denormalizado
-            prod.stock_actual = (prod.stock_actual or 0) + cantidad
-
-            self.session.commit()
-            # refrescamos para obtener IDs autoincrement, etc.
-            self.session.refresh(entry)
-            self.session.refresh(prod)
-            return entry
-        except Exception:
-            self.session.rollback()
-            raise
+        p.stock_actual = new
+        self.session.flush()
+        return MovementResult(product_id=p.id, old_stock=old, new_stock=new, qty=int(cantidad), movement="entry")
 
     def register_exit(
         self,
+        *,
         product_id: int,
         cantidad: int,
         motivo: Optional[str] = None,
         when: Optional[datetime] = None,
-    ) -> StockExit:
+    ) -> MovementResult:
         """
-        Registra una SALIDA de stock:
-        - Crea StockExit
-        - Resta de Product.stock_actual (no permite negativo)
+        Resta stock y registra en stock_exits.
+        `when` se guarda en el campo `fecha`.
         """
         if cantidad <= 0:
             raise InventoryError("La cantidad de salida debe ser > 0")
 
-        prod = self.products.get(product_id)
-        if not prod:
-            raise InventoryError(f"Producto id={product_id} no existe")
-
-        if (prod.stock_actual or 0) < cantidad:
+        p = self._get_product(product_id)
+        old = int(p.stock_actual or 0)
+        if cantidad > old:
             raise InventoryError(
-                f"Stock insuficiente para producto id={product_id}: "
-                f"stock_actual={prod.stock_actual}, requerido={cantidad}"
+                f"Stock insuficiente para producto id={product_id}. Stock={old}, solicitado={cantidad}"
             )
+        new = old - int(cantidad)
 
-        when = when or datetime.utcnow()
+        exit_ = StockExit(
+            id_producto=p.id,
+            cantidad=int(cantidad),
+            motivo=motivo,
+            fecha=when or datetime.utcnow(),  # <--- campo correcto
+        )
+        self.exits.add(exit_)
 
-        try:
-            exit_ = StockExit(
-                id_producto=product_id,
-                cantidad=cantidad,
-                fecha_salida=when,
-                motivo=motivo,
-            )
-            self.exits.add(exit_)
-
-            # Actualizar stock denormalizado
-            prod.stock_actual = (prod.stock_actual or 0) - cantidad
-
-            self.session.commit()
-            self.session.refresh(exit_)
-            self.session.refresh(prod)
-            return exit_
-        except Exception:
-            self.session.rollback()
-            raise
+        p.stock_actual = new
+        self.session.flush()
+        return MovementResult(product_id=p.id, old_stock=old, new_stock=new, qty=int(cantidad), movement="exit")
