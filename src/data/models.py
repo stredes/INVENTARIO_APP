@@ -65,6 +65,9 @@ class Product(Base):
     stock_actual: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     unidad_medida: Mapped[Optional[str]] = mapped_column(String)
 
+    # NUEVO: ruta (absoluta o relativa) a la imagen principal del producto
+    image_path: Mapped[Optional[str]] = mapped_column(String)
+
     def __repr__(self) -> str:
         return f"<Product sku={self.sku} nombre={self.nombre}>"
 
@@ -125,7 +128,7 @@ class PurchaseDetail(Base):
     product: Mapped["Product"] = relationship()
 
     def __repr__(self) -> str:
-        return f"<PurchaseDetail compra={self.id_compra} prod={self.id_producto} cant={self.cantidad}>"
+        return f"<PurchaseDetail compra={	self.id_compra} prod={self.id_producto} cant={self.cantidad}>"
 
 
 # ====================================================

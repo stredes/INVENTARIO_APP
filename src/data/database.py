@@ -3,6 +3,7 @@ Gestión de la base de datos (SQLAlchemy):
 - Crea engine + scoped_session.
 - Activa PRAGMA foreign_keys en SQLite.
 - init_db(): crea tablas con ORM o aplica schema.sql si se indica en config.
+- MIGRACIÓN LIGERA: asegura columnas nuevas (p.ej. products.image_path).
 """
 
 from __future__ import annotations
@@ -32,7 +33,8 @@ def _read_config() -> configparser.ConfigParser:
 
 def get_engine() -> Engine:
     """
-    Crea (o retorna) un Engine global. Para SQLite, fuerza foreign_keys=ON.
+    Crea (o retorna) un Engine global. Para SQLite, fuerza foreign_keys=ON
+    y aplica migraciones ligeras (ALTER TABLE si faltan columnas conocidas).
     """
     global _engine
     if _engine is not None:
@@ -53,6 +55,9 @@ def get_engine() -> Engine:
         except Exception:
             # Si no es SQLite o falla, ignoramos silenciosamente
             pass
+
+    # MIGRACIÓN LIGERA (idempotente)
+    _ensure_schema(_engine)
 
     return _engine
 
@@ -102,6 +107,9 @@ def init_db(apply_schema_sql_path: Optional[str] = None, create_with_orm: bool =
     if create_with_orm:
         Base.metadata.create_all(bind=engine)
 
+    # 3) Asegurar columnas nuevas (por si create_all no las puede añadir)
+    _ensure_schema(engine)
+
 
 def dispose_engine() -> None:
     """Cierra el engine y limpia el scoped_session (útil para tests)."""
@@ -112,3 +120,51 @@ def dispose_engine() -> None:
     if _engine is not None:
         _engine.dispose()
         _engine = None
+
+
+# =========================
+# MIGRACIONES LIGERAS
+# =========================
+def _is_sqlite(engine: Engine) -> bool:
+    try:
+        return engine.url.get_backend_name() == "sqlite"
+    except Exception:
+        return False
+
+
+def _table_has_column(engine: Engine, table: str, column: str) -> bool:
+    """Devuelve True si la columna existe (solo SQLite; para otros motores devuelve True y no hace nada)."""
+    if not _is_sqlite(engine):
+        return True  # no gestionamos introspección aquí para otros motores
+    with engine.connect() as conn:
+        rows = conn.exec_driver_sql(f'PRAGMA table_info("{table}")').fetchall()
+        cols = {r[1] for r in rows}  # (cid, name, type, notnull, dflt_value, pk)
+        return column in cols
+
+
+def _add_column_if_missing(engine: Engine, table: str, column: str, type_sql: str) -> None:
+    """
+    ALTER TABLE seguro en SQLite: agrega la columna si no existe.
+    type_sql debe ser SQL nativo (ej: "TEXT", "INTEGER NOT NULL DEFAULT 0", etc.)
+    """
+    if not _is_sqlite(engine):
+        return
+    if _table_has_column(engine, table, column):
+        return
+    with engine.begin() as conn:
+        conn.exec_driver_sql(f'ALTER TABLE "{table}" ADD COLUMN "{column}" {type_sql}')
+
+
+def _ensure_schema(engine: Engine) -> None:
+    """
+    Aplica pequeñas migraciones idempotentes necesarias para la app.
+    - products.image_path TEXT
+    (agrega aquí otras columnas futuras si se requieren)
+    """
+    try:
+        # products.image_path fue agregado al modelo; lo aseguramos en SQLite existentes
+        _add_column_if_missing(engine, table="products", column="image_path", type_sql="TEXT")
+    except Exception:
+        # Evitar que un fallo de migración bloquee el arranque;
+        # si necesitas depurar, eleva la excepción.
+        pass

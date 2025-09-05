@@ -2,22 +2,21 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import List, Optional
+from pathlib import Path
 
 from src.data.database import get_session
 from src.data.models import Product
 from src.data.repository import ProductRepository
+from src.gui.widgets.product_image_box import ProductImageBox  # <-- recuadro imagen
 
 
 class ProductsView(ttk.Frame):
     """
-    CRUD de Productos (sin tocar stock aquí).
-    - Código (antes "SKU") -> se guarda en Product.sku
-    - Precio Compra (neto, sin IVA)
-    - IVA % (default 19)
-    - % Ganancia (default 30)
-    - Monto IVA (calculado, solo lectura)
-    - Precio + IVA (calculado, solo lectura)
-    - Precio Venta (calculado, editable)
+    CRUD de Productos.
+    - Recuadro de imagen (esquina superior izquierda) con Cargar/Ver/Quitar
+    - Código (SKU)
+    - Precio Compra (neto), IVA %, %Ganancia -> calculados (IVA, P+IVA)
+    - Precio Venta (editable)
     """
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
@@ -25,6 +24,7 @@ class ProductsView(ttk.Frame):
         self.repo = ProductRepository(self.session)
 
         self._editing_id: Optional[int] = None
+        self._current_product: Optional[Product] = None
 
         # ---------- Estado (variables UI) ----------
         self.var_nombre = tk.StringVar()
@@ -42,52 +42,62 @@ class ProductsView(ttk.Frame):
         frm = ttk.Labelframe(self, text="Producto", padding=10)
         frm.pack(fill="x", expand=False)
 
-        # Fila 0: Nombre / Código
-        ttk.Label(frm, text="Nombre:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
-        ttk.Entry(frm, textvariable=self.var_nombre, width=35).grid(row=0, column=1, sticky="w", padx=4, pady=4)
+        # Panel izquierda: IMAGEN
+        left = ttk.Frame(frm)
+        left.grid(row=0, column=0, rowspan=6, sticky="nw", padx=(0, 12))
+        self.img_box = ProductImageBox(left, width=180, height=180)
+        self.img_box.grid(row=0, column=0, sticky="nw")
 
-        ttk.Label(frm, text="Código:").grid(row=0, column=2, sticky="e", padx=4, pady=4)
-        ttk.Entry(frm, textvariable=self.var_codigo, width=20).grid(row=0, column=3, sticky="w", padx=4, pady=4)
+        # Panel derecha: CAMPOS
+        right = ttk.Frame(frm)
+        right.grid(row=0, column=1, sticky="nw")
+
+        # Fila 0: Nombre / Código
+        ttk.Label(right, text="Nombre:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
+        ttk.Entry(right, textvariable=self.var_nombre, width=35).grid(row=0, column=1, sticky="w", padx=4, pady=4)
+
+        ttk.Label(right, text="Código:").grid(row=0, column=2, sticky="e", padx=4, pady=4)
+        ttk.Entry(right, textvariable=self.var_codigo, width=20).grid(row=0, column=3, sticky="w", padx=4, pady=4)
 
         # Fila 1: Precio Compra / IVA %
-        ttk.Label(frm, text="Precio Compra (neto):").grid(row=1, column=0, sticky="e", padx=4, pady=4)
-        ent_pc = ttk.Entry(frm, textvariable=self.var_pc, width=12)
+        ttk.Label(right, text="Precio Compra (neto):").grid(row=1, column=0, sticky="e", padx=4, pady=4)
+        ent_pc = ttk.Entry(right, textvariable=self.var_pc, width=12)
         ent_pc.grid(row=1, column=1, sticky="w", padx=4, pady=4)
 
-        ttk.Label(frm, text="IVA %:").grid(row=1, column=2, sticky="e", padx=4, pady=4)
-        sp_iva = ttk.Spinbox(frm, from_=0, to=100, increment=0.5, textvariable=self.var_iva, width=8)
+        ttk.Label(right, text="IVA %:").grid(row=1, column=2, sticky="e", padx=4, pady=4)
+        sp_iva = ttk.Spinbox(right, from_=0, to=100, increment=0.5, textvariable=self.var_iva, width=8)
         sp_iva.grid(row=1, column=3, sticky="w", padx=4, pady=4)
 
         # Fila 2: % Ganancia / Unidad
-        ttk.Label(frm, text="% Ganancia:").grid(row=2, column=0, sticky="e", padx=4, pady=4)
-        sp_margen = ttk.Spinbox(frm, from_=0, to=1000, increment=0.5, textvariable=self.var_margen, width=8)
+        ttk.Label(right, text="% Ganancia:").grid(row=2, column=0, sticky="e", padx=4, pady=4)
+        sp_margen = ttk.Spinbox(right, from_=0, to=1000, increment=0.5, textvariable=self.var_margen, width=8)
         sp_margen.grid(row=2, column=1, sticky="w", padx=4, pady=4)
 
-        ttk.Label(frm, text="Unidad:").grid(row=2, column=2, sticky="e", padx=4, pady=4)
+        ttk.Label(right, text="Unidad:").grid(row=2, column=2, sticky="e", padx=4, pady=4)
         self.cmb_unidad = ttk.Combobox(
-            frm, textvariable=self.var_unidad,
+            right, textvariable=self.var_unidad,
             values=["unidad", "caja", "bolsa", "kg", "lt"],
             width=15, state="readonly"
         )
         self.cmb_unidad.grid(row=2, column=3, sticky="w", padx=4, pady=4)
 
         # Fila 3: Monto IVA / Precio + IVA
-        ttk.Label(frm, text="Monto IVA:").grid(row=3, column=0, sticky="e", padx=4, pady=4)
-        ent_iva_monto = ttk.Entry(frm, textvariable=self.var_iva_monto, width=12, state="readonly")
+        ttk.Label(right, text="Monto IVA:").grid(row=3, column=0, sticky="e", padx=4, pady=4)
+        ent_iva_monto = ttk.Entry(right, textvariable=self.var_iva_monto, width=12, state="readonly")
         ent_iva_monto.grid(row=3, column=1, sticky="w", padx=4, pady=4)
 
-        ttk.Label(frm, text="Precio + IVA:").grid(row=3, column=2, sticky="e", padx=4, pady=4)
-        ent_pmasiva = ttk.Entry(frm, textvariable=self.var_pmasiva, width=12, state="readonly")
+        ttk.Label(right, text="Precio + IVA:").grid(row=3, column=2, sticky="e", padx=4, pady=4)
+        ent_pmasiva = ttk.Entry(right, textvariable=self.var_pmasiva, width=12, state="readonly")
         ent_pmasiva.grid(row=3, column=3, sticky="w", padx=4, pady=4)
 
         # Fila 4: Precio Venta
-        ttk.Label(frm, text="Precio Venta:").grid(row=4, column=0, sticky="e", padx=4, pady=4)
-        ent_pventa = ttk.Entry(frm, textvariable=self.var_pventa, width=12)
+        ttk.Label(right, text="Precio Venta:").grid(row=4, column=0, sticky="e", padx=4, pady=4)
+        ent_pventa = ttk.Entry(right, textvariable=self.var_pventa, width=12)
         ent_pventa.grid(row=4, column=1, sticky="w", padx=4, pady=4)
 
         # Botones
-        btns = ttk.Frame(frm)
-        btns.grid(row=5, column=0, columnspan=4, pady=8)
+        btns = ttk.Frame(right)
+        btns.grid(row=5, column=0, columnspan=4, pady=8, sticky="w")
 
         self.btn_save = ttk.Button(btns, text="Agregar", command=self._on_add)
         self.btn_update = ttk.Button(btns, text="Guardar cambios", command=self._on_update, state="disabled")
@@ -98,9 +108,6 @@ class ProductsView(ttk.Frame):
         self.btn_update.pack(side="left", padx=4)
         self.btn_delete.pack(side="left", padx=4)
         self.btn_clear.pack(side="left", padx=4)
-
-        for i in range(4):
-            frm.columnconfigure(i, weight=1)
 
         # ---------- Tabla ----------
         self.tree = ttk.Treeview(
@@ -126,7 +133,7 @@ class ProductsView(ttk.Frame):
         self.tree.pack(fill="both", expand=True, pady=(10, 0))
         self.tree.bind("<Double-1>", self._on_row_dblclick)
 
-        # Triggers de recálculo
+        # Recalcular automáticamente
         for w in (ent_pc, sp_iva, sp_margen, ent_pventa):
             w.bind("<KeyRelease>", self._on_auto_calc)
         sp_iva.bind("<<Increment>>", self._on_auto_calc)
@@ -139,13 +146,7 @@ class ProductsView(ttk.Frame):
 
     # ---------- Cálculos ----------
     def _recalc_prices(self):
-        """
-        Calcula:
-          monto_iva = pc * (iva/100)
-          pmasiva   = pc + monto_iva
-          pventa    = pmasiva * (1 + margen/100)
-        Redondeo a pesos (0 decimales).
-        """
+        """Calcula IVA, P+IVA y sugiere pventa (redondeo a entero)."""
         try:
             pc = float(self.var_pc.get() or 0)
             iva = float(self.var_iva.get() or 0)
@@ -155,17 +156,10 @@ class ProductsView(ttk.Frame):
             pmasiva   = pc + monto_iva
             pventa    = pmasiva * (1.0 + mg / 100.0)
 
-            # Redondeo a pesos CLP
-            monto_iva = round(monto_iva)
-            pmasiva   = round(pmasiva)
-            pventa    = round(pventa)
-
-            self.var_iva_monto.set(monto_iva)
-            self.var_pmasiva.set(pmasiva)
-            # Sugerimos el pventa calculado (usuario puede editarlo)
-            self.var_pventa.set(pventa)
+            self.var_iva_monto.set(round(monto_iva))
+            self.var_pmasiva.set(round(pmasiva))
+            self.var_pventa.set(round(pventa))
         except Exception:
-            # No detener la UI por errores de tipeo transitorios
             pass
 
     def _on_auto_calc(self, _evt=None):
@@ -180,6 +174,11 @@ class ProductsView(ttk.Frame):
             prod = Product(**data)
             self.session.add(prod)
             self.session.commit()
+
+            # Ahora existe ID -> el recuadro puede aceptar imagen
+            self._current_product = prod
+            self.img_box.set_product(prod.id, on_image_changed=self._on_image_changed)
+
             self._clear_form()
             self._load_table()
             messagebox.showinfo("OK", f"Producto '{data['nombre']}' creado.")
@@ -203,6 +202,7 @@ class ProductsView(ttk.Frame):
             p.precio_compra = data["precio_compra"]
             p.precio_venta = data["precio_venta"]
             p.unidad_medida = data["unidad_medida"]
+            # image_path lo actualiza el callback _on_image_changed
             self.session.commit()
             self._clear_form()
             self._load_table()
@@ -226,74 +226,72 @@ class ProductsView(ttk.Frame):
             messagebox.showerror("Error", f"No se pudo eliminar:\n{e}")
 
     def _on_row_dblclick(self, _event=None):
-        """
-        Carga los datos de la fila seleccionada al formulario.
-        Evita 'try' en una sola línea: usamos bloques multilínea válidos.
-        """
+        """Carga la fila seleccionada al formulario."""
         sel = self.tree.selection()
         if not sel:
             return
 
         vals = self.tree.item(sel[0], "values")
-        # Orden de columnas:
         # 0 id, 1 nombre, 2 codigo, 3 pcompra, 4 iva, 5 iva_monto, 6 pmasiva, 7 margen, 8 pventa, 9 unidad
 
         self._editing_id = int(vals[0])
+        self._current_product = self.repo.get(self._editing_id)
+
         self.var_nombre.set(vals[1])
         self.var_codigo.set(vals[2])
 
         # pcompra
-        try:
-            self.var_pc.set(float(vals[3]))
-        except Exception:
-            self.var_pc.set(0.0)
+        try: self.var_pc.set(float(vals[3]))
+        except Exception: self.var_pc.set(0.0)
 
         # iva %
-        try:
-            self.var_iva.set(float(vals[4]))
-        except Exception:
-            self.var_iva.set(19.0)
+        try: self.var_iva.set(float(vals[4]))
+        except Exception: self.var_iva.set(19.0)
 
         # monto iva
-        try:
-            self.var_iva_monto.set(float(vals[5]))
-        except Exception:
-            self.var_iva_monto.set(0.0)
+        try: self.var_iva_monto.set(float(vals[5]))
+        except Exception: self.var_iva_monto.set(0.0)
 
         # p + iva
-        try:
-            self.var_pmasiva.set(float(vals[6]))
-        except Exception:
-            self.var_pmasiva.set(0.0)
+        try: self.var_pmasiva.set(float(vals[6]))
+        except Exception: self.var_pmasiva.set(0.0)
 
         # margen %
-        try:
-            self.var_margen.set(float(vals[7]))
-        except Exception:
-            self.var_margen.set(30.0)
+        try: self.var_margen.set(float(vals[7]))
+        except Exception: self.var_margen.set(30.0)
 
         # p venta
-        try:
-            self.var_pventa.set(float(vals[8]))
-        except Exception:
-            self.var_pventa.set(0.0)
+        try: self.var_pventa.set(float(vals[8]))
+        except Exception: self.var_pventa.set(0.0)
 
         # unidad
-        try:
-            self.var_unidad.set(vals[9] or "unidad")
-        except Exception:
-            self.var_unidad.set("unidad")
+        try: self.var_unidad.set(vals[9] or "unidad")
+        except Exception: self.var_unidad.set("unidad")
+
+        # Mostrar imagen del producto seleccionado
+        if self._current_product and self._current_product.id:
+            self.img_box.set_product(self._current_product.id, on_image_changed=self._on_image_changed)
+        else:
+            self.img_box.set_product(None)
 
         self.btn_save.config(state="disabled")
         self.btn_update.config(state="normal")
         self.btn_delete.config(state="normal")
 
+    # ---------- Imagen: callback ----------
+    def _on_image_changed(self, new_path: Optional[Path]):
+        """Se dispara al cargar/quitar imagen desde ProductImageBox."""
+        if not self._current_product:
+            return
+        self._current_product.image_path = (str(new_path) if new_path else None)
+        try:
+            self.session.commit()
+        except Exception:
+            self.session.rollback()
+
     # ---------- Utilidades ----------
     def _read_form(self) -> Optional[dict]:
-        """
-        Valida y transforma el formulario a dict para el modelo Product.
-        Nota: stock_actual no se edita aquí.
-        """
+        """Valida y transforma el formulario a dict para Product (sin stock_actual)."""
         try:
             nombre = self.var_nombre.get().strip()
             codigo = self.var_codigo.get().strip()
@@ -311,7 +309,6 @@ class ProductsView(ttk.Frame):
                 messagebox.showwarning("Validación", "Precio de venta debe ser > 0.")
                 return None
 
-            # Guardamos "código" en el campo sku
             return dict(
                 nombre=nombre,
                 sku=codigo,
@@ -325,6 +322,7 @@ class ProductsView(ttk.Frame):
 
     def _clear_form(self):
         self._editing_id = None
+        self._current_product = None
         self.var_nombre.set("")
         self.var_codigo.set("")
         self.var_unidad.set("unidad")
@@ -334,6 +332,7 @@ class ProductsView(ttk.Frame):
         self.var_iva_monto.set(0.0)
         self.var_pmasiva.set(0.0)
         self.var_pventa.set(0.0)
+        self.img_box.set_product(None)  # limpia preview
         self.btn_save.config(state="normal")
         self.btn_update.config(state="disabled")
         self.btn_delete.config(state="disabled")
@@ -341,7 +340,7 @@ class ProductsView(ttk.Frame):
     def _load_table(self):
         """
         Carga los productos y calcula columnas derivadas para mostrar:
-        - IVA %: se usa el valor actual de la UI como referencia (no está en BD).
+        - IVA %: usa el valor actual de la UI como referencia (no está en BD).
         - Monto IVA y P. + IVA se calculan desde precio_compra e IVA actual.
         - Margen % se estima desde precio_venta y P. + IVA (aprox).
         """
@@ -355,9 +354,6 @@ class ProductsView(ttk.Frame):
             pc = float(p.precio_compra)
             iva_monto = round(pc * (iva_ref / 100.0))
             pmasiva = round(pc + iva_monto)
-
-            # margen aproximado: pv = pmasiva * (1 + m/100)
-            # => m = (pv/pmasiva - 1) * 100
             try:
                 pv = float(p.precio_venta)
                 margen = max(0.0, (pv / max(1.0, pmasiva) - 1.0) * 100.0)
@@ -382,5 +378,4 @@ class ProductsView(ttk.Frame):
             )
 
     def refresh_lookups(self):
-        # Nada particular por ahora.
         pass
