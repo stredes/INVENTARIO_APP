@@ -1,6 +1,7 @@
 # scripts/seed_fake_data.py
 from faker import Faker
 import random
+from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
 from src.data.database import get_engine, get_session
@@ -11,6 +12,9 @@ from src.data.models import (
     Customer,
     Purchase,
     PurchaseDetail,
+    # NUEVO: modelos de ventas
+    Sale,
+    SaleDetail,
 )
 
 fake = Faker("es_CL")  # Datos falsos en español de Chile
@@ -80,10 +84,13 @@ def seed_purchases(session: Session, proveedores, productos, n=10):
     for _ in range(n):
         prov = random.choice(proveedores)
         items = random.sample(productos, k=random.randint(1, 4))
-        total = 0
+        total = 0.0
+
         purchase = Purchase(
             id_proveedor=prov.id,
-            total_compra=0,
+            # si tu modelo tiene fecha_compra, puedes poblarla acá:
+            # fecha_compra=fake.date_time_between(start_date="-90d", end_date="now"),
+            total_compra=0.0,
             estado=random.choice(["Pendiente", "Completada"]),
         )
         session.add(purchase)
@@ -91,8 +98,8 @@ def seed_purchases(session: Session, proveedores, productos, n=10):
 
         for prod in items:
             cantidad = random.randint(1, 10)
-            precio = prod.precio_compra
-            subtotal = cantidad * precio
+            precio = float(prod.precio_compra or 0.0)
+            subtotal = round(cantidad * precio, 2)
             total += subtotal
             detail = PurchaseDetail(
                 id_compra=purchase.id,
@@ -103,7 +110,73 @@ def seed_purchases(session: Session, proveedores, productos, n=10):
             )
             session.add(detail)
 
-        purchase.total_compra = total
+        purchase.total_compra = round(total, 2)
+    session.commit()
+
+
+# -------------------------
+# NUEVO: Ventas
+# -------------------------
+def _random_recent_datetime(days_back: int = 90) -> datetime:
+    """Fecha/hora aleatoria en los últimos 'days_back' días."""
+    end = datetime.now()
+    start = end - timedelta(days=days_back)
+    # random datetime between start and end
+    delta = end - start
+    rand_sec = random.randint(0, int(delta.total_seconds()))
+    return start + timedelta(seconds=rand_sec)
+
+
+def seed_sales(session: Session, clientes, productos, n=25):
+    """
+    Crea n ventas con 1..5 ítems cada una.
+    Modelos esperados:
+      - Sale:    id, fecha_venta(datetime), total_venta(float), estado(str), id_cliente(int) (o customer_id)
+      - Detail:  id_venta, id_producto, cantidad, precio_unitario, subtotal
+    Ajusta los nombres si tus modelos difieren.
+    """
+    # Detectar nombre real de FK del cliente (id_cliente vs customer_id)
+    sale_fk_name = "id_cliente"
+    if hasattr(Sale, "customer_id"):
+        sale_fk_name = "customer_id"
+
+    estados = ["Confirmada", "Borrador", "Cancelada"]
+
+    for _ in range(n):
+        cust = random.choice(clientes)
+        items = random.sample(productos, k=random.randint(1, 5))
+        fecha = _random_recent_datetime(120)
+        estado = random.choices(estados, weights=[0.6, 0.25, 0.15], k=1)[0]
+
+        sale = Sale(
+            fecha_venta=fecha,
+            total_venta=0.0,  # se recalcula
+            estado=estado,
+            **{sale_fk_name: cust.id},
+        )
+        session.add(sale)
+        session.flush()  # obtener sale.id
+
+        total = 0.0
+        for prod in items:
+            cantidad = random.randint(1, 8)
+            # Precio de venta base, con un pequeño ajuste aleatorio ±10%
+            base = float(prod.precio_venta or 0.0)
+            price = round(base * random.uniform(0.9, 1.1), 2)
+            subtotal = round(cantidad * price, 2)
+            total += subtotal
+
+            det = SaleDetail(
+                id_venta=sale.id,
+                id_producto=prod.id,
+                cantidad=cantidad,
+                precio_unitario=price,
+                subtotal=subtotal,
+            )
+            session.add(det)
+
+        sale.total_venta = round(total, 2)
+
     session.commit()
 
 
@@ -115,8 +188,10 @@ def main():
     Base.metadata.create_all(engine)
     session = get_session()
 
-    # ⚠️ Limpiar tablas antes de insertar
+    # ⚠️ Limpiar tablas antes de insertar (orden seguro por FKs)
     print("Eliminando datos previos...")
+    session.query(SaleDetail).delete()
+    session.query(Sale).delete()
     session.query(PurchaseDetail).delete()
     session.query(Purchase).delete()
     session.query(Supplier).delete()
@@ -129,7 +204,10 @@ def main():
     proveedores = seed_suppliers(session, 10)
     clientes = seed_customers(session, 15)
     productos = seed_products(session, 20)
+
     seed_purchases(session, proveedores, productos, 10)
+    # NUEVO: sembrar ventas
+    seed_sales(session, clientes, productos, 25)
 
     print("¡Datos falsos insertados con éxito!")
 

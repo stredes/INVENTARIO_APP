@@ -8,7 +8,10 @@ from src.data.models import Product, Supplier
 from src.data.repository import ProductRepository, SupplierRepository
 from src.core import PurchaseManager, PurchaseItem
 from src.utils.po_generator import generate_po_to_downloads
-
+# NUEVO: import del generador de cotización
+from src.utils.quote_generator import generate_quote_to_downloads as generate_quote_downloads
+# NUEVO: widget de autocompletado
+from src.gui.widgets.autocomplete_combobox import AutoCompleteCombobox
 
 IVA_RATE = 0.19  # 19% IVA por defecto
 
@@ -20,6 +23,8 @@ class PurchasesView(ttk.Frame):
     - El Precio Unitario se calcula automático: precio_compra * (1 + IVA)
     - Confirmas compra (puede sumar stock)
     - Generas Orden de Compra (PDF) a Descargas
+    - (Nuevo) Generas Cotización (PDF) a Descargas sin afectar stock
+    - (Nuevo) Autocompletado de productos por ID/nombre/SKU
     """
 
     def __init__(self, master: tk.Misc):
@@ -49,7 +54,9 @@ class PurchasesView(ttk.Frame):
         det.pack(fill="x", expand=False, pady=(8, 0))
 
         ttk.Label(det, text="Producto:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
-        self.cmb_product = ttk.Combobox(det, state="readonly", width=45)
+        # ANTES: self.cmb_product = ttk.Combobox(det, state="readonly", width=45)
+        # AHORA: autocomplete que permite escribir para filtrar
+        self.cmb_product = AutoCompleteCombobox(det, width=45, state="normal")
         self.cmb_product.grid(row=0, column=1, sticky="w", padx=4, pady=4)
         self.cmb_product.bind("<<ComboboxSelected>>", self._on_product_change)
 
@@ -88,8 +95,10 @@ class PurchasesView(ttk.Frame):
         bottom.pack(fill="x", expand=False, pady=10)
         self.lbl_total = ttk.Label(bottom, text="Total: 0.00", font=("", 11, "bold"))
         self.lbl_total.pack(side="left")
+
         ttk.Button(bottom, text="Eliminar ítem", command=self._on_delete_item).pack(side="right", padx=6)
         ttk.Button(bottom, text="Generar OC (PDF en Descargas)", command=self._on_generate_po_downloads).pack(side="right", padx=6)
+        ttk.Button(bottom, text="Generar Cotización (PDF)", command=self._on_generate_quote_downloads).pack(side="right", padx=6)
         ttk.Button(bottom, text="Confirmar compra", command=self._on_confirm_purchase).pack(side="right", padx=6)
 
         self.refresh_lookups()
@@ -102,12 +111,24 @@ class PurchasesView(ttk.Frame):
         if self.suppliers and not self.cmb_supplier.get():
             self.cmb_supplier.current(0)
 
-        # Productos por nombre
+        # Productos por nombre (cargamos dataset para autocomplete)
         self.products = self.session.query(Product).order_by(Product.nombre.asc()).all()
-        self.cmb_product["values"] = [f"{p.id} - {p.nombre} [{p.sku}]" for p in self.products]
-        if self.products and not self.cmb_product.get():
-            self.cmb_product.current(0)
-        # Inicializa precio del primer producto
+
+        def _disp(p: Product) -> str:
+            sku = getattr(p, "sku", "") or ""
+            return f"{p.id} - {p.nombre}" + (f" [{sku}]" if sku else "")
+
+        def _keys(p: Product):
+            # Buscar por ID, nombre, SKU (y alias comunes)
+            return [
+                str(getattr(p, "id", "")),
+                str(getattr(p, "nombre", "") or getattr(p, "name", "")),
+                str(getattr(p, "sku", "") or getattr(p, "codigo", "") or getattr(p, "code", "")),
+            ]
+
+        self.cmb_product.set_dataset(self.products, keyfunc=_disp, searchkeys=_keys)
+
+        # deja vacío para fomentar tipeo; luego, calcula precio según lo que quede seleccionado
         self._update_price_field()
 
     def _display_supplier(self, s: Supplier) -> str:
@@ -123,10 +144,18 @@ class PurchasesView(ttk.Frame):
         return round(base * (1.0 + IVA_RATE), 2)
 
     def _selected_product(self) -> Optional[Product]:
-        idx = self.cmb_product.current()
-        if idx is None or idx < 0:
-            return None
-        return self.products[idx]
+        # Ahora tomamos el objeto real desde el autocomplete
+        it = self.cmb_product.get_selected_item()
+        if it is not None:
+            return it
+        # Fallback por índice visible (si el usuario navegó con flechas)
+        try:
+            idx = self.cmb_product.current()
+        except Exception:
+            idx = -1
+        if idx is not None and 0 <= idx < len(self.products):
+            return self.products[idx]
+        return None
 
     def _selected_supplier(self) -> Optional[Supplier]:
         idx = self.cmb_supplier.current()
@@ -257,10 +286,10 @@ class PurchasesView(ttk.Frame):
             supplier_dict = {
                 "id": str(sup.id),
                 "nombre": getattr(sup, "razon_social", None) or "",  # compat con po_generator
-                "contacto": sup.contacto,
-                "telefono": sup.telefono,
-                "email": sup.email,
-                "direccion": sup.direccion,
+                "contacto": getattr(sup, "contacto", ""),
+                "telefono": getattr(sup, "telefono", ""),
+                "email": getattr(sup, "email", ""),
+                "direccion": getattr(sup, "direccion", ""),
             }
             out = generate_po_to_downloads(
                 po_number=po_number,
@@ -273,6 +302,46 @@ class PurchasesView(ttk.Frame):
             messagebox.showinfo("OC generada", f"Orden de Compra creada en Descargas:\n{out}")
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo generar la OC:\n{e}")
+
+    # NUEVO: handler para generar COTIZACIÓN sin afectar stock
+    def _on_generate_quote_downloads(self):
+        """
+        Genera una 'COTIZACIÓN' en PDF con la info de la tabla,
+        sin guardar la compra ni modificar stock. Guarda en Descargas.
+        """
+        try:
+            sup = self._selected_supplier()
+            if not sup:
+                messagebox.showwarning("Validación", "Seleccione un proveedor.")
+                return
+
+            items = self._collect_items_for_pdf()
+            if not items:
+                messagebox.showwarning("Validación", "Agregue al menos un ítem.")
+                return
+
+            quote_number = f"COT-{sup.id}-{self._stamp()}"
+            supplier_dict = {
+                "id": str(sup.id),
+                "nombre": getattr(sup, "razon_social", "") or "",
+                "contacto": getattr(sup, "contacto", "") or "",
+                "telefono": getattr(sup, "telefono", "") or "",
+                "email": getattr(sup, "email", "") or "",
+                "direccion": getattr(sup, "direccion", "") or "",
+            }
+
+            out = generate_quote_downloads(
+                quote_number=quote_number,
+                supplier=supplier_dict,
+                items=items,
+                currency="CLP",
+                notes=None,
+                auto_open=True,   # abrir automáticamente el PDF
+            )
+            messagebox.showinfo("Cotización generada", f"Cotización creada en Descargas:\n{out}")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo generar la Cotización:\n{e}")
 
     @staticmethod
     def _stamp() -> str:

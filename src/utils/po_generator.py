@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import os
+import json  # <-- nuevo
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
@@ -37,10 +38,30 @@ def _fmt_money(value: float, currency: str) -> str:
     try:
         if currency.upper() == "CLP":
             return f"{value:,.0f}".replace(",", ".")
-        # fallback internacional
         return f"{value:,.2f}"
     except Exception:
         return str(value)
+
+
+def _dump_po_json(path_without_ext: Path, *, po_number: str,
+                  supplier: Dict[str, Optional[str]],
+                  items: List[Dict[str, Any]],
+                  currency: str, notes: Optional[str]) -> str:
+    """
+    Guarda un archivo JSON con los datos de la OC junto al PDF.
+    """
+    payload = {
+        "schema": "po.v1",
+        "po_number": po_number,
+        "supplier": supplier,
+        "items": items,
+        "currency": currency,
+        "notes": notes,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    json_path = path_without_ext.with_suffix(".json")
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return str(json_path)
 
 
 # -----------------------------
@@ -57,7 +78,7 @@ def generate_po_pdf(
 ) -> str:
     """
     Genera un PDF de Orden de Compra en 'output_path'.
-    - supplier: dict con claves: id, nombre, rut, contacto, telefono, email, direccion
+    - supplier: dict con claves: id, nombre/razon social, rut, contacto, telefono, email, direccion
     - items: lista de dicts con claves: id, nombre, cantidad, precio, subtotal
     Retorna la ruta del archivo creado.
     """
@@ -81,9 +102,7 @@ def generate_po_pdf(
     p = ParagraphStyle(name="p", fontName="Helvetica", fontSize=10, leading=13)
     small = ParagraphStyle(name="small", fontName="Helvetica", fontSize=9, leading=12, textColor=colors.grey)
 
-    # --------------------------------
     # Encabezado (logo + empresa + OC)
-    # --------------------------------
     header_table_data = []
 
     # Col 1: Logo (si existe) o nombre empresa en negrita
@@ -128,11 +147,9 @@ def generate_po_pdf(
     story.append(header_table)
     story.append(Spacer(1, 6 * mm))
 
-    # ------------------------------
     # Datos proveedor y fecha actual
-    # ------------------------------
     sup_lines = [
-        f"<b>Proveedor:</b> {supplier.get('nombre','')}",
+        f"<b>Proveedor:</b> {supplier.get('nombre') or supplier.get('razon_social') or ''}",
         f"<b>RUT:</b> {supplier.get('rut','') or '-'}",
         f"<b>Vendedor:</b> {supplier.get('contacto','') or '-'}",
         f"<b>Tel:</b> {supplier.get('telefono','') or '-'}",
@@ -149,17 +166,13 @@ def generate_po_pdf(
     story.append(sup_table)
     story.append(Spacer(1, 4 * mm))
 
-    # ---------------
     # Detalle (tabla)
-    # ---------------
     data = [["ID", "Producto", "Cantidad", f"Precio ({currency})", f"Subtotal ({currency})"]]
     total = 0.0
     for it in items:
         cantidad = float(it.get("cantidad", 0) or 0)
         precio = float(it.get("precio", 0) or 0)
-        # Permitimos que venga un subtotal prefijado; si no, calculamos
         subtotal = float(it.get("subtotal", cantidad * precio) or 0)
-
         data.append([
             str(it.get("id", "") or ""),
             it.get("nombre", "") or "",
@@ -183,11 +196,10 @@ def generate_po_pdf(
     story.append(table)
     story.append(Spacer(1, 4 * mm))
 
-    # ------
     # Total
-    # ------
     total_table = Table([[
-        "", Paragraph("<b>Total:</b>", p), Paragraph(f"<b>{_fmt_money(total, currency)} {currency}</b>", p)
+        "", Paragraph("<b>Total:</b>", p),
+        Paragraph(f"<b>{_fmt_money(total, currency)} {currency}</b>", p)
     ]], colWidths=[128 * mm, 32 * mm, 28 * mm])
     total_table.setStyle(TableStyle([
         ("ALIGN", (-1, 0), (-1, 0), "RIGHT"),
@@ -196,9 +208,7 @@ def generate_po_pdf(
     ]))
     story.append(total_table)
 
-    # ------
     # Notas
-    # ------
     if notes:
         story.append(Spacer(1, 3 * mm))
         story.append(Paragraph("<b>Notas:</b>", p))
@@ -206,9 +216,7 @@ def generate_po_pdf(
             if line.strip():
                 story.append(Paragraph(line.strip(), p))
 
-    # --------
     # Términos
-    # --------
     if terms:
         story.append(Spacer(1, 6 * mm))
         story.append(Paragraph(terms, small))
@@ -228,7 +236,6 @@ def open_file(path: str) -> None:
         else:
             os.system(f"xdg-open '{path}'")
     except Exception:
-        # Silencioso: abrir el archivo es best-effort
         pass
 
 
@@ -240,20 +247,23 @@ def generate_po_to_downloads(
     currency: str = "CLP",
     notes: Optional[str] = None,
     auto_open: bool = True,
+    save_json: bool = True,  # <-- nuevo
 ) -> str:
     """
     Genera la OC en la carpeta Descargas con nombre único y la abre si se pide.
-    Retorna la ruta creada.
+    Además guarda un JSON con los datos (save_json=True).
+    Retorna la ruta del PDF creado.
     """
-    safe_supplier = (supplier.get("nombre") or "Proveedor").strip().replace("/", "-").replace("\\", "-")
+    safe_supplier = (supplier.get("nombre") or supplier.get("razon_social") or "Proveedor").strip().replace("/", "-").replace("\\", "-")
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    filename = f"{po_number}_{safe_supplier}_{ts}.pdf"
+    base_name = f"{po_number}_{safe_supplier}_{ts}"
 
     downloads = get_downloads_dir()
-    out_path = unique_path(downloads, filename)
+    out_pdf = unique_path(downloads, base_name + ".pdf")
 
+    # PDF
     generate_po_pdf(
-        output_path=str(out_path),
+        output_path=str(out_pdf),
         po_number=po_number,
         supplier=supplier,
         items=items,
@@ -261,7 +271,18 @@ def generate_po_to_downloads(
         notes=notes,
     )
 
-    if auto_open:
-        open_file(str(out_path))
+    # JSON (mismo nombre)
+    if save_json:
+        _dump_po_json(
+            out_pdf.with_suffix(""),
+            po_number=po_number,
+            supplier=supplier,
+            items=items,
+            currency=currency,
+            notes=notes,
+        )
 
-    return str(out_path)
+    if auto_open:
+        open_file(str(out_pdf))
+
+    return str(out_pdf)
