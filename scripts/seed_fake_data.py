@@ -15,6 +15,9 @@ from src.data.models import (
     # NUEVO: modelos de ventas
     Sale,
     SaleDetail,
+    # NUEVO: movimientos de stock (para limpieza segura)
+    StockEntry,
+    StockExit,
 )
 
 fake = Faker("es_CL")  # Datos falsos en español de Chile
@@ -23,7 +26,8 @@ fake = Faker("es_CL")  # Datos falsos en español de Chile
 # -------------------------
 # SEED FUNCTIONS
 # -------------------------
-def seed_suppliers(session: Session, n=10):
+def seed_suppliers(session: Session, n: int = 10):
+    """Crea n proveedores."""
     proveedores = []
     for _ in range(n):
         prov = Supplier(
@@ -40,7 +44,8 @@ def seed_suppliers(session: Session, n=10):
     return proveedores
 
 
-def seed_customers(session: Session, n=15):
+def seed_customers(session: Session, n: int = 15):
+    """Crea n clientes."""
     clientes = []
     for _ in range(n):
         cli = Customer(
@@ -57,14 +62,23 @@ def seed_customers(session: Session, n=15):
     return clientes
 
 
-def seed_products(session: Session, n=20):
+def seed_products(session: Session, proveedores, n: int = 20):
+    """
+    Crea n productos y asigna **un proveedor** a cada uno (regla nueva).
+    Calcula precio_venta como (precio_compra * 1.19) * margen.
+    """
+    if not proveedores:
+        raise ValueError("No hay proveedores para asignar a los productos.")
+
     productos = []
     for _ in range(n):
-        pc = round(random.uniform(500, 5000), 2)
+        pc = round(random.uniform(500, 5000), 2)  # precio compra (neto)
         iva = pc * 0.19
         precio_con_iva = pc + iva
         margen = 1.3
         pv = round(precio_con_iva * margen, 2)
+
+        prov = random.choice(proveedores)
 
         prod = Product(
             nombre=fake.word().capitalize(),
@@ -73,6 +87,7 @@ def seed_products(session: Session, n=20):
             precio_venta=pv,
             stock_actual=random.randint(0, 200),
             unidad_medida=random.choice(["unidad", "caja", "kg", "lt"]),
+            id_proveedor=prov.id,  # **CLAVE**: vínculo a proveedor
         )
         session.add(prod)
         productos.append(prod)
@@ -80,15 +95,26 @@ def seed_products(session: Session, n=20):
     return productos
 
 
-def seed_purchases(session: Session, proveedores, productos, n=10):
+def seed_purchases(session: Session, proveedores, productos, n: int = 10):
+    """
+    Crea n compras. Para cada compra selecciona un proveedor y
+    **solo productos de ese proveedor**. El precio_unitario se guarda **con IVA**.
+    """
     for _ in range(n):
         prov = random.choice(proveedores)
-        items = random.sample(productos, k=random.randint(1, 4))
+
+        # Filtrar productos del proveedor elegido
+        productos_del_prov = [p for p in productos if getattr(p, "id_proveedor", None) == prov.id]
+        if not productos_del_prov:
+            # Si este proveedor no tiene productos, saltamos esta iteración
+            continue
+
+        items = random.sample(productos_del_prov, k=min(len(productos_del_prov), random.randint(1, 4)))
         total = 0.0
 
         purchase = Purchase(
             id_proveedor=prov.id,
-            # si tu modelo tiene fecha_compra, puedes poblarla acá:
+            # puedes activar fecha_compra si tu modelo lo tiene:
             # fecha_compra=fake.date_time_between(start_date="-90d", end_date="now"),
             total_compra=0.0,
             estado=random.choice(["Pendiente", "Completada"]),
@@ -98,14 +124,14 @@ def seed_purchases(session: Session, proveedores, productos, n=10):
 
         for prod in items:
             cantidad = random.randint(1, 10)
-            precio = float(prod.precio_compra or 0.0)
-            subtotal = round(cantidad * precio, 2)
+            precio_con_iva = round(float(prod.precio_compra or 0.0) * 1.19, 2)
+            subtotal = round(cantidad * precio_con_iva, 2)
             total += subtotal
             detail = PurchaseDetail(
                 id_compra=purchase.id,
                 id_producto=prod.id,
                 cantidad=cantidad,
-                precio_unitario=precio,
+                precio_unitario=precio_con_iva,  # **con IVA**
                 subtotal=subtotal,
             )
             session.add(detail)
@@ -121,19 +147,17 @@ def _random_recent_datetime(days_back: int = 90) -> datetime:
     """Fecha/hora aleatoria en los últimos 'days_back' días."""
     end = datetime.now()
     start = end - timedelta(days=days_back)
-    # random datetime between start and end
     delta = end - start
     rand_sec = random.randint(0, int(delta.total_seconds()))
     return start + timedelta(seconds=rand_sec)
 
 
-def seed_sales(session: Session, clientes, productos, n=25):
+def seed_sales(session: Session, clientes, productos, n: int = 25):
     """
     Crea n ventas con 1..5 ítems cada una.
     Modelos esperados:
       - Sale:    id, fecha_venta(datetime), total_venta(float), estado(str), id_cliente(int) (o customer_id)
       - Detail:  id_venta, id_producto, cantidad, precio_unitario, subtotal
-    Ajusta los nombres si tus modelos difieren.
     """
     # Detectar nombre real de FK del cliente (id_cliente vs customer_id)
     sale_fk_name = "id_cliente"
@@ -190,20 +214,24 @@ def main():
 
     # ⚠️ Limpiar tablas antes de insertar (orden seguro por FKs)
     print("Eliminando datos previos...")
+    # Primero detalles/históricos que dependen de productos/compras/ventas
     session.query(SaleDetail).delete()
     session.query(Sale).delete()
     session.query(PurchaseDetail).delete()
     session.query(Purchase).delete()
+    session.query(StockEntry).delete()
+    session.query(StockExit).delete()
+    # Luego entidades hijas antes que padres (Producto antes que Proveedor)
+    session.query(Product).delete()
     session.query(Supplier).delete()
     session.query(Customer).delete()
-    session.query(Product).delete()
     session.commit()
 
     # Insertar nuevos datos
     print("Generando datos falsos...")
     proveedores = seed_suppliers(session, 10)
     clientes = seed_customers(session, 15)
-    productos = seed_products(session, 20)
+    productos = seed_products(session, proveedores, 20)
 
     seed_purchases(session, proveedores, productos, 10)
     # NUEVO: sembrar ventas

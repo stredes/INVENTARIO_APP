@@ -19,12 +19,13 @@ IVA_RATE = 0.19  # 19% IVA por defecto
 class PurchasesView(ttk.Frame):
     """
     Módulo de Compras:
-    - Seleccionas Proveedor y Productos
+    - Seleccionas Proveedor y Productos (AHORA: productos filtrados por proveedor)
     - El Precio Unitario se calcula automático: precio_compra * (1 + IVA)
     - Confirmas compra (puede sumar stock)
     - Generas Orden de Compra (PDF) a Descargas
     - (Nuevo) Generas Cotización (PDF) a Descargas sin afectar stock
     - (Nuevo) Autocompletado de productos por ID/nombre/SKU
+    - (Nuevo) Validación: NO se permiten productos de proveedor distinto al seleccionado.
     """
 
     def __init__(self, master: tk.Misc):
@@ -35,7 +36,7 @@ class PurchasesView(ttk.Frame):
         self.repo_prod = ProductRepository(self.session)
         self.repo_supp = SupplierRepository(self.session)
 
-        self.products: List[Product] = []
+        self.products: List[Product] = []   # dataset actual (filtrado por proveedor)
         self.suppliers: List[Supplier] = []
 
         # ---------- Encabezado ----------
@@ -45,6 +46,8 @@ class PurchasesView(ttk.Frame):
         ttk.Label(head, text="Proveedor:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
         self.cmb_supplier = ttk.Combobox(head, state="readonly", width=50)
         self.cmb_supplier.grid(row=0, column=1, sticky="w", padx=4, pady=4)
+        # Al cambiar proveedor, se filtra el dataset de productos
+        self.cmb_supplier.bind("<<ComboboxSelected>>", self._on_supplier_selected)
 
         self.var_apply = tk.BooleanVar(value=True)
         ttk.Checkbutton(head, text="Sumar stock (Completada)", variable=self.var_apply).grid(row=0, column=2, padx=10)
@@ -54,7 +57,7 @@ class PurchasesView(ttk.Frame):
         det.pack(fill="x", expand=False, pady=(8, 0))
 
         ttk.Label(det, text="Producto:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
-        # ANTES: self.cmb_product = ttk.Combobox(det, state="readonly", width=45)
+        # ANTES: ttk.Combobox
         # AHORA: autocomplete que permite escribir para filtrar
         self.cmb_product = AutoCompleteCombobox(det, width=45, state="normal")
         self.cmb_product.grid(row=0, column=1, sticky="w", padx=4, pady=4)
@@ -101,19 +104,32 @@ class PurchasesView(ttk.Frame):
         ttk.Button(bottom, text="Generar Cotización (PDF)", command=self._on_generate_quote_downloads).pack(side="right", padx=6)
         ttk.Button(bottom, text="Confirmar compra", command=self._on_confirm_purchase).pack(side="right", padx=6)
 
+        # Inicializa proveedores y dataset de productos (filtrado)
         self.refresh_lookups()
 
     # ======================== Lookups ========================
     def refresh_lookups(self):
-        # Proveedores por razón social (rut — razón social)
+        """Carga proveedores; selecciona uno por defecto y filtra productos."""
+        # Proveedores por razón social
         self.suppliers = self.session.query(Supplier).order_by(Supplier.razon_social.asc()).all()
         self.cmb_supplier["values"] = [self._display_supplier(s) for s in self.suppliers]
         if self.suppliers and not self.cmb_supplier.get():
             self.cmb_supplier.current(0)
 
-        # Productos por nombre (cargamos dataset para autocomplete)
-        self.products = self.session.query(Product).order_by(Product.nombre.asc()).all()
+        # Cargar dataset de productos según proveedor seleccionado
+        self._on_supplier_selected()
 
+    def _on_supplier_selected(self, _evt=None):
+        """Cuando cambia el proveedor, filtra el dataset de productos y limpia selección."""
+        sup = self._selected_supplier()
+        if sup:
+            # Solo productos del proveedor seleccionado
+            self.products = self.repo_prod.get_by_supplier(sup.id)
+        else:
+            # Fallback: todos (no recomendado, pero evita dejar vacío)
+            self.products = self.session.query(Product).order_by(Product.nombre.asc()).all()
+
+        # Configurar dataset del autocompletado
         def _disp(p: Product) -> str:
             sku = getattr(p, "sku", "") or ""
             return f"{p.id} - {p.nombre}" + (f" [{sku}]" if sku else "")
@@ -127,8 +143,7 @@ class PurchasesView(ttk.Frame):
             ]
 
         self.cmb_product.set_dataset(self.products, keyfunc=_disp, searchkeys=_keys)
-
-        # deja vacío para fomentar tipeo; luego, calcula precio según lo que quede seleccionado
+        self.cmb_product.set("")  # limpiar selección visible
         self._update_price_field()
 
     def _display_supplier(self, s: Supplier) -> str:
@@ -144,7 +159,7 @@ class PurchasesView(ttk.Frame):
         return round(base * (1.0 + IVA_RATE), 2)
 
     def _selected_product(self) -> Optional[Product]:
-        # Ahora tomamos el objeto real desde el autocomplete
+        # Primero intentamos tomar el objeto real desde el autocomplete
         it = self.cmb_product.get_selected_item()
         if it is not None:
             return it
@@ -173,10 +188,24 @@ class PurchasesView(ttk.Frame):
 
     # ======================== Ítems ========================
     def _on_add_item(self):
+        """Agrega un ítem validando que el producto pertenezca al proveedor seleccionado."""
         try:
+            sup = self._selected_supplier()
+            if not sup:
+                messagebox.showwarning("Validación", "Seleccione un proveedor.")
+                return
+
             p = self._selected_product()
             if not p:
                 messagebox.showwarning("Validación", "Seleccione un producto.")
+                return
+
+            # VALIDACIÓN CLAVE: el producto debe pertenecer al proveedor de la compra
+            if getattr(p, "id_proveedor", None) != sup.id:
+                messagebox.showerror(
+                    "Proveedor incorrecto",
+                    "El producto seleccionado no corresponde al proveedor de la compra."
+                )
                 return
 
             try:
@@ -245,6 +274,7 @@ class PurchasesView(ttk.Frame):
 
     # ======================== Acciones ========================
     def _on_confirm_purchase(self):
+        """Confirma compra usando PurchaseManager (que también valida coherencia)."""
         try:
             sup = self._selected_supplier()
             if not sup:
@@ -254,6 +284,17 @@ class PurchasesView(ttk.Frame):
             if not items:
                 messagebox.showwarning("Validación", "Agregue al menos un ítem.")
                 return
+
+            # Validación extra en UI: por si editaron manualmente la tabla
+            # (la capa core también valida, pero esto mejora la UX)
+            for it in items:
+                p: Optional[Product] = self.session.get(Product, it.product_id)
+                if not p or getattr(p, "id_proveedor", None) != sup.id:
+                    messagebox.showerror(
+                        "Proveedor incorrecto",
+                        f"El producto id={it.product_id} no corresponde al proveedor seleccionado."
+                    )
+                    return
 
             self.pm.create_purchase(
                 supplier_id=sup.id,
@@ -266,7 +307,7 @@ class PurchasesView(ttk.Frame):
             for iid in list(self.tree.get_children()):
                 self.tree.delete(iid)
             self._update_total()
-
+            self.cmb_product.set("")  # limpiar selección de producto tras confirmar
             messagebox.showinfo("OK", "Compra registrada correctamente.")
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo confirmar la compra:\n{e}")

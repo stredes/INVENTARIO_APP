@@ -5,8 +5,8 @@ from typing import List, Optional
 from pathlib import Path
 
 from src.data.database import get_session
-from src.data.models import Product
-from src.data.repository import ProductRepository
+from src.data.models import Product, Supplier
+from src.data.repository import ProductRepository, SupplierRepository
 from src.gui.widgets.product_image_box import ProductImageBox  # <-- recuadro imagen
 
 
@@ -17,14 +17,17 @@ class ProductsView(ttk.Frame):
     - Código (SKU)
     - Precio Compra (neto), IVA %, %Ganancia -> calculados (IVA, P+IVA)
     - Precio Venta (editable)
+    - **NUEVO**: Proveedor (obligatorio) vía Combobox
     """
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
         self.session = get_session()
         self.repo = ProductRepository(self.session)
+        self.repo_sup = SupplierRepository(self.session)
 
         self._editing_id: Optional[int] = None
         self._current_product: Optional[Product] = None
+        self._suppliers: List[Supplier] = []  # cache de proveedores para Combobox
 
         # ---------- Estado (variables UI) ----------
         self.var_nombre = tk.StringVar()
@@ -44,7 +47,8 @@ class ProductsView(ttk.Frame):
 
         # Panel izquierda: IMAGEN
         left = ttk.Frame(frm)
-        left.grid(row=0, column=0, rowspan=6, sticky="nw", padx=(0, 12))
+        # aumentamos rowspan para abarcar nueva fila de Proveedor
+        left.grid(row=0, column=0, rowspan=7, sticky="nw", padx=(0, 12))
         self.img_box = ProductImageBox(left, width=180, height=180)
         self.img_box.grid(row=0, column=0, sticky="nw")
 
@@ -95,9 +99,14 @@ class ProductsView(ttk.Frame):
         ent_pventa = ttk.Entry(right, textvariable=self.var_pventa, width=12)
         ent_pventa.grid(row=4, column=1, sticky="w", padx=4, pady=4)
 
+        # Fila 5: **Proveedor**
+        ttk.Label(right, text="Proveedor:").grid(row=5, column=0, sticky="e", padx=4, pady=4)
+        self.cmb_supplier = ttk.Combobox(right, state="readonly", width=35)
+        self.cmb_supplier.grid(row=5, column=1, columnspan=3, sticky="we", padx=4, pady=4)
+
         # Botones
         btns = ttk.Frame(right)
-        btns.grid(row=5, column=0, columnspan=4, pady=8, sticky="w")
+        btns.grid(row=6, column=0, columnspan=4, pady=8, sticky="w")
 
         self.btn_save = ttk.Button(btns, text="Agregar", command=self._on_add)
         self.btn_update = ttk.Button(btns, text="Guardar cambios", command=self._on_update, state="disabled")
@@ -141,6 +150,8 @@ class ProductsView(ttk.Frame):
         sp_margen.bind("<<Increment>>", self._on_auto_calc)
         sp_margen.bind("<<Decrement>>", self._on_auto_calc)
 
+        # Datos iniciales
+        self.refresh_lookups()   # carga proveedores en el combo
         self._load_table()
         self._recalc_prices()
 
@@ -202,6 +213,7 @@ class ProductsView(ttk.Frame):
             p.precio_compra = data["precio_compra"]
             p.precio_venta = data["precio_venta"]
             p.unidad_medida = data["unidad_medida"]
+            p.id_proveedor = data["id_proveedor"]  # **NUEVO**: guardar proveedor
             # image_path lo actualiza el callback _on_image_changed
             self.session.commit()
             self._clear_form()
@@ -244,7 +256,7 @@ class ProductsView(ttk.Frame):
         try: self.var_pc.set(float(vals[3]))
         except Exception: self.var_pc.set(0.0)
 
-        # iva %
+        # iva % (UI ref)
         try: self.var_iva.set(float(vals[4]))
         except Exception: self.var_iva.set(19.0)
 
@@ -273,6 +285,9 @@ class ProductsView(ttk.Frame):
             self.img_box.set_product(self._current_product.id, on_image_changed=self._on_image_changed)
         else:
             self.img_box.set_product(None)
+
+        # Seleccionar proveedor actual del producto
+        self._select_supplier_for_current_product()
 
         self.btn_save.config(state="disabled")
         self.btn_update.config(state="normal")
@@ -309,12 +324,20 @@ class ProductsView(ttk.Frame):
                 messagebox.showwarning("Validación", "Precio de venta debe ser > 0.")
                 return None
 
+            # Proveedor obligatorio
+            idx = self.cmb_supplier.current()
+            if idx is None or idx < 0 or idx >= len(self._suppliers):
+                messagebox.showwarning("Validación", "Seleccione un proveedor.")
+                return None
+            proveedor = self._suppliers[idx]
+
             return dict(
                 nombre=nombre,
                 sku=codigo,
                 precio_compra=pc,
                 precio_venta=pventa,     # persistimos venta final (con IVA y margen)
                 unidad_medida=unidad,
+                id_proveedor=proveedor.id,  # **NUEVO**: vínculo a proveedor
             )
         except ValueError:
             messagebox.showwarning("Validación", "Revisa números (PC/IVA/Margen/Precios).")
@@ -336,6 +359,11 @@ class ProductsView(ttk.Frame):
         self.btn_save.config(state="normal")
         self.btn_update.config(state="disabled")
         self.btn_delete.config(state="disabled")
+        # limpiar selección de proveedor (si hay dataset cargado)
+        try:
+            self.cmb_supplier.set("")
+        except Exception:
+            pass
 
     def _load_table(self):
         """
@@ -378,4 +406,31 @@ class ProductsView(ttk.Frame):
             )
 
     def refresh_lookups(self):
-        pass
+        """Carga proveedores al combobox."""
+        self._suppliers = self.session.query(Supplier).order_by(Supplier.razon_social.asc()).all()
+        def _disp(s: Supplier) -> str:
+            rut = (s.rut or "").strip()
+            rs = (s.razon_social or "").strip()
+            return f"{rs} — {rut}" if rut else rs
+        self.cmb_supplier["values"] = [_disp(s) for s in self._suppliers]
+        # No autoseleccionamos para obligar selección explícita en 'Agregar'
+
+    # ---------- helpers ----------
+    def _select_supplier_for_current_product(self):
+        """Selecciona en el combo el proveedor del producto cargado (si existe)."""
+        try:
+            if not self._current_product:
+                self.cmb_supplier.set("")
+                return
+            pid = getattr(self._current_product, "id_proveedor", None)
+            if pid is None:
+                self.cmb_supplier.set("")
+                return
+            idx = next((i for i, s in enumerate(self._suppliers) if s.id == pid), -1)
+            if idx >= 0:
+                self.cmb_supplier.current(idx)
+            else:
+                # Si el proveedor del producto no está en la lista (fue borrado), limpiamos.
+                self.cmb_supplier.set("")
+        except Exception:
+            self.cmb_supplier.set("")

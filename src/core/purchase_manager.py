@@ -25,6 +25,7 @@ class PurchaseItem:
     """
     Ítem de compra para crear Purchase + PurchaseDetails.
     Se usa en la GUI para armar el carrito/detalle antes de confirmar.
+    El precio_unitario VIENE CON IVA incluido.
     """
     product_id: int
     cantidad: int
@@ -39,7 +40,10 @@ class PurchaseManager:
     """
     Orquesta la creación, cancelación y eliminación de compras,
     y el impacto de movimientos de stock.
+    Reglas de negocio:
+    - Cada ítem DEBE pertenecer al mismo proveedor de la compra.
     """
+
     def __init__(self, session: Optional[Session] = None) -> None:
         self.session: Session = session or get_session()
         self.purchases = PurchaseRepository(self.session)
@@ -76,6 +80,21 @@ class PurchaseManager:
                 raise PurchaseError(f"Producto id={it.product_id} no existe")
         return items
 
+    def _validate_items_belong_to_supplier(self, items: Iterable[PurchaseItem], supplier_id: int) -> None:
+        """
+        Verifica que CADA producto de los ítems pertenezca al proveedor de la compra.
+        """
+        for it in items:
+            prod: Optional[Product] = self.products.get(it.product_id)
+            if not prod:
+                # Por si se llama sin pasar por _validate_items
+                raise PurchaseError(f"Producto id={it.product_id} no existe")
+            if getattr(prod, "id_proveedor", None) != supplier_id:
+                raise PurchaseError(
+                    f"El producto '{getattr(prod, 'nombre', '')}' (id={it.product_id}) "
+                    f"no corresponde al proveedor id={supplier_id}"
+                )
+
     # -----------------------------
     # API pública
     # -----------------------------
@@ -91,10 +110,16 @@ class PurchaseManager:
         """
         Crea Purchase + PurchaseDetails. Si estado='Completada' y apply_to_stock=True,
         registra ENTRADAS de stock y actualiza Product.stock_actual.
+        Reglas:
+          - Proveedor debe existir.
+          - Ítems válidos (cantidad/precio > 0 y productos existentes).
+          - Todos los productos deben pertenecer al proveedor.
         """
         fecha = fecha or datetime.utcnow()
         self._validate_supplier(supplier_id)
         items = self._validate_items(items)
+        self._validate_items_belong_to_supplier(items, supplier_id)
+
         total = sum(it.subtotal for it in items)
 
         try:
@@ -114,7 +139,7 @@ class PurchaseManager:
                     id_compra=pur.id,
                     id_producto=it.product_id,
                     cantidad=it.cantidad,
-                    precio_unitario=it.precio_unitario,
+                    precio_unitario=it.precio_unitario,  # con IVA
                     subtotal=it.subtotal,
                 )
                 self.details.add(det)

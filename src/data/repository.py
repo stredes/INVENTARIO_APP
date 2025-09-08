@@ -8,7 +8,7 @@ from .models import (
     Base,
     Product,
     Supplier,
-    SupplierProduct,
+    SupplierProduct,  # LEGACY: mantener import para compatibilidad
     Purchase,
     PurchaseDetail,
     StockEntry,
@@ -22,27 +22,32 @@ T = TypeVar("T", bound=Base)
 
 
 class BaseRepository(Generic[T]):
-    """Repositorio base con CRUD simple."""
+    """Repositorio base con CRUD simple y helpers comunes."""
     def __init__(self, session: Session, model: Type[T]) -> None:
         self.session = session
         self.model = model
 
     def add(self, obj: T) -> T:
+        """Agrega el objeto al Session (no hace commit)."""
         self.session.add(obj)
         return obj
 
     def get(self, id_: int) -> Optional[T]:
+        """Obtiene por PK (o None si no existe)."""
         return self.session.get(self.model, id_)
 
     def list(self) -> List[T]:
+        """Lista todos los registros del modelo."""
         return list(self.session.query(self.model).all())
 
     def delete(self, id_: int) -> None:
+        """Elimina por PK si existe (no hace commit)."""
         obj = self.get(id_)
         if obj:
             self.session.delete(obj)
 
     def query(self):
+        """Devuelve un Query del modelo (para usos avanzados)."""
         return self.session.query(self.model)
 
 
@@ -66,6 +71,7 @@ class ProductRepository(BaseRepository[Product]):
         )
 
     def exists_sku(self, sku: str) -> bool:
+        """True si existe un producto con ese SKU (case-insensitive)."""
         return self.get_by_sku(sku) is not None
 
     def upsert_by_sku(self, sku: str, **fields) -> Product:
@@ -85,20 +91,41 @@ class ProductRepository(BaseRepository[Product]):
         self.session.flush()  # asegura p.id
         return p
 
+    def get_by_supplier(self, supplier_id: int) -> List[Product]:
+        """
+        Devuelve todos los productos del proveedor dado, ordenados por nombre.
+        Útil para filtrar en el módulo de Compras.
+        """
+        return (
+            self.session.query(Product)
+            .filter(Product.id_proveedor == supplier_id)
+            .order_by(Product.nombre.asc())
+            .all()
+        )
+
 
 # ---------------------------
-# Suppliers / SupplierProduct
+# Suppliers (proveedores)
 # ---------------------------
 class SupplierRepository(BaseRepository[Supplier]):
     def __init__(self, session: Session) -> None:
         super().__init__(session, Supplier)
 
 
+# ---------------------------
+# SupplierProduct (LEGACY)
+# ---------------------------
 class SupplierProductRepository(BaseRepository[SupplierProduct]):
+    """
+    LEGACY: Antes se usaba relación M:N producto↔proveedor con precio.
+    En el nuevo flujo (producto con proveedor único), este repo no debe usarse.
+    Se mantiene temporalmente por compatibilidad hasta eliminar la tabla.
+    """
     def __init__(self, session: Session) -> None:
         super().__init__(session, SupplierProduct)
 
     def link_supplier_product(self, supplier_id: int, product_id: int, precio: float) -> SupplierProduct:
+        """Crea un vínculo (LEGACY). Evitar en el flujo nuevo."""
         link = SupplierProduct(
             id_proveedor=supplier_id,
             id_producto=product_id,

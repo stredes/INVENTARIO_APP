@@ -32,7 +32,7 @@ class Supplier(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
-    # Antes 'nombre'
+    # Razón social del proveedor (obligatoria)
     razon_social: Mapped[str] = mapped_column(String, nullable=False)
 
     # RUT de la empresa (único)
@@ -43,8 +43,10 @@ class Supplier(Base):
     email: Mapped[Optional[str]] = mapped_column(String)
     direccion: Mapped[Optional[str]] = mapped_column(String)
 
-    products: Mapped[List["SupplierProduct"]] = relationship(
-        back_populates="supplier", cascade="all, delete-orphan"
+    # NUEVO: relación 1→N directa a productos (cada producto tiene 1 proveedor)
+    products: Mapped[List["Product"]] = relationship(
+        back_populates="supplier",
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:
@@ -65,17 +67,26 @@ class Product(Base):
     stock_actual: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     unidad_medida: Mapped[Optional[str]] = mapped_column(String)
 
-    # NUEVO: ruta (absoluta o relativa) a la imagen principal del producto
+    # Ruta (absoluta o relativa) a la imagen principal del producto
     image_path: Mapped[Optional[str]] = mapped_column(String)
 
+    # NUEVO: FK al proveedor (regla de negocio: obligatorio a nivel de app)
+    id_proveedor: Mapped[int] = mapped_column(ForeignKey("suppliers.id"))
+    supplier: Mapped["Supplier"] = relationship(back_populates="products")
+
     def __repr__(self) -> str:
-        return f"<Product sku={self.sku} nombre={self.nombre}>"
+        return f"<Product id={self.id} sku={self.sku} nombre={self.nombre} prov={self.id_proveedor}>"
 
 
 # ====================================================
-# PRODUCTOS DE PROVEEDORES (PRECIOS ASOCIADOS)
+# PRODUCTOS DE PROVEEDORES (LEGACY - ya no se usa para el flujo nuevo)
 # ====================================================
 class SupplierProduct(Base):
+    """
+    LEGACY: Antes existía relación M:N producto↔proveedor con precio específico.
+    Con proveedor único por producto, esta tabla queda obsoleta y debería
+    eliminarse cuando completes la migración de datos.
+    """
     __tablename__ = "supplier_products"
     __table_args__ = (
         UniqueConstraint("id_proveedor", "id_producto", name="uq_supplier_product"),
@@ -86,7 +97,8 @@ class SupplierProduct(Base):
     id_producto: Mapped[int] = mapped_column(ForeignKey("products.id"), nullable=False)
     precio_proveedor: Mapped[float] = mapped_column(Float, nullable=False)
 
-    supplier: Mapped["Supplier"] = relationship(back_populates="products")
+    # Sin back_populates para no interferir con la relación directa nueva
+    supplier: Mapped["Supplier"] = relationship()
     product: Mapped["Product"] = relationship()
 
     def __repr__(self) -> str:
@@ -128,7 +140,7 @@ class PurchaseDetail(Base):
     product: Mapped["Product"] = relationship()
 
     def __repr__(self) -> str:
-        return f"<PurchaseDetail compra={	self.id_compra} prod={self.id_producto} cant={self.cantidad}>"
+        return f"<PurchaseDetail compra={self.id_compra} prod={self.id_producto} cant={self.cantidad}>"
 
 
 # ====================================================
@@ -172,7 +184,7 @@ class Customer(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
-    # Antes 'nombre'
+    # Razón social del cliente
     razon_social: Mapped[str] = mapped_column(String, nullable=False)
 
     # RUT (único)
