@@ -8,12 +8,9 @@ from src.data.models import Product, Customer
 from src.data.repository import ProductRepository, CustomerRepository
 from src.core import SalesManager, SaleItem
 from src.utils.so_generator import generate_so_to_downloads
-# Autocomplete reutilizable
 from src.gui.widgets.autocomplete_combobox import AutoCompleteCombobox
-# Generador PDF del informe
 from src.reports.sales_report_pdf import generate_sales_report_to_downloads
 from sqlalchemy import and_
-
 
 class SalesView(ttk.Frame):
     """
@@ -24,7 +21,6 @@ class SalesView(ttk.Frame):
     Informe de Ventas con filtros + exportación CSV/PDF a Descargas.
     """
 
-    # Cambiado: solo estos estados
     ESTADOS = ["Pagada", "Reservada", "Cancelada"]
 
     def __init__(self, master: tk.Misc):
@@ -55,7 +51,6 @@ class SalesView(ttk.Frame):
         det.pack(fill="x", expand=False, pady=(10, 0))
 
         ttk.Label(det, text="Producto:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
-        # Autocompletado que permite escribir y filtrar por ID/Nombre/SKU
         self.cmb_product = AutoCompleteCombobox(det, width=45, state="normal")
         self.cmb_product.grid(row=0, column=1, sticky="w", padx=4, pady=4)
         self.cmb_product.bind("<<ComboboxSelected>>", self._on_product_change)
@@ -97,13 +92,14 @@ class SalesView(ttk.Frame):
         self.lbl_total = ttk.Label(bottom, text="Total: 0.00", font=("", 11, "bold"))
         self.lbl_total.pack(side="left")
 
-        # Selector de estado
         ttk.Label(bottom, text="Estado:").pack(side="right", padx=(6, 2))
         self.cmb_estado = ttk.Combobox(bottom, state="readonly", width=12, values=self.ESTADOS)
-        self.cmb_estado.current(0)  # Pagada
+        self.cmb_estado.current(0)
         self.cmb_estado.pack(side="right")
 
         ttk.Button(bottom, text="Eliminar ítem", command=self._on_delete_item)\
+            .pack(side="right", padx=6)
+        ttk.Button(bottom, text="Limpiar tabla", command=self._on_clear_table)\
             .pack(side="right", padx=6)
         ttk.Button(bottom, text="Generar OV (PDF en Descargas)", command=self._on_generate_so_downloads)\
             .pack(side="right", padx=6)
@@ -147,7 +143,7 @@ class SalesView(ttk.Frame):
             values=("", "Pagada", "Reservada", "Cancelada")
         )
         self.flt_estado.grid(row=2, column=1, sticky="w", padx=4, pady=4)
-        self.flt_estado.set("")  # vacío = todos
+        self.flt_estado.set("")
 
         ttk.Label(rep, text="Total ≥").grid(row=2, column=2, sticky="e", padx=4, pady=4)
         self.flt_total_min = ttk.Entry(rep, width=12)
@@ -160,19 +156,17 @@ class SalesView(ttk.Frame):
         ttk.Button(rep, text="Generar Informe", command=self._on_generate_sales_report)\
             .grid(row=0, column=4, columnspan=2, sticky="w", padx=8, pady=4)
 
-        # Cargar datasets en combos (incluidos filtros)
         self.refresh_lookups()
 
     # -------------------- Lookups --------------------
     def refresh_lookups(self):
-        # Clientes por razón social
+        """Carga clientes y productos en los combos y autocompletados."""
         self.customers = self.session.query(Customer)\
             .order_by(Customer.razon_social.asc()).all()
         self.cmb_customer["values"] = [self._display_customer(c) for c in self.customers]
         if self.customers and not self.cmb_customer.get():
             self.cmb_customer.current(0)
 
-        # Productos por nombre (dataset para autocompletar)
         self.products = self.session.query(Product).order_by(Product.nombre.asc()).all()
 
         def _disp(p: Product) -> str:
@@ -180,7 +174,6 @@ class SalesView(ttk.Frame):
             return f"{p.id} - {p.nombre}" + (f" [{sku}]" if sku else "")
 
         def _keys(p: Product):
-            # Buscar por ID, nombre, SKU (y alias comunes)
             return [
                 str(getattr(p, "id", "")),
                 str(getattr(p, "nombre", "") or getattr(p, "name", "")),
@@ -189,7 +182,6 @@ class SalesView(ttk.Frame):
 
         self.cmb_product.set_dataset(self.products, keyfunc=_disp, searchkeys=_keys)
 
-        # ==== Dataset para filtros (autocomplete de informe) ====
         if hasattr(self, "flt_customer"):
             def _c_disp(c: Customer) -> str:
                 rut = getattr(c, "rut", "") or ""
@@ -210,7 +202,6 @@ class SalesView(ttk.Frame):
         if hasattr(self, "flt_product"):
             self.flt_product.set_dataset(self.products, keyfunc=_disp, searchkeys=_keys)
 
-        # Prellenar precio si hubiese ya una selección exacta (opcional)
         self._fill_price_from_selected_product()
 
     def _display_customer(self, c: Customer) -> str:
@@ -228,11 +219,9 @@ class SalesView(ttk.Frame):
 
     # -------------------- Selección de producto --------------------
     def _selected_product(self) -> Optional[Product]:
-        """Devuelve el objeto Product actualmente seleccionado/escrito en el autocomplete."""
         it = self.cmb_product.get_selected_item()
         if it is not None:
             return it
-        # Fallback por índice visible si el usuario navegó con flechas
         try:
             idx = self.cmb_product.current()
         except Exception:
@@ -259,16 +248,21 @@ class SalesView(ttk.Frame):
 
     # -------------------- Ítems --------------------
     def _on_add_item(self):
+        """Agrega un ítem validando duplicados y valores."""
         try:
             p = self._selected_product()
             if not p:
-                messagebox.showwarning("Validación", "Seleccione un producto.")
+                self._warn("Seleccione un producto.")
                 return
 
-            # Cantidad
-            qty = int(float(self.ent_qty.get()))
+            # Cantidad (permite decimales)
+            try:
+                qty = float(self.ent_qty.get())
+            except Exception:
+                self._warn("Cantidad inválida.")
+                return
             if qty <= 0:
-                messagebox.showwarning("Validación", "La cantidad debe ser > 0.")
+                self._warn("La cantidad debe ser > 0.")
                 return
 
             # Precio: si no se indicó, usar precio_venta del producto
@@ -279,8 +273,14 @@ class SalesView(ttk.Frame):
             if price <= 0:
                 price = float(p.precio_venta or 0)
             if price <= 0:
-                messagebox.showwarning("Validación", "Ingrese un precio válido (> 0).")
+                self._warn("Ingrese un precio válido (> 0).")
                 return
+
+            # Evita duplicados
+            for iid in self.tree.get_children():
+                if str(p.id) == str(self.tree.item(iid, "values")[0]):
+                    self._warn("Este producto ya está en la tabla.")
+                    return
 
             subtotal = qty * price
             self.tree.insert("", "end",
@@ -289,13 +289,20 @@ class SalesView(ttk.Frame):
 
             self.ent_qty.delete(0, "end"); self.ent_qty.insert(0, "1")
             self._fill_price_from_selected_product()
+            self.cmb_product.set("")
+            self.cmb_product.focus_set()
 
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudo agregar el ítem:\n{e}")
+            self._error(f"No se pudo agregar el ítem:\n{e}")
 
     def _on_delete_item(self):
         for item in self.tree.selection():
             self.tree.delete(item)
+        self._update_total()
+
+    def _on_clear_table(self):
+        for iid in self.tree.get_children():
+            self.tree.delete(iid)
         self._update_total()
 
     def _update_total(self):
@@ -314,7 +321,7 @@ class SalesView(ttk.Frame):
             items.append({
                 "id": int(prod_id),
                 "nombre": str(name),
-                "cantidad": int(float(qty)),
+                "cantidad": float(qty),
                 "precio": float(price),
                 "subtotal": float(sub),
             })
@@ -336,10 +343,6 @@ class SalesView(ttk.Frame):
 
     # -------------------- Acciones Venta --------------------
     def _resolve_create_sale(self) -> Callable:
-        """
-        Devuelve el método adecuado del SalesManager para crear una venta.
-        Soporta distintos nombres posibles para compatibilidad.
-        """
         for name in ("create_sale", "create", "register_sale", "add_sale"):
             if hasattr(self.sm, name):
                 return getattr(self.sm, name)
@@ -349,11 +352,11 @@ class SalesView(ttk.Frame):
         try:
             items = self._collect_items()
             if not items:
-                messagebox.showwarning("Validación", "Agregue al menos un ítem.")
+                self._warn("Agregue al menos un ítem.")
                 return
             cust = self._get_selected_customer()
             if not cust:
-                messagebox.showwarning("Validación", "Seleccione un cliente.")
+                self._warn("Seleccione un cliente.")
                 return
 
             sm_items = [
@@ -362,7 +365,6 @@ class SalesView(ttk.Frame):
             ]
 
             estado = (self.cmb_estado.get() or "Pagada").strip()
-            # Cambiado: solo descuenta stock si es "Pagada"
             apply_to_stock = self.var_apply.get() and (estado == "Pagada")
 
             create_fn = self._resolve_create_sale()
@@ -373,20 +375,16 @@ class SalesView(ttk.Frame):
                 apply_to_stock=apply_to_stock,
             )
 
-            # Limpiar detalle
-            for iid in list(self.tree.get_children()):
-                self.tree.delete(iid)
-            self._update_total()
-
-            messagebox.showinfo("OK", f"Venta registrada ({estado}).")
+            self._on_clear_table()
+            self._info(f"Venta registrada ({estado}).")
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudo confirmar la venta:\n{e}")
+            self._error(f"No se pudo confirmar la venta:\n{e}")
 
     def _on_generate_so_downloads(self):
         try:
             items = self._collect_items()
             if not items:
-                messagebox.showwarning("Validación", "Agregue al menos un ítem.")
+                self._warn("Agregue al menos un ítem.")
                 return
             cust = self._get_selected_customer_dict()
             so_number = f"OV-{cust['id']}-{self._stamp()}"
@@ -398,18 +396,17 @@ class SalesView(ttk.Frame):
                 notes=None,
                 auto_open=True,
             )
-            messagebox.showinfo("OV generada", f"Orden de Venta creada en Descargas:\n{out}")
+            self._info(f"Orden de Venta creada en Descargas:\n{out}")
         except Exception as e:
-            # FIX: quitar '}' extra en el f-string
-            messagebox.showerror("Error", f"No se pudo generar la OV:\n{e}")
+            self._error(f"No se pudo generar la OV:\n{e}")
 
     def _on_cancel_sale(self):
         try:
             sid = int(self.ent_sale_id.get())
             self.sm.cancel_sale(sid, revert_stock=True)
-            messagebox.showinfo("OK", f"Venta {sid} cancelada.")
+            self._info(f"Venta {sid} cancelada.")
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudo cancelar:\n{e}")
+            self._error(f"No se pudo cancelar:\n{e}")
 
     def _on_delete_sale(self):
         try:
@@ -417,21 +414,19 @@ class SalesView(ttk.Frame):
             if not messagebox.askyesno("Confirmar", f"¿Marcar venta {sid} como Eliminada? Se revertirá stock si corresponde."):
                 return
             self.sm.delete_sale(sid, revert_stock=True)
-            messagebox.showinfo("OK", f"Venta {sid} marcada como Eliminada.")
+            self._info(f"Venta {sid} marcada como Eliminada.")
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudo eliminar:\n{e}")
+            self._error(f"No se pudo eliminar:\n{e}")
 
     # ==================== Informe de Ventas (Lógica) ====================
     @staticmethod
     def _parse_ddmmyyyy(s: str):
-        """Parsea 'dd/mm/aaaa' a date; lanza ValueError si es inválida."""
         from datetime import datetime as _dt
         s = (s or "").strip()
         return _dt.strptime(s, "%d/%m/%Y").date()
 
     @staticmethod
     def _downloads_dir():
-        """Intenta /Downloads o /Descargas según sistema; fallback HOME."""
         from pathlib import Path
         home = Path.home()
         for cand in ("Downloads", "Descargas", "downloads", "DESCARGAS"):
@@ -452,14 +447,10 @@ class SalesView(ttk.Frame):
                              estado: Optional[str],
                              total_min: Optional[float],
                              total_max: Optional[float]):
-        """
-        Retorna lista de dicts con ventas en [d_from, d_to] + filtros.
-        Campos: id, fecha, cliente, estado, total
-        """
         import sqlalchemy
         from datetime import datetime
         from sqlalchemy import and_
-        from src.data.models import Sale, SaleDetail  # ajusta si tus clases se llaman distinto
+        from src.data.models import Sale, SaleDetail
 
         start_dt = datetime.combine(d_from, datetime.min.time())
         end_dt = datetime.combine(d_to, datetime.max.time())
@@ -477,7 +468,6 @@ class SalesView(ttk.Frame):
         if total_max is not None:
             q = q.filter(getattr(Sale, "total_venta") <= float(total_max))
 
-        # Filtrado por cliente usando FK conocida si existe
         if customer_id:
             if hasattr(Sale, "id_cliente"):
                 q = q.filter(getattr(Sale, "id_cliente") == int(customer_id))
@@ -485,7 +475,6 @@ class SalesView(ttk.Frame):
                 q = q.filter(getattr(Sale, "customer_id") == int(customer_id))
 
         if product_id:
-            # Ventas que contienen el producto en su detalle
             q = q.join(SaleDetail, getattr(SaleDetail, "id_venta") == getattr(Sale, "id")) \
                  .filter(getattr(SaleDetail, "id_producto") == int(product_id))
 
@@ -496,7 +485,6 @@ class SalesView(ttk.Frame):
             fecha = getattr(s, "fecha_venta", None)
             total = getattr(s, "total_venta", None)
             est = getattr(s, "estado", None) or ""
-            # Cliente (si hay relación cargada)
             cliente = ""
             cust_obj = getattr(s, "customer", None)
             if cust_obj is not None:
@@ -513,7 +501,6 @@ class SalesView(ttk.Frame):
         return rows
 
     def _open_sales_report_window(self, rows):
-        """Muestra ventana con tabla + total y botones Exportar CSV/PDF (Descargas)."""
         win = tk.Toplevel(self)
         win.title("Informe de ventas")
         win.geometry("860x480")
@@ -537,7 +524,6 @@ class SalesView(ttk.Frame):
 
         total_general = 0.0
         for r in rows:
-            # OCULTAR ventas eliminadas
             if str(r.get("estado", "")).strip().lower() == "eliminada":
                 continue
             f = r.get("fecha")
@@ -569,16 +555,14 @@ class SalesView(ttk.Frame):
                 w = csv.writer(f, delimiter=";")
                 w.writerow(["ID", "Fecha", "Cliente", "Estado", "Total"])
                 for r in rows:
-                    # OCULTAR ventas eliminadas en exportación
                     if str(r.get("estado", "")).strip().lower() == "eliminada":
                         continue
                     fval = r["fecha"]
                     ftxt = fval.strftime("%d/%m/%Y %H:%M") if hasattr(fval, "strftime") else str(fval or "")
                     w.writerow([r["id"], ftxt, r["cliente"], r["estado"], f"{r['total']:.2f}"])
-            messagebox.showinfo("Exportado", f"CSV guardado en Descargas:\n{out_path}")
+            self._info(f"CSV guardado en Descargas:\n{out_path}")
 
         def _export_pdf():
-            # Construye un resumen de filtros para imprimir en el PDF
             filtro_cliente = ""
             sel_c = getattr(self.flt_customer, "get_selected_item", lambda: None)()
             if sel_c:
@@ -597,11 +581,9 @@ class SalesView(ttk.Frame):
                 "Total ≤": self.flt_total_max.get() or "-",
             }
 
-            # Fechas como fueron ingresadas en la UI
             date_from = self.ent_from.get().strip()
             date_to = self.ent_to.get().strip()
 
-            # Filtrar eliminadas antes de exportar
             filtered_rows = [r for r in rows if str(r.get("estado", "")).strip().lower() != "eliminada"]
 
             out = generate_sales_report_to_downloads(
@@ -611,28 +593,26 @@ class SalesView(ttk.Frame):
                 filters=filters,
                 auto_open=True,
             )
-            messagebox.showinfo("PDF generado", f"Informe PDF guardado en Descargas:\n{out}")
+            self._info(f"Informe PDF guardado en Descargas:\n{out}")
 
         ttk.Button(bottom, text="Exportar CSV (Descargas)", command=_export_csv).pack(side="right")
         ttk.Button(bottom, text="Exportar PDF (Descargas)", command=_export_pdf).pack(side="right", padx=6)
 
     def _on_generate_sales_report(self):
-        """Handler del botón 'Generar Informe' (con filtros)."""
         try:
             if not self.ent_from.get().strip() or not self.ent_to.get().strip():
-                messagebox.showwarning("Validación", "Ingrese ambas fechas en formato dd/mm/aaaa.")
+                self._warn("Ingrese ambas fechas en formato dd/mm/aaaa.")
                 return
             d_from = self._parse_ddmmyyyy(self.ent_from.get())
             d_to = self._parse_ddmmyyyy(self.ent_to.get())
             if d_from > d_to:
-                messagebox.showwarning("Validación", "La fecha 'Desde' no puede ser mayor que 'Hasta'.")
+                self._warn("La fecha 'Desde' no puede ser mayor que 'Hasta'.")
                 return
 
             cust = self._selected_filter_customer()
             prod = self._selected_filter_product()
             estado = (self.flt_estado.get() or "").strip() or None
 
-            # Totales min/max (acepta "1.234,56")
             def _float_or_none(s: str):
                 s = (s or "").strip().replace(".", "").replace(",", ".")
                 if not s:
@@ -655,17 +635,26 @@ class SalesView(ttk.Frame):
             )
 
             if not rows:
-                messagebox.showinfo("Informe", "No hay ventas con los filtros indicados.")
+                self._info("No hay ventas con los filtros indicados.")
                 return
 
             self._open_sales_report_window(rows)
 
         except ValueError:
-            messagebox.showerror("Formato inválido", "Use el formato dd/mm/aaaa (ej: 07/09/2025).")
+            self._error("Use el formato dd/mm/aaaa (ej: 07/09/2025).")
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudo generar el informe:\n{e}")
+            self._error(f"No se pudo generar el informe:\n{e}")
 
-    # -------------------- Util --------------------
+    # -------------------- Mensajes --------------------
+    def _warn(self, msg: str):
+        messagebox.showwarning("Validación", msg)
+
+    def _error(self, msg: str):
+        messagebox.showerror("Error", msg)
+
+    def _info(self, msg: str):
+        messagebox.showinfo("OK", msg)
+
     @staticmethod
     def _stamp() -> str:
         from datetime import datetime

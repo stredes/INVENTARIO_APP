@@ -1,3 +1,4 @@
+# src/gui/products_view.py
 from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -9,16 +10,31 @@ from src.data.models import Product, Supplier
 from src.data.repository import ProductRepository, SupplierRepository
 from src.gui.widgets.product_image_box import ProductImageBox  # <-- recuadro imagen
 
+# Grilla tipo hoja (tksheet si está, o fallback Treeview)
+from src.gui.widgets.grid_table import GridTable
+
+
+def calcular_precios(pc: float, iva: float, margen: float) -> tuple[float, float, float]:
+    """Calcula monto IVA, precio + IVA y precio venta sugerido."""
+    monto_iva = pc * (iva / 100.0)
+    pmasiva = pc + monto_iva
+    pventa = pmasiva * (1.0 + margen / 100.0)
+    return round(monto_iva), round(pmasiva), round(pventa)
+
 
 class ProductsView(ttk.Frame):
     """
-    CRUD de Productos.
-    - Recuadro de imagen (esquina superior izquierda) con Cargar/Ver/Quitar
+    CRUD de Productos con grilla tipo hoja:
+    - Recuadro de imagen (Cargar/Ver/Quitar)
     - Código (SKU)
-    - Precio Compra (neto), IVA %, %Ganancia -> calculados (IVA, P+IVA)
+    - Precio Compra (neto), IVA %, %Ganancia -> calcula (IVA, P+IVA)
     - Precio Venta (editable)
-    - **NUEVO**: Proveedor (obligatorio) vía Combobox
+    - Proveedor (obligatorio) vía Combobox
     """
+
+    COLS = ["ID", "Nombre", "Código", "P. Compra", "IVA %", "Monto IVA", "P. + IVA", "Margen %", "P. Venta", "Unidad"]
+    COL_WIDTHS = [50, 220, 120, 90, 70, 90, 90, 90, 90, 90]
+
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
         self.session = get_session()
@@ -27,19 +43,22 @@ class ProductsView(ttk.Frame):
 
         self._editing_id: Optional[int] = None
         self._current_product: Optional[Product] = None
-        self._suppliers: List[Supplier] = []  # cache de proveedores para Combobox
+        self._suppliers: List[Supplier] = []
+
+        # cache tabla (para doble click en tksheet / tree)
+        self._rows_cache: List[List[str]] = []
+        self._id_by_index: List[int] = []
 
         # ---------- Estado (variables UI) ----------
         self.var_nombre = tk.StringVar()
-        self.var_codigo = tk.StringVar()        # mostrado como "Código", mapeado a .sku
+        self.var_codigo = tk.StringVar()
         self.var_unidad = tk.StringVar(value="unidad")
-
-        self.var_pc = tk.DoubleVar(value=0.0)         # precio compra (neto)
-        self.var_iva = tk.DoubleVar(value=19.0)       # IVA %
-        self.var_margen = tk.DoubleVar(value=30.0)    # % ganancia
-        self.var_iva_monto = tk.DoubleVar(value=0.0)  # monto del IVA (calc)
-        self.var_pmasiva = tk.DoubleVar(value=0.0)    # precio + IVA (calc)
-        self.var_pventa = tk.DoubleVar(value=0.0)     # precio venta (calc; editable)
+        self.var_pc = tk.DoubleVar(value=0.0)
+        self.var_iva = tk.DoubleVar(value=19.0)
+        self.var_margen = tk.DoubleVar(value=30.0)
+        self.var_iva_monto = tk.DoubleVar(value=0.0)
+        self.var_pmasiva = tk.DoubleVar(value=0.0)
+        self.var_pventa = tk.DoubleVar(value=0.0)
 
         # ---------- Formulario ----------
         frm = ttk.Labelframe(self, text="Producto", padding=10)
@@ -47,7 +66,6 @@ class ProductsView(ttk.Frame):
 
         # Panel izquierda: IMAGEN
         left = ttk.Frame(frm)
-        # aumentamos rowspan para abarcar nueva fila de Proveedor
         left.grid(row=0, column=0, rowspan=7, sticky="nw", padx=(0, 12))
         self.img_box = ProductImageBox(left, width=180, height=180)
         self.img_box.grid(row=0, column=0, sticky="nw")
@@ -58,7 +76,9 @@ class ProductsView(ttk.Frame):
 
         # Fila 0: Nombre / Código
         ttk.Label(right, text="Nombre:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
-        ttk.Entry(right, textvariable=self.var_nombre, width=35).grid(row=0, column=1, sticky="w", padx=4, pady=4)
+        ent_nombre = ttk.Entry(right, textvariable=self.var_nombre, width=35)
+        ent_nombre.grid(row=0, column=1, sticky="w", padx=4, pady=4)
+        self.ent_nombre = ent_nombre  # para foco
 
         ttk.Label(right, text="Código:").grid(row=0, column=2, sticky="e", padx=4, pady=4)
         ttk.Entry(right, textvariable=self.var_codigo, width=20).grid(row=0, column=3, sticky="w", padx=4, pady=4)
@@ -99,7 +119,7 @@ class ProductsView(ttk.Frame):
         ent_pventa = ttk.Entry(right, textvariable=self.var_pventa, width=12)
         ent_pventa.grid(row=4, column=1, sticky="w", padx=4, pady=4)
 
-        # Fila 5: **Proveedor**
+        # Fila 5: Proveedor
         ttk.Label(right, text="Proveedor:").grid(row=5, column=0, sticky="e", padx=4, pady=4)
         self.cmb_supplier = ttk.Combobox(right, state="readonly", width=35)
         self.cmb_supplier.grid(row=5, column=1, columnspan=3, sticky="we", padx=4, pady=4)
@@ -118,29 +138,21 @@ class ProductsView(ttk.Frame):
         self.btn_delete.pack(side="left", padx=4)
         self.btn_clear.pack(side="left", padx=4)
 
-        # ---------- Tabla ----------
-        self.tree = ttk.Treeview(
-            self,
-            columns=("id", "nombre", "codigo", "pcompra", "iva", "iva_monto", "pmasiva", "margen", "pventa", "unidad"),
-            show="headings", height=14
-        )
-        for cid, text, w, anchor in [
-            ("id", "ID", 50, "center"),
-            ("nombre", "Nombre", 220, "w"),
-            ("codigo", "Código", 120, "w"),
-            ("pcompra", "P. Compra", 90, "e"),
-            ("iva", "IVA %", 70, "e"),
-            ("iva_monto", "Monto IVA", 90, "e"),
-            ("pmasiva", "P. + IVA", 90, "e"),
-            ("margen", "Margen %", 90, "e"),
-            ("pventa", "P. Venta", 90, "e"),
-            ("unidad", "Unidad", 90, "center"),
-        ]:
-            self.tree.heading(cid, text=text)
-            self.tree.column(cid, width=w, anchor=anchor)
+        # ---------- Tabla (GridTable) ----------
+        self.table = GridTable(self, height=14)
+        self.table.pack(fill="both", expand=True, pady=(10, 0))
 
-        self.tree.pack(fill="both", expand=True, pady=(10, 0))
-        self.tree.bind("<Double-1>", self._on_row_dblclick)
+        # Doble click para editar (tksheet + fallback)
+        if hasattr(self.table, "sheet"):
+            try:
+                self.table.sheet.extra_bindings([("double_click", lambda e: self._on_row_dblclick())])
+            except Exception:
+                pass
+        tv = getattr(self.table, "_fallback", None)
+        if tv is not None:
+            tv.bind("<Double-1>", lambda e: self._on_row_dblclick())
+            # Limpia formulario si clic en encabezado
+            tv.bind("<Button-1>", self._on_tree_click)
 
         # Recalcular automáticamente
         for w in (ent_pc, sp_iva, sp_margen, ent_pventa):
@@ -151,9 +163,54 @@ class ProductsView(ttk.Frame):
         sp_margen.bind("<<Decrement>>", self._on_auto_calc)
 
         # Datos iniciales
-        self.refresh_lookups()   # carga proveedores en el combo
+        self.refresh_lookups()
         self._load_table()
         self._recalc_prices()
+        self.ent_nombre.focus_set()
+
+    # ----------------- Utilidades de grilla ----------------- #
+    def _apply_column_widths(self) -> None:
+        """Ajusta anchos de columnas en tksheet y en fallback Treeview."""
+        if hasattr(self.table, "sheet"):
+            try:
+                for i, w in enumerate(self.COL_WIDTHS):
+                    self.table.sheet.column_width(i, width=w)
+            except Exception:
+                pass
+        tv = getattr(self.table, "_fallback", None)
+        if tv is not None:
+            tv["columns"] = list(self.COLS)
+            for i, name in enumerate(self.COLS):
+                tv.heading(name, text=name)
+                tv.column(name, width=self.COL_WIDTHS[i], anchor=("center" if name in ("ID", "Unidad") else ("e" if name in ("P. Compra", "IVA %", "Monto IVA", "P. + IVA", "Margen %", "P. Venta") else "w")))
+
+    def _set_table_data(self, rows: List[List[str]]) -> None:
+        self.table.set_data(self.COLS, rows)
+        self._apply_column_widths()
+
+    def _selected_row_index(self) -> Optional[int]:
+        """Índice de fila seleccionada (o None)."""
+        if hasattr(self.table, "sheet"):
+            try:
+                rows = list(self.table.sheet.get_selected_rows())
+                if rows:
+                    return sorted(rows)[0]
+                cells = self.table.sheet.get_selected_cells()
+                if cells:
+                    return sorted({r for r, _ in cells})[0]
+            except Exception:
+                return None
+            return None
+        tv = getattr(self.table, "_fallback", None)
+        if tv is None:
+            return None
+        sel = tv.selection()
+        if not sel:
+            return None
+        try:
+            return tv.index(sel[0])
+        except Exception:
+            return None
 
     # ---------- Cálculos ----------
     def _recalc_prices(self):
@@ -161,15 +218,11 @@ class ProductsView(ttk.Frame):
         try:
             pc = float(self.var_pc.get() or 0)
             iva = float(self.var_iva.get() or 0)
-            mg  = float(self.var_margen.get() or 0)
-
-            monto_iva = pc * (iva / 100.0)
-            pmasiva   = pc + monto_iva
-            pventa    = pmasiva * (1.0 + mg / 100.0)
-
-            self.var_iva_monto.set(round(monto_iva))
-            self.var_pmasiva.set(round(pmasiva))
-            self.var_pventa.set(round(pventa))
+            mg = float(self.var_margen.get() or 0)
+            monto_iva, pmasiva, pventa = calcular_precios(pc, iva, mg)
+            self.var_iva_monto.set(monto_iva)
+            self.var_pmasiva.set(pmasiva)
+            self.var_pventa.set(pventa)
         except Exception:
             pass
 
@@ -185,11 +238,8 @@ class ProductsView(ttk.Frame):
             prod = Product(**data)
             self.session.add(prod)
             self.session.commit()
-
-            # Ahora existe ID -> el recuadro puede aceptar imagen
             self._current_product = prod
             self.img_box.set_product(prod.id, on_image_changed=self._on_image_changed)
-
             self._clear_form()
             self._load_table()
             messagebox.showinfo("OK", f"Producto '{data['nombre']}' creado.")
@@ -208,13 +258,8 @@ class ProductsView(ttk.Frame):
             if not p:
                 messagebox.showwarning("Aviso", "Registro no encontrado.")
                 return
-            p.nombre = data["nombre"]
-            p.sku = data["sku"]
-            p.precio_compra = data["precio_compra"]
-            p.precio_venta = data["precio_venta"]
-            p.unidad_medida = data["unidad_medida"]
-            p.id_proveedor = data["id_proveedor"]  # **NUEVO**: guardar proveedor
-            # image_path lo actualiza el callback _on_image_changed
+            for k, v in data.items():
+                setattr(p, k, v)
             self.session.commit()
             self._clear_form()
             self._load_table()
@@ -239,54 +284,35 @@ class ProductsView(ttk.Frame):
 
     def _on_row_dblclick(self, _event=None):
         """Carga la fila seleccionada al formulario."""
-        sel = self.tree.selection()
-        if not sel:
+        idx = self._selected_row_index()
+        if idx is None or idx < 0 or idx >= len(self._rows_cache):
             return
-
-        vals = self.tree.item(sel[0], "values")
-        # 0 id, 1 nombre, 2 codigo, 3 pcompra, 4 iva, 5 iva_monto, 6 pmasiva, 7 margen, 8 pventa, 9 unidad
-
+        vals = self._rows_cache[idx]
+        # 0 id, 1 nombre, 2 código, 3 pcompra, 4 iva, 5 iva_monto, 6 pmasiva, 7 margen, 8 pventa, 9 unidad
         self._editing_id = int(vals[0])
         self._current_product = self.repo.get(self._editing_id)
-
         self.var_nombre.set(vals[1])
         self.var_codigo.set(vals[2])
-
-        # pcompra
-        try: self.var_pc.set(float(vals[3]))
+        try: self.var_pc.set(float(vals[3] or 0))
         except Exception: self.var_pc.set(0.0)
-
-        # iva % (UI ref)
-        try: self.var_iva.set(float(vals[4]))
+        try: self.var_iva.set(float(vals[4] or 19.0))
         except Exception: self.var_iva.set(19.0)
-
-        # monto iva
-        try: self.var_iva_monto.set(float(vals[5]))
+        try: self.var_iva_monto.set(float(vals[5] or 0))
         except Exception: self.var_iva_monto.set(0.0)
-
-        # p + iva
-        try: self.var_pmasiva.set(float(vals[6]))
+        try: self.var_pmasiva.set(float(vals[6] or 0))
         except Exception: self.var_pmasiva.set(0.0)
-
-        # margen %
-        try: self.var_margen.set(float(vals[7]))
+        try: self.var_margen.set(float(vals[7] or 30.0))
         except Exception: self.var_margen.set(30.0)
-
-        # p venta
-        try: self.var_pventa.set(float(vals[8]))
+        try: self.var_pventa.set(float(vals[8] or 0))
         except Exception: self.var_pventa.set(0.0)
-
-        # unidad
         try: self.var_unidad.set(vals[9] or "unidad")
         except Exception: self.var_unidad.set("unidad")
 
-        # Mostrar imagen del producto seleccionado
         if self._current_product and self._current_product.id:
             self.img_box.set_product(self._current_product.id, on_image_changed=self._on_image_changed)
         else:
             self.img_box.set_product(None)
 
-        # Seleccionar proveedor actual del producto
         self._select_supplier_for_current_product()
 
         self.btn_save.config(state="disabled")
@@ -313,7 +339,6 @@ class ProductsView(ttk.Frame):
             unidad = self.var_unidad.get()
             pc = float(self.var_pc.get())
             pventa = float(self.var_pventa.get())
-
             if not nombre or not codigo:
                 messagebox.showwarning("Validación", "Nombre y Código son obligatorios.")
                 return None
@@ -323,21 +348,18 @@ class ProductsView(ttk.Frame):
             if pventa <= 0:
                 messagebox.showwarning("Validación", "Precio de venta debe ser > 0.")
                 return None
-
-            # Proveedor obligatorio
             idx = self.cmb_supplier.current()
             if idx is None or idx < 0 or idx >= len(self._suppliers):
                 messagebox.showwarning("Validación", "Seleccione un proveedor.")
                 return None
             proveedor = self._suppliers[idx]
-
             return dict(
                 nombre=nombre,
                 sku=codigo,
                 precio_compra=pc,
-                precio_venta=pventa,     # persistimos venta final (con IVA y margen)
+                precio_venta=pventa,
                 unidad_medida=unidad,
-                id_proveedor=proveedor.id,  # **NUEVO**: vínculo a proveedor
+                id_proveedor=proveedor.id,
             )
         except ValueError:
             messagebox.showwarning("Validación", "Revisa números (PC/IVA/Margen/Precios).")
@@ -355,67 +377,74 @@ class ProductsView(ttk.Frame):
         self.var_iva_monto.set(0.0)
         self.var_pmasiva.set(0.0)
         self.var_pventa.set(0.0)
-        self.img_box.set_product(None)  # limpia preview
+        self.img_box.set_product(None)
         self.btn_save.config(state="normal")
         self.btn_update.config(state="disabled")
         self.btn_delete.config(state="disabled")
-        # limpiar selección de proveedor (si hay dataset cargado)
         try:
             self.cmb_supplier.set("")
         except Exception:
             pass
+        # Limpia selección en la grilla y foco en nombre
+        try:
+            if hasattr(self.table, "sheet"):
+                self.table.sheet.deselect("all")
+            else:
+                tv = getattr(self.table, "_fallback", None)
+                if tv is not None:
+                    tv.selection_remove(tv.selection())
+        except Exception:
+            pass
+        self.after(100, lambda: self.ent_nombre.focus_set())
 
     def _load_table(self):
-        """
-        Carga los productos y calcula columnas derivadas para mostrar:
-        - IVA %: usa el valor actual de la UI como referencia (no está en BD).
-        - Monto IVA y P. + IVA se calculan desde precio_compra e IVA actual.
-        - Margen % se estima desde precio_venta y P. + IVA (aprox).
-        """
-        for i in self.tree.get_children():
-            self.tree.delete(i)
-
+        """Carga los productos y calcula columnas derivadas para mostrar."""
         prods: List[Product] = self.session.query(Product).order_by(Product.id.desc()).all()
         iva_ref = float(self.var_iva.get() or 19.0)
 
+        self._rows_cache = []
+        self._id_by_index = []
+
         for p in prods:
-            pc = float(p.precio_compra)
-            iva_monto = round(pc * (iva_ref / 100.0))
-            pmasiva = round(pc + iva_monto)
+            pc = float(p.precio_compra or 0)
+            iva_monto, pmasiva, _ = calcular_precios(pc, iva_ref, 0)
             try:
-                pv = float(p.precio_venta)
+                pv = float(p.precio_venta or 0)
                 margen = max(0.0, (pv / max(1.0, pmasiva) - 1.0) * 100.0)
             except Exception:
-                pv = float(p.precio_venta)
+                pv = float(p.precio_venta or 0)
                 margen = 0.0
+            row = [
+                p.id,
+                p.nombre or "",
+                p.sku or "",
+                f"{pc:.0f}",
+                f"{iva_ref:.1f}",
+                f"{iva_monto:.0f}",
+                f"{pmasiva:.0f}",
+                f"{margen:.1f}",
+                f"{pv:.0f}",
+                p.unidad_medida or "",
+            ]
+            self._rows_cache.append(row)
+            self._id_by_index.append(int(p.id))
 
-            self.tree.insert(
-                "", "end",
-                values=(
-                    p.id,
-                    p.nombre,
-                    p.sku,                         # mostrado como "Código"
-                    f"{pc:.0f}",                   # pcompra
-                    f"{iva_ref:.1f}",              # iva %
-                    f"{iva_monto:.0f}",            # monto iva
-                    f"{pmasiva:.0f}",              # p + iva
-                    f"{margen:.1f}",               # margen estimado
-                    f"{pv:.0f}",                   # p venta
-                    p.unidad_medida or "",         # unidad
-                )
-            )
+        self._set_table_data(self._rows_cache)
 
     def refresh_lookups(self):
         """Carga proveedores al combobox."""
         self._suppliers = self.session.query(Supplier).order_by(Supplier.razon_social.asc()).all()
+
         def _disp(s: Supplier) -> str:
             rut = (s.rut or "").strip()
             rs = (s.razon_social or "").strip()
             return f"{rs} — {rut}" if rut else rs
-        self.cmb_supplier["values"] = [_disp(s) for s in self._suppliers]
-        # No autoseleccionamos para obligar selección explícita en 'Agregar'
 
-    # ---------- helpers ----------
+        self.cmb_supplier["values"] = [_disp(s) for s in self._suppliers]
+        # Selecciona automáticamente si solo hay un proveedor
+        if len(self._suppliers) == 1:
+            self.cmb_supplier.current(0)
+
     def _select_supplier_for_current_product(self):
         """Selecciona en el combo el proveedor del producto cargado (si existe)."""
         try:
@@ -430,7 +459,16 @@ class ProductsView(ttk.Frame):
             if idx >= 0:
                 self.cmb_supplier.current(idx)
             else:
-                # Si el proveedor del producto no está en la lista (fue borrado), limpiamos.
                 self.cmb_supplier.set("")
         except Exception:
             self.cmb_supplier.set("")
+
+    # ---------- Solo fallback: limpiar selección al click de encabezado ----------
+    def _on_tree_click(self, event):
+        tv = getattr(self.table, "_fallback", None)
+        if tv is None:
+            return
+        region = tv.identify("region", event.x, event.y)
+        if region == "heading":
+            tv.selection_remove(tv.selection())
+            self._clear_form()

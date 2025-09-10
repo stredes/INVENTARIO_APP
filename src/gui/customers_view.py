@@ -1,3 +1,4 @@
+# src/gui/customers_view.py
 from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -7,15 +8,24 @@ from src.data.database import get_session
 from src.data.models import Customer
 from src.data.repository import CustomerRepository
 
+# Rejilla real (tksheet) o fallback Treeview
+from src.gui.widgets.grid_table import GridTable
+
 
 class CustomersView(ttk.Frame):
-    """CRUD de Clientes (Razón social + RUT + datos de contacto)."""
+    """CRUD de Clientes (Razón social + RUT + datos de contacto) con grilla tipo hoja."""
+
+    COLS = ["ID", "Razón social", "RUT", "Contacto", "Teléfono", "Email", "Dirección"]
+    COL_WIDTHS = [60, 220, 140, 160, 120, 220, 260]
 
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
         self.session = get_session()
         self.repo = CustomerRepository(self.session)
+
         self._editing_id: Optional[int] = None
+        self._rows_cache: List[List[str]] = []   # copia de lo mostrado en la tabla (por índice)
+        self._id_by_index: List[int] = []        # mapea fila -> id
 
         # ---------- Formulario ----------
         frm = ttk.Labelframe(self, text="Cliente", padding=10)
@@ -48,34 +58,45 @@ class CustomersView(ttk.Frame):
         for b in (self.btn_save, self.btn_update, self.btn_delete, self.btn_clear):
             b.pack(side="left", padx=4)
 
-        # ---------- Tabla ----------
-        self.tree = ttk.Treeview(
-            self,
-            columns=("id", "razon", "rut", "contacto", "telefono", "email", "direccion"),
-            show="headings",
-            height=14,
-        )
-        for cid, text, w, anchor in [
-            ("id", "ID", 60, "center"),
-            ("razon", "Razón social", 220, "w"),
-            ("rut", "RUT", 140, "w"),
-            ("contacto", "Contacto", 160, "w"),
-            ("telefono", "Teléfono", 120, "w"),
-            ("email", "Email", 220, "w"),
-            ("direccion", "Dirección", 260, "w"),
-        ]:
-            self.tree.heading(cid, text=text)
-            self.tree.column(cid, width=w, anchor=anchor)
-        self.tree.pack(fill="both", expand=True, pady=(10, 0))
-        self.tree.bind("<Double-1>", self._on_row_dblclick)
-        self.tree.bind("<Button-1>", self._on_tree_click)
+        # ---------- Tabla (GridTable) ----------
+        self.table = GridTable(self, height=14)
+        self.table.pack(fill="both", expand=True, pady=(10, 0))
 
+        # Doble click para editar: soporta tksheet y fallback Treeview
+        if hasattr(self.table, "sheet"):
+            try:
+                # tksheet: doble click en celda
+                self.table.sheet.extra_bindings([("double_click", lambda e: self._on_row_dblclick())])
+            except Exception:
+                pass
+        tv = getattr(self.table, "_fallback", None)
+        if tv is not None:
+            tv.bind("<Double-1>", lambda e: self._on_row_dblclick())
+            # Click en encabezado → limpiar selección y formulario
+            tv.bind("<Button-1>", self._on_tree_click)
+
+        # Carga inicial
         self._load_table()
 
     # ---------- Utilidades ----------
     def _normalize_rut(self, rut: str) -> str:
         """Normaliza formato básico del RUT."""
         return rut.replace(" ", "").strip().upper()
+
+    def _apply_column_widths(self) -> None:
+        """Ajusta anchos de columnas tanto en tksheet como en Treeview."""
+        if hasattr(self.table, "sheet"):
+            try:
+                for i, w in enumerate(self.COL_WIDTHS):
+                    self.table.sheet.column_width(i, width=w)
+            except Exception:
+                pass
+        tv = getattr(self.table, "_fallback", None)
+        if tv is not None:
+            for i, name in enumerate(self.COLS):
+                # En fallback los ids de columna son exactamente los títulos
+                tv.heading(name, text=name)
+                tv.column(name, width=self.COL_WIDTHS[i], anchor=("center" if i == 0 else "w"))
 
     def _read_form(self) -> dict | None:
         razon = self.var_razon.get().strip()
@@ -100,6 +121,33 @@ class CustomersView(ttk.Frame):
             "email": email,
             "direccion": self.var_direccion.get().strip() or None,
         }
+
+    def _selected_row_index(self) -> Optional[int]:
+        """Índice de fila seleccionada en la grilla (None si no hay)."""
+        # tksheet
+        if hasattr(self.table, "sheet"):
+            try:
+                rows = list(self.table.sheet.get_selected_rows())
+                if rows:
+                    return sorted(rows)[0]
+                # alternativa: desde celdas seleccionadas
+                cells = self.table.sheet.get_selected_cells()
+                if cells:
+                    return sorted({r for r, _ in cells})[0]
+            except Exception:
+                pass
+            return None
+        # fallback Treeview
+        tv = getattr(self.table, "_fallback", None)
+        if tv is None:
+            return None
+        sel = tv.selection()
+        if not sel:
+            return None
+        try:
+            return tv.index(sel[0])
+        except Exception:
+            return None
 
     # ---------- CRUD ----------
     def _on_add(self):
@@ -167,10 +215,11 @@ class CustomersView(ttk.Frame):
             messagebox.showerror("Error", f"No se pudo eliminar:\n{e}")
 
     def _on_row_dblclick(self, _=None):
-        sel = self.tree.selection()
-        if not sel:
+        """Carga la fila seleccionada a los controles para edición."""
+        idx = self._selected_row_index()
+        if idx is None or idx < 0 or idx >= len(self._rows_cache):
             return
-        vals = self.tree.item(sel[0], "values")
+        vals = self._rows_cache[idx]
         # 0 id, 1 razon, 2 rut, 3 contacto, 4 tel, 5 email, 6 dir
         self._editing_id = int(vals[0])
         self.var_razon.set(vals[1] or "")
@@ -185,10 +234,13 @@ class CustomersView(ttk.Frame):
         self.btn_delete.config(state="normal")
 
     def _on_tree_click(self, event):
-        # Des-selecciona fila si se hace click fuera de una celda
-        region = self.tree.identify("region", event.x, event.y)
+        """(Solo fallback) Click en encabezado → limpiar selección y formulario."""
+        tv = getattr(self.table, "_fallback", None)
+        if tv is None:
+            return
+        region = tv.identify("region", event.x, event.y)
         if region == "heading":
-            self.tree.selection_remove(self.tree.selection())
+            tv.selection_remove(tv.selection())
             self._clear_form()
 
     def _clear_form(self):
@@ -198,25 +250,41 @@ class CustomersView(ttk.Frame):
         self.btn_save.config(state="normal")
         self.btn_update.config(state="disabled")
         self.btn_delete.config(state="disabled")
+        # Limpia selección en la grilla
+        try:
+            if hasattr(self.table, "sheet"):
+                self.table.sheet.deselect("all")
+            else:
+                tv = getattr(self.table, "_fallback", None)
+                if tv is not None:
+                    tv.selection_remove(tv.selection())
+        except Exception:
+            pass
 
     def _load_table(self):
-        for i in self.tree.get_children():
-            self.tree.delete(i)
-        rows: List[Customer] = self.session.query(Customer).order_by(Customer.razon_social.asc()).all()
-        for r in rows:
-            self.tree.insert(
-                "",
-                "end",
-                values=(
-                    r.id,
-                    getattr(r, "razon_social", None) or "",
-                    getattr(r, "rut", None) or "",
-                    r.contacto or "",
-                    r.telefono or "",
-                    r.email or "",
-                    r.direccion or "",
-                ),
-            )
+        """Consulta y vuelca datos en la grilla (sin colores)."""
+        rows_db: List[Customer] = self.session.query(Customer).order_by(Customer.razon_social.asc()).all()
 
+        self._rows_cache = []
+        self._id_by_index = []
+
+        for r in rows_db:
+            row = [
+                r.id,
+                getattr(r, "razon_social", None) or "",
+                getattr(r, "rut", None) or "",
+                r.contacto or "",
+                r.telefono or "",
+                r.email or "",
+                r.direccion or "",
+            ]
+            self._rows_cache.append(row)
+            self._id_by_index.append(int(r.id))
+
+        # Set data a la grilla y ajustar anchos
+        self.table.set_data(self.COLS, self._rows_cache)
+        self._apply_column_widths()
+
+    # ---------- Interfaz homogénea con MainWindow ----------
     def refresh_lookups(self):
-       self._load_table()
+        self._load_table()

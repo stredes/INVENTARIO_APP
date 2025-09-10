@@ -8,9 +8,7 @@ from src.data.models import Product, Supplier
 from src.data.repository import ProductRepository, SupplierRepository
 from src.core import PurchaseManager, PurchaseItem
 from src.utils.po_generator import generate_po_to_downloads
-# NUEVO: import del generador de cotización
 from src.utils.quote_generator import generate_quote_to_downloads as generate_quote_downloads
-# NUEVO: widget de autocompletado
 from src.gui.widgets.autocomplete_combobox import AutoCompleteCombobox
 
 IVA_RATE = 0.19  # 19% IVA por defecto
@@ -19,13 +17,13 @@ IVA_RATE = 0.19  # 19% IVA por defecto
 class PurchasesView(ttk.Frame):
     """
     Módulo de Compras:
-    - Seleccionas Proveedor y Productos (AHORA: productos filtrados por proveedor)
+    - Seleccionas Proveedor y Productos (filtrados por proveedor)
     - El Precio Unitario se calcula automático: precio_compra * (1 + IVA)
     - Confirmas compra (puede sumar stock)
     - Generas Orden de Compra (PDF) a Descargas
-    - (Nuevo) Generas Cotización (PDF) a Descargas sin afectar stock
-    - (Nuevo) Autocompletado de productos por ID/nombre/SKU
-    - (Nuevo) Validación: NO se permiten productos de proveedor distinto al seleccionado.
+    - Generas Cotización (PDF) a Descargas sin afectar stock
+    - Autocompletado de productos por ID/nombre/SKU
+    - Validación: NO se permiten productos de proveedor distinto al seleccionado.
     """
 
     def __init__(self, master: tk.Misc):
@@ -36,7 +34,7 @@ class PurchasesView(ttk.Frame):
         self.repo_prod = ProductRepository(self.session)
         self.repo_supp = SupplierRepository(self.session)
 
-        self.products: List[Product] = []   # dataset actual (filtrado por proveedor)
+        self.products: List[Product] = []
         self.suppliers: List[Supplier] = []
 
         # ---------- Encabezado ----------
@@ -46,7 +44,6 @@ class PurchasesView(ttk.Frame):
         ttk.Label(head, text="Proveedor:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
         self.cmb_supplier = ttk.Combobox(head, state="readonly", width=50)
         self.cmb_supplier.grid(row=0, column=1, sticky="w", padx=4, pady=4)
-        # Al cambiar proveedor, se filtra el dataset de productos
         self.cmb_supplier.bind("<<ComboboxSelected>>", self._on_supplier_selected)
 
         self.var_apply = tk.BooleanVar(value=True)
@@ -57,8 +54,6 @@ class PurchasesView(ttk.Frame):
         det.pack(fill="x", expand=False, pady=(8, 0))
 
         ttk.Label(det, text="Producto:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
-        # ANTES: ttk.Combobox
-        # AHORA: autocomplete que permite escribir para filtrar
         self.cmb_product = AutoCompleteCombobox(det, width=45, state="normal")
         self.cmb_product.grid(row=0, column=1, sticky="w", padx=4, pady=4)
         self.cmb_product.bind("<<ComboboxSelected>>", self._on_product_change)
@@ -100,6 +95,7 @@ class PurchasesView(ttk.Frame):
         self.lbl_total.pack(side="left")
 
         ttk.Button(bottom, text="Eliminar ítem", command=self._on_delete_item).pack(side="right", padx=6)
+        ttk.Button(bottom, text="Limpiar tabla", command=self._on_clear_table).pack(side="right", padx=6)
         ttk.Button(bottom, text="Generar OC (PDF en Descargas)", command=self._on_generate_po_downloads).pack(side="right", padx=6)
         ttk.Button(bottom, text="Generar Cotización (PDF)", command=self._on_generate_quote_downloads).pack(side="right", padx=6)
         ttk.Button(bottom, text="Confirmar compra", command=self._on_confirm_purchase).pack(side="right", padx=6)
@@ -109,7 +105,7 @@ class PurchasesView(ttk.Frame):
 
     # ======================== Lookups ========================
     def refresh_lookups(self):
-        """Carga proveedores; selecciona uno por defecto y filtra productos."""
+        """Carga proveedores y productos según proveedor seleccionado."""
         # Proveedores por razón social
         self.suppliers = self.session.query(Supplier).order_by(Supplier.razon_social.asc()).all()
         self.cmb_supplier["values"] = [self._display_supplier(s) for s in self.suppliers]
@@ -188,39 +184,42 @@ class PurchasesView(ttk.Frame):
 
     # ======================== Ítems ========================
     def _on_add_item(self):
-        """Agrega un ítem validando que el producto pertenezca al proveedor seleccionado."""
+        """Agrega un ítem validando que el producto pertenezca al proveedor seleccionado y no esté duplicado."""
         try:
             sup = self._selected_supplier()
             if not sup:
-                messagebox.showwarning("Validación", "Seleccione un proveedor.")
+                self._warn("Seleccione un proveedor.")
                 return
 
             p = self._selected_product()
             if not p:
-                messagebox.showwarning("Validación", "Seleccione un producto.")
+                self._warn("Seleccione un producto.")
                 return
 
             # VALIDACIÓN CLAVE: el producto debe pertenecer al proveedor de la compra
             if getattr(p, "id_proveedor", None) != sup.id:
-                messagebox.showerror(
-                    "Proveedor incorrecto",
-                    "El producto seleccionado no corresponde al proveedor de la compra."
-                )
+                self._error("El producto seleccionado no corresponde al proveedor de la compra.")
                 return
 
             try:
-                qty = int(float(self.ent_qty.get()))
+                qty = float(self.ent_qty.get())
             except ValueError:
-                messagebox.showwarning("Validación", "Cantidad inválida.")
+                self._warn("Cantidad inválida.")
                 return
             if qty <= 0:
-                messagebox.showwarning("Validación", "La cantidad debe ser > 0.")
+                self._warn("La cantidad debe ser > 0.")
                 return
 
             price = self._price_with_iva(p)
             if price <= 0:
-                messagebox.showwarning("Validación", "El producto no tiene precio de compra válido.")
+                self._warn("El producto no tiene precio de compra válido.")
                 return
+
+            # Evita duplicados (opcional)
+            for iid in self.tree.get_children():
+                if str(p.id) == str(self.tree.item(iid, "values")[0]):
+                    self._warn("Este producto ya está en la tabla.")
+                    return
 
             subtotal = qty * price
             self.tree.insert("", "end", values=(p.id, p.nombre, qty, f"{price:.2f}", f"{subtotal:.2f}"))
@@ -228,12 +227,18 @@ class PurchasesView(ttk.Frame):
 
             # reset mínimo
             self.ent_qty.delete(0, "end"); self.ent_qty.insert(0, "1")
-
+            self.cmb_product.set("")
+            self.cmb_product.focus_set()
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudo agregar el ítem:\n{e}")
+            self._error(f"No se pudo agregar el ítem:\n{e}")
 
     def _on_delete_item(self):
         for iid in self.tree.selection():
+            self.tree.delete(iid)
+        self._update_total()
+
+    def _on_clear_table(self):
+        for iid in self.tree.get_children():
             self.tree.delete(iid)
         self._update_total()
 
@@ -253,7 +258,7 @@ class PurchasesView(ttk.Frame):
             items.append(
                 PurchaseItem(
                     product_id=int(prod_id),
-                    cantidad=int(float(scnt)),
+                    cantidad=float(scnt),
                     precio_unitario=float(sprice),  # ya viene con IVA
                 )
             )
@@ -266,7 +271,7 @@ class PurchasesView(ttk.Frame):
             rows.append({
                 "id": int(prod_id),
                 "nombre": str(name),
-                "cantidad": int(float(scnt)),
+                "cantidad": float(scnt),
                 "precio": float(sprice),
                 "subtotal": float(ssub),
             })
@@ -278,11 +283,11 @@ class PurchasesView(ttk.Frame):
         try:
             sup = self._selected_supplier()
             if not sup:
-                messagebox.showwarning("Validación", "Seleccione un proveedor.")
+                self._warn("Seleccione un proveedor.")
                 return
             items = self._collect_items_for_manager()
             if not items:
-                messagebox.showwarning("Validación", "Agregue al menos un ítem.")
+                self._warn("Agregue al menos un ítem.")
                 return
 
             # Validación extra en UI: por si editaron manualmente la tabla
@@ -290,10 +295,7 @@ class PurchasesView(ttk.Frame):
             for it in items:
                 p: Optional[Product] = self.session.get(Product, it.product_id)
                 if not p or getattr(p, "id_proveedor", None) != sup.id:
-                    messagebox.showerror(
-                        "Proveedor incorrecto",
-                        f"El producto id={it.product_id} no corresponde al proveedor seleccionado."
-                    )
+                    self._error(f"El producto id={it.product_id} no corresponde al proveedor seleccionado.")
                     return
 
             self.pm.create_purchase(
@@ -304,29 +306,28 @@ class PurchasesView(ttk.Frame):
             )
 
             # limpiar
-            for iid in list(self.tree.get_children()):
-                self.tree.delete(iid)
-            self._update_total()
-            self.cmb_product.set("")  # limpiar selección de producto tras confirmar
-            messagebox.showinfo("OK", "Compra registrada correctamente.")
+            self._on_clear_table()
+            self.cmb_product.set("")
+            self.cmb_product.focus_set()
+            self._info("Compra registrada correctamente.")
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudo confirmar la compra:\n{e}")
+            self._error(f"No se pudo confirmar la compra:\n{e}")
 
     def _on_generate_po_downloads(self):
         try:
             sup = self._selected_supplier()
             if not sup:
-                messagebox.showwarning("Validación", "Seleccione un proveedor.")
+                self._warn("Seleccione un proveedor.")
                 return
             items = self._collect_items_for_pdf()
             if not items:
-                messagebox.showwarning("Validación", "Agregue al menos un ítem.")
+                self._warn("Agregue al menos un ítem.")
                 return
 
             po_number = f"OC-{sup.id}-{self._stamp()}"
             supplier_dict = {
                 "id": str(sup.id),
-                "nombre": getattr(sup, "razon_social", None) or "",  # compat con po_generator
+                "nombre": getattr(sup, "razon_social", None) or "",
                 "contacto": getattr(sup, "contacto", ""),
                 "telefono": getattr(sup, "telefono", ""),
                 "email": getattr(sup, "email", ""),
@@ -340,11 +341,10 @@ class PurchasesView(ttk.Frame):
                 notes=None,
                 auto_open=True,
             )
-            messagebox.showinfo("OC generada", f"Orden de Compra creada en Descargas:\n{out}")
+            self._info(f"Orden de Compra creada en Descargas:\n{out}")
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudo generar la OC:\n{e}")
+            self._error(f"No se pudo generar la OC:\n{e}")
 
-    # NUEVO: handler para generar COTIZACIÓN sin afectar stock
     def _on_generate_quote_downloads(self):
         """
         Genera una 'COTIZACIÓN' en PDF con la info de la tabla,
@@ -353,12 +353,12 @@ class PurchasesView(ttk.Frame):
         try:
             sup = self._selected_supplier()
             if not sup:
-                messagebox.showwarning("Validación", "Seleccione un proveedor.")
+                self._warn("Seleccione un proveedor.")
                 return
 
             items = self._collect_items_for_pdf()
             if not items:
-                messagebox.showwarning("Validación", "Agregue al menos un ítem.")
+                self._warn("Agregue al menos un ítem.")
                 return
 
             quote_number = f"COT-{sup.id}-{self._stamp()}"
@@ -379,12 +379,22 @@ class PurchasesView(ttk.Frame):
                 notes=None,
                 auto_open=True,   # abrir automáticamente el PDF
             )
-            messagebox.showinfo("Cotización generada", f"Cotización creada en Descargas:\n{out}")
+            self._info(f"Cotización creada en Descargas:\n{out}")
 
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudo generar la Cotización:\n{e}")
+            self._error(f"No se pudo generar la Cotización:\n{e}")
 
     @staticmethod
     def _stamp() -> str:
         from datetime import datetime
         return datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    # ======================== Mensajes ========================
+    def _warn(self, msg: str):
+        messagebox.showwarning("Validación", msg)
+
+    def _error(self, msg: str):
+        messagebox.showerror("Error", msg)
+
+    def _info(self, msg: str):
+        messagebox.showinfo("OK", msg)
