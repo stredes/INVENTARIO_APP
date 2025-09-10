@@ -241,6 +241,9 @@ class OrdersAdminView(ttk.Frame):
             .order_by(Sale.id.desc())
         )
         for sale, cust in q:
+            # OCULTAR ventas eliminadas
+            if str(sale.estado).strip().lower() == "eliminada":
+                continue
             fecha = sale.fecha_venta.strftime("%Y-%m-%d %H:%M")
             cliente = getattr(cust, "razon_social", "") or "-"
             self.tree_sale.insert(

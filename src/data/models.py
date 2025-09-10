@@ -239,3 +239,4 @@ class SaleDetail(Base):
 
     def __repr__(self) -> str:
         return f"<SaleDetail venta={self.id_venta} prod={self.id_producto} cant={self.cantidad}>"
+

@@ -68,6 +68,7 @@ class CustomersView(ttk.Frame):
             self.tree.column(cid, width=w, anchor=anchor)
         self.tree.pack(fill="both", expand=True, pady=(10, 0))
         self.tree.bind("<Double-1>", self._on_row_dblclick)
+        self.tree.bind("<Button-1>", self._on_tree_click)
 
         self._load_table()
 
@@ -106,6 +107,10 @@ class CustomersView(ttk.Frame):
             data = self._read_form()
             if not data:
                 return
+            # Validar unicidad de RUT
+            if self.session.query(Customer).filter_by(rut=data["rut"]).first():
+                messagebox.showwarning("Duplicado", "Ya existe un cliente con ese RUT.")
+                return
             c = Customer(**data)
             self.session.add(c)
             self.session.commit()
@@ -127,6 +132,11 @@ class CustomersView(ttk.Frame):
             if not c:
                 messagebox.showwarning("Aviso", "Registro no encontrado.")
                 return
+            # Validar unicidad de RUT si cambió
+            if c.rut != data["rut"]:
+                if self.session.query(Customer).filter_by(rut=data["rut"]).first():
+                    messagebox.showwarning("Duplicado", "Ya existe un cliente con ese RUT.")
+                    return
             c.razon_social = data["razon_social"]
             c.rut = data["rut"]
             c.contacto = data["contacto"]
@@ -151,6 +161,7 @@ class CustomersView(ttk.Frame):
             self.session.commit()
             self._clear_form()
             self._load_table()
+            messagebox.showinfo("OK", "Cliente eliminado.")
         except Exception as e:
             self.session.rollback()
             messagebox.showerror("Error", f"No se pudo eliminar:\n{e}")
@@ -172,6 +183,13 @@ class CustomersView(ttk.Frame):
         self.btn_save.config(state="disabled")
         self.btn_update.config(state="normal")
         self.btn_delete.config(state="normal")
+
+    def _on_tree_click(self, event):
+        # Des-selecciona fila si se hace click fuera de una celda
+        region = self.tree.identify("region", event.x, event.y)
+        if region == "heading":
+            self.tree.selection_remove(self.tree.selection())
+            self._clear_form()
 
     def _clear_form(self):
         self._editing_id = None
@@ -201,4 +219,4 @@ class CustomersView(ttk.Frame):
             )
 
     def refresh_lookups(self):
-        self._load_table()
+       self._load_table()

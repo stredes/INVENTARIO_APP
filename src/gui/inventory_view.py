@@ -69,7 +69,6 @@ class InventoryView(ttk.Frame):
         ttk.Checkbutton(header, text="Auto", variable=self._auto_enabled, command=self._on_toggle_auto).pack(side="right")
 
         # --- Tabla ---
-        # Inicializamos con todas; _apply_tree_columns ajustará según report_type
         self.tree = ttk.Treeview(
             self,
             columns=("id", "nombre", "sku", "unidad", "stock", "p_compra", "p_venta"),

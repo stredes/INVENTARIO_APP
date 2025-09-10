@@ -12,13 +12,21 @@ from src.utils.so_generator import generate_so_to_downloads
 from src.gui.widgets.autocomplete_combobox import AutoCompleteCombobox
 # Generador PDF del informe
 from src.reports.sales_report_pdf import generate_sales_report_to_downloads
+from sqlalchemy import and_
 
 
 class SalesView(ttk.Frame):
     """
-    Crear ventas + Generar OV + ADMIN (cancelar/eliminar venta por ID con reversa de stock).
-    (Nuevo) Informe de Ventas con filtros + exportación CSV/PDF a Descargas.
+    Crear ventas + Generar OV + ADMIN (cancelar / marcar eliminada).
+    Selector de estado y lógica de stock:
+      - Pagada -> puede descontar stock (si checkbox activo)
+      - Reservada / Cancelada -> no descuenta
+    Informe de Ventas con filtros + exportación CSV/PDF a Descargas.
     """
+
+    # Cambiado: solo estos estados
+    ESTADOS = ["Pagada", "Reservada", "Cancelada"]
+
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
 
@@ -39,7 +47,7 @@ class SalesView(ttk.Frame):
         self.cmb_customer.grid(row=0, column=1, sticky="w", padx=4, pady=4)
 
         self.var_apply = tk.BooleanVar(value=True)
-        ttk.Checkbutton(top, text="Descontar stock (Confirmada)", variable=self.var_apply)\
+        ttk.Checkbutton(top, text="Descontar stock (Confirmada/Pagada)", variable=self.var_apply)\
             .grid(row=0, column=2, padx=10)
 
         # ---------- Detalle ----------
@@ -83,10 +91,18 @@ class SalesView(ttk.Frame):
             self.tree.column(cid, width=w, anchor=anchor)
         self.tree.pack(fill="both", expand=True, pady=(10, 0))
 
+        # ---------- Total + Acciones ----------
         bottom = ttk.Frame(self)
         bottom.pack(fill="x", expand=False, pady=10)
         self.lbl_total = ttk.Label(bottom, text="Total: 0.00", font=("", 11, "bold"))
         self.lbl_total.pack(side="left")
+
+        # Selector de estado
+        ttk.Label(bottom, text="Estado:").pack(side="right", padx=(6, 2))
+        self.cmb_estado = ttk.Combobox(bottom, state="readonly", width=12, values=self.ESTADOS)
+        self.cmb_estado.current(0)  # Pagada
+        self.cmb_estado.pack(side="right")
+
         ttk.Button(bottom, text="Eliminar ítem", command=self._on_delete_item)\
             .pack(side="right", padx=6)
         ttk.Button(bottom, text="Generar OV (PDF en Descargas)", command=self._on_generate_so_downloads)\
@@ -95,17 +111,17 @@ class SalesView(ttk.Frame):
             .pack(side="right", padx=6)
 
         # ---------- Admin CRUD Venta ----------
-        admin = ttk.Labelframe(self, text="Administrar ventas (Cancelar / Eliminar)", padding=10)
+        admin = ttk.Labelframe(self, text="Administrar ventas (Cancelar / Marcar Eliminada)", padding=10)
         admin.pack(fill="x", expand=False, pady=(10, 0))
         ttk.Label(admin, text="ID Venta:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
         self.ent_sale_id = ttk.Entry(admin, width=10)
         self.ent_sale_id.grid(row=0, column=1, sticky="w", padx=4, pady=4)
-        ttk.Button(admin, text="Cancelar (reversa stock si confirmada)", command=self._on_cancel_sale)\
+        ttk.Button(admin, text="Cancelar (reversa si confirma/paga)", command=self._on_cancel_sale)\
             .grid(row=0, column=2, padx=6)
-        ttk.Button(admin, text="Eliminar (reversa si confirmada)", command=self._on_delete_sale)\
+        ttk.Button(admin, text="Eliminar (marca 'Eliminada')", command=self._on_delete_sale)\
             .grid(row=0, column=3, padx=6)
 
-        # ---------- Informe de Ventas (Nuevo) ----------
+        # ---------- Informe de Ventas ----------
         rep = ttk.Labelframe(self, text="Informe de ventas por fecha y filtros", padding=10)
         rep.pack(fill="x", expand=False, pady=(10, 0))
 
@@ -126,8 +142,10 @@ class SalesView(ttk.Frame):
         self.flt_product.grid(row=1, column=3, sticky="w", padx=4, pady=4)
 
         ttk.Label(rep, text="Estado:").grid(row=2, column=0, sticky="e", padx=4, pady=4)
-        self.flt_estado = ttk.Combobox(rep, state="readonly", width=18,
-                                       values=("", "Confirmada", "Borrador", "Cancelada"))
+        self.flt_estado = ttk.Combobox(
+            rep, state="readonly", width=18,
+            values=("", "Pagada", "Reservada", "Cancelada")
+        )
         self.flt_estado.grid(row=2, column=1, sticky="w", padx=4, pady=4)
         self.flt_estado.set("")  # vacío = todos
 
@@ -343,12 +361,16 @@ class SalesView(ttk.Frame):
                 for it in items
             ]
 
+            estado = (self.cmb_estado.get() or "Pagada").strip()
+            # Cambiado: solo descuenta stock si es "Pagada"
+            apply_to_stock = self.var_apply.get() and (estado == "Pagada")
+
             create_fn = self._resolve_create_sale()
             create_fn(
                 customer_id=cust.id,
                 items=sm_items,
-                estado="Confirmada" if self.var_apply.get() else "Borrador",
-                apply_to_stock=self.var_apply.get(),
+                estado=estado,
+                apply_to_stock=apply_to_stock,
             )
 
             # Limpiar detalle
@@ -356,7 +378,7 @@ class SalesView(ttk.Frame):
                 self.tree.delete(iid)
             self._update_total()
 
-            messagebox.showinfo("OK", "Venta registrada correctamente.")
+            messagebox.showinfo("OK", f"Venta registrada ({estado}).")
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo confirmar la venta:\n{e}")
 
@@ -378,6 +400,7 @@ class SalesView(ttk.Frame):
             )
             messagebox.showinfo("OV generada", f"Orden de Venta creada en Descargas:\n{out}")
         except Exception as e:
+            # FIX: quitar '}' extra en el f-string
             messagebox.showerror("Error", f"No se pudo generar la OV:\n{e}")
 
     def _on_cancel_sale(self):
@@ -391,10 +414,10 @@ class SalesView(ttk.Frame):
     def _on_delete_sale(self):
         try:
             sid = int(self.ent_sale_id.get())
-            if not messagebox.askyesno("Confirmar", f"¿Eliminar venta {sid}?"):
+            if not messagebox.askyesno("Confirmar", f"¿Marcar venta {sid} como Eliminada? Se revertirá stock si corresponde."):
                 return
             self.sm.delete_sale(sid, revert_stock=True)
-            messagebox.showinfo("OK", f"Venta {sid} eliminada.")
+            messagebox.showinfo("OK", f"Venta {sid} marcada como Eliminada.")
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo eliminar:\n{e}")
 
@@ -432,11 +455,8 @@ class SalesView(ttk.Frame):
         """
         Retorna lista de dicts con ventas en [d_from, d_to] + filtros.
         Campos: id, fecha, cliente, estado, total
-
-        Ajusta nombres de modelo/campos si difieren:
-          - Sale.fecha_venta, Sale.total_venta, Sale.estado, Sale.id_cliente (o customer_id)
-          - SaleDetail.id_venta, SaleDetail.id_producto
         """
+        import sqlalchemy
         from datetime import datetime
         from sqlalchemy import and_
         from src.data.models import Sale, SaleDetail  # ajusta si tus clases se llaman distinto
@@ -463,7 +483,6 @@ class SalesView(ttk.Frame):
                 q = q.filter(getattr(Sale, "id_cliente") == int(customer_id))
             elif hasattr(Sale, "customer_id"):
                 q = q.filter(getattr(Sale, "customer_id") == int(customer_id))
-            # Si no existe FK clara, se omite el filtro para evitar joins frágiles
 
         if product_id:
             # Ventas que contienen el producto en su detalle
@@ -477,7 +496,7 @@ class SalesView(ttk.Frame):
             fecha = getattr(s, "fecha_venta", None)
             total = getattr(s, "total_venta", None)
             est = getattr(s, "estado", None) or ""
-            # Cliente: preferimos mostrar razon_social si la relación existe
+            # Cliente (si hay relación cargada)
             cliente = ""
             cust_obj = getattr(s, "customer", None)
             if cust_obj is not None:
@@ -518,6 +537,9 @@ class SalesView(ttk.Frame):
 
         total_general = 0.0
         for r in rows:
+            # OCULTAR ventas eliminadas
+            if str(r.get("estado", "")).strip().lower() == "eliminada":
+                continue
             f = r.get("fecha")
             if hasattr(f, "strftime"):
                 fecha_txt = f.strftime("%d/%m/%Y %H:%M") if hasattr(f, "hour") else f.strftime("%d/%m/%Y")
@@ -547,6 +569,9 @@ class SalesView(ttk.Frame):
                 w = csv.writer(f, delimiter=";")
                 w.writerow(["ID", "Fecha", "Cliente", "Estado", "Total"])
                 for r in rows:
+                    # OCULTAR ventas eliminadas en exportación
+                    if str(r.get("estado", "")).strip().lower() == "eliminada":
+                        continue
                     fval = r["fecha"]
                     ftxt = fval.strftime("%d/%m/%Y %H:%M") if hasattr(fval, "strftime") else str(fval or "")
                     w.writerow([r["id"], ftxt, r["cliente"], r["estado"], f"{r['total']:.2f}"])
@@ -576,8 +601,11 @@ class SalesView(ttk.Frame):
             date_from = self.ent_from.get().strip()
             date_to = self.ent_to.get().strip()
 
+            # Filtrar eliminadas antes de exportar
+            filtered_rows = [r for r in rows if str(r.get("estado", "")).strip().lower() != "eliminada"]
+
             out = generate_sales_report_to_downloads(
-                rows=rows,
+                rows=filtered_rows,
                 date_from=date_from,
                 date_to=date_to,
                 filters=filters,

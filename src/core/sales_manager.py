@@ -23,6 +23,7 @@ class SalesError(Exception):
 
 @dataclass(frozen=True)
 class SaleItem:
+    """Ítem de venta (precio_unitario = precio de venta)."""
     product_id: int
     cantidad: int
     precio_unitario: float
@@ -36,7 +37,16 @@ class SalesManager:
     """
     Administra la creación, cancelación y eliminación de ventas,
     y su efecto en el inventario.
+
+    Estados soportados:
+      - 'Confirmada'  -> puede descontar stock
+      - 'Pagada'      -> puede descontar stock
+      - 'Reservada'   -> NO descuenta stock
+      - 'Cancelada'   -> NO descuenta stock (si venía confirmada/pagada y se cancela con revert, repone stock)
+      - 'Eliminada'   -> NO se borra físicamente; se marca estado='Eliminada' (para listar en otra sección)
     """
+    _STATES_THAT_EXIT_STOCK = {"confirmada", "pagada"}
+
     def __init__(self, session: Optional[Session] = None) -> None:
         self.session: Session = session or get_session()
         self.customers = CustomerRepository(self.session)
@@ -78,12 +88,13 @@ class SalesManager:
         customer_id: int,
         items: Iterable[SaleItem],
         fecha: Optional[datetime] = None,
-        estado: str = "Confirmada",   # 'Borrador' | 'Confirmada' | 'Cancelada'
-        apply_to_stock: bool = True,  # si Confirmada, descuenta stock
+        estado: str = "Confirmada",   # 'Confirmada' | 'Pagada' | 'Reservada' | 'Cancelada'
+        apply_to_stock: bool = True,  # si estado es Confirmada/Pagada y True -> descuenta stock
     ) -> Sale:
         """
-        Crea Sale + SaleDetails. Si estado='Confirmada' y apply_to_stock=True,
-        registra SALIDAS de stock y actualiza Product.stock_actual.
+        Crea Sale + SaleDetails.
+        - Si estado ∈ {'Confirmada','Pagada'} y apply_to_stock=True -> registra SALIDAS de stock.
+        - 'Reservada' y 'Cancelada' no afectan stock al crear.
         """
         fecha = fecha or datetime.utcnow()
         self._validate_customer(customer_id)
@@ -113,7 +124,7 @@ class SalesManager:
                 self.sale_details.add(det)
 
             # Stock (si corresponde)
-            if estado.lower() == "confirmada" and apply_to_stock:
+            if estado.lower() in self._STATES_THAT_EXIT_STOCK and apply_to_stock:
                 for it in items:
                     self.inventory.register_exit(
                         product_id=it.product_id,
@@ -132,8 +143,9 @@ class SalesManager:
 
     def cancel_sale(self, sale_id: int, *, revert_stock: bool = True) -> None:
         """
-        Cambia estado a 'Cancelada'. Si revert_stock=True y estaba Confirmada,
-        reingresa stock (entradas).
+        Cambia estado a 'Cancelada'.
+        Si revert_stock=True y la venta estaba en un estado que **descuenta stock**
+        ('Confirmada'/'Pagada'), reingresa stock (entradas).
         """
         sale = self.sales.get(sale_id)
         if not sale:
@@ -142,7 +154,7 @@ class SalesManager:
         if sale.estado.lower() == "cancelada":
             return
 
-        if revert_stock and sale.estado.lower() == "confirmada":
+        if revert_stock and sale.estado.lower() in self._STATES_THAT_EXIT_STOCK:
             for det in sale.details:
                 self.inventory.register_entry(
                     product_id=det.id_producto,
@@ -155,20 +167,22 @@ class SalesManager:
 
     def delete_sale(self, sale_id: int, *, revert_stock: bool = True) -> None:
         """
-        Elimina la venta y sus detalles. Si estaba Confirmada y revert_stock=True,
-        reingresa stock antes de borrar.
+        **No borra físicamente**. Marca estado='Eliminada'.
+        Si estaba en un estado que **descuenta stock** y revert_stock=True,
+        reingresa stock antes de marcar como Eliminada.
+        Esto permite listar las 'Eliminadas' en otra sección/reportería.
         """
         sale = self.sales.get(sale_id)
         if not sale:
             return
 
-        if revert_stock and sale.estado.lower() == "confirmada":
+        if revert_stock and sale.estado.lower() in self._STATES_THAT_EXIT_STOCK:
             for det in sale.details:
                 self.inventory.register_entry(
                     product_id=det.id_producto,
                     cantidad=det.cantidad,
-                    motivo=f"Reversa venta {sale_id}",
+                    motivo=f"Reversa venta {sale_id} (eliminada)",
                     when=datetime.utcnow(),
                 )
-        self.sales.delete(sale_id)
+        sale.estado = "Eliminada"
         self.session.commit()

@@ -1,7 +1,7 @@
 from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
-
+import sys
 from src.gui.products_view import ProductsView
 from src.gui.suppliers_view import SuppliersView
 from src.gui.customers_view import CustomersView
@@ -39,19 +39,19 @@ class MainWindow(ttk.Frame):
         self.notebook.add(self.products_tab, text="Productos")
         self.notebook.add(self.suppliers_tab, text="Proveedores")
         self.notebook.add(self.customers_tab, text="Clientes")
-        self.notebook.add(self.purchases_tab, text="Compras")   # antes: "ocmpra"
-        self.notebook.add(self.sales_tab, text="Ventas")        # antes: "ocventa"
+        self.notebook.add(self.purchases_tab, text="Compras")
+        self.notebook.add(self.sales_tab, text="Ventas")
         self.notebook.add(self.inventory_tab, text="Inventario")
-        self.notebook.add(self.orders_admin_tab, text="Órdenes")  # ← NUEVO
+        self.notebook.add(self.orders_admin_tab, text="Órdenes")
 
         self.notebook.pack(fill="both", expand=True)
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_change)
 
     def _on_tab_change(self, _event=None):
         w = self.notebook.nametowidget(self.notebook.select())
+        # Refresca lookups solo si el tab lo implementa
         if hasattr(w, "refresh_lookups"):
             try:
                 w.refresh_lookups()
-            except Exception:
-                # Silencioso: no todos los tabs implementan refresh_lookups
-                pass
+            except Exception as ex:
+                print(f"Error al refrescar lookups: {ex}", file=sys.stderr)
