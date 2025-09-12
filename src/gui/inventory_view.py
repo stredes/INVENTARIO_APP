@@ -1,4 +1,5 @@
 # src/gui/inventory_view.py
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -36,7 +37,10 @@ class InventoryView(ttk.Frame):
     - Auto-refresco configurable.
     - Filtros + Exportar XLSX + Imprimir.
     - Columnas por 'venta' / 'compra' / 'completo'.
+    - Footer con totales: Σ P. Compra y Σ P. Venta (de los productos mostrados).
     """
+
+    # ============================ init / estado ============================ #
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
 
@@ -62,7 +66,11 @@ class InventoryView(ttk.Frame):
         # --- Encabezado ---
         header = ttk.Frame(self)
         header.pack(fill="x", expand=False)
-        ttk.Label(header, text="Inventario (refresco automático)", font=("", 11, "bold")).pack(side="left")
+        ttk.Label(
+            header,
+            text="Inventario (refresco automático)",
+            font=("", 11, "bold"),
+        ).pack(side="left")
 
         ttk.Button(header, text="Imprimir", command=self._on_print).pack(side="right", padx=4)
         ttk.Button(header, text="Exportar XLSX", command=self._on_export_xlsx).pack(side="right", padx=4)
@@ -73,6 +81,29 @@ class InventoryView(ttk.Frame):
         # --- Tabla (GridTable) ---
         self.table = GridTable(self)
         self.table.pack(fill="both", expand=True, pady=(8, 10))
+
+        # --- Footer de totales ---
+        # Muestra Σ P. Compra y Σ P. Venta de lo actualmente listado
+        footer = ttk.Frame(self)
+        footer.pack(fill="x", expand=False, pady=(0, 10))
+
+        ttk.Separator(self, orient="horizontal").pack(fill="x", pady=(0, 6))
+
+        # Etiquetas alineadas a la derecha
+        footer.grid_columnconfigure(0, weight=1)
+        footer.grid_columnconfigure(1, weight=0)
+        footer.grid_columnconfigure(2, weight=0)
+        footer.grid_columnconfigure(3, weight=0)
+
+        ttk.Label(footer, text="Totales mostrados:", font=("", 10, "bold")).grid(row=0, column=0, sticky="e", padx=6)
+
+        ttk.Label(footer, text="Σ P. Compra:").grid(row=0, column=1, sticky="e", padx=(6, 2))
+        self._lbl_total_compra = ttk.Label(footer, text="$ 0.00", font=("", 10, "bold"))
+        self._lbl_total_compra.grid(row=0, column=2, sticky="w", padx=(0, 12))
+
+        ttk.Label(footer, text="Σ P. Venta:").grid(row=0, column=3, sticky="e", padx=(6, 2))
+        self._lbl_total_venta = ttk.Label(footer, text="$ 0.00", font=("", 10, "bold"))
+        self._lbl_total_venta.grid(row=0, column=4, sticky="w")
 
         # --- Panel Configuración ---
         cfg = ttk.Labelframe(self, text="Configuración de límites críticos y refresco", padding=10)
@@ -97,6 +128,7 @@ class InventoryView(ttk.Frame):
 
     # ====================== columnas y filas ====================== #
     def _columns_for(self, report_type: str) -> List[str]:
+        """Define las columnas visibles según el tipo de reporte."""
         if report_type == "venta":
             return ["ID", "Producto", "SKU", "Unidad", "Stock", "P. Venta"]
         if report_type == "compra":
@@ -124,16 +156,46 @@ class InventoryView(ttk.Frame):
 
             base = [p.id, p.nombre, p.sku, p.unidad_medida or "", stock]
             if report_type == "venta":
-                row = base + [f"{float(p.precio_venta or 0):.2f}"]
+                row = base + [self._fmt_money(p.precio_venta)]
             elif report_type == "compra":
-                row = base + [f"{float(p.precio_compra or 0):.2f}"]
+                row = base + [self._fmt_money(p.precio_compra)]
             else:
-                row = base + [f"{float(p.precio_compra or 0):.2f}", f"{float(p.precio_venta or 0):.2f}"]
+                row = base + [self._fmt_money(p.precio_compra), self._fmt_money(p.precio_venta)]
 
-            rows.append(row); colors.append(color); ids.append(int(p.id))
+            rows.append(row)
+            colors.append(color)
+            ids.append(int(p.id))
         return rows, colors, ids
 
-    # ================================ UI actions ================================ #
+    # ======================= helpers de totales / formato ======================= #
+    @staticmethod
+    def _fmt_money(value) -> str:
+        """Formatea números a '$ 1,234.56'. (Cambiar si prefieres es-CL exacto)."""
+        try:
+            return f"$ {float(value or 0):,.2f}"
+        except Exception:
+            return "$ 0.00"
+
+    @staticmethod
+    def _compute_totals(products: List[Product]) -> tuple[float, float]:
+        """
+        Suma precios unitarios sobre la lista mostrada.
+        Retorna: (total_compra, total_venta)
+        """
+        total_compra = 0.0
+        total_venta = 0.0
+        for p in products:
+            total_compra += float(p.precio_compra or 0)
+            total_venta += float(p.precio_venta or 0)
+        return total_compra, total_venta
+
+    def _update_footer_totals(self, products: List[Product]) -> None:
+        """Actualiza las etiquetas del footer con los totales actuales."""
+        total_compra, total_venta = self._compute_totals(products)
+        self._lbl_total_compra.config(text=self._fmt_money(total_compra))
+        self._lbl_total_venta.config(text=self._fmt_money(total_venta))
+
+    # ================================ acciones UI ================================ #
     def refresh_table(self):
         """Carga productos sin filtros y pinta por min/max (grid real si hay tksheet)."""
         try:
@@ -147,6 +209,10 @@ class InventoryView(ttk.Frame):
             messagebox.showerror("Error", f"No se pudo refrescar el inventario:\n{e}")
 
     def _populate_table(self, products: List[Product]) -> None:
+        """
+        Pinta la tabla con productos y aplica colores críticos.
+        También actualiza el footer de totales con base en 'products'.
+        """
         cols = self._columns_for(self._current_filter.report_type)
         rows, colors, ids = self._rows_from_products(products, self._current_filter.report_type)
         self._last_row_ids = ids
@@ -154,18 +220,20 @@ class InventoryView(ttk.Frame):
         # 1) Cargar datos en la grilla (tksheet o fallback Treeview)
         self.table.set_data(cols, rows)
 
-        # 2) Aplicar colores críticos por fila
-        #    GridTable se encarga de no pisar el zebrado y de resaltar en tksheet.
+        # 2) Aplicar colores críticos por fila (si el backend lo soporta)
         try:
             self.table.set_row_backgrounds(colors)
         except Exception:
             pass
 
-        # 3) Si el tema cambió en caliente, re-aplica paleta
+        # 3) Re-aplicar paleta si el tema cambió en caliente
         try:
             self.table.theme_refresh()
         except Exception:
             pass
+
+        # 4) Actualizar totales del footer
+        self._update_footer_totals(products)
 
     def _on_save_config(self):
         """Persiste límites y ms de refresco, reprograma el auto y refresca la tabla."""
@@ -209,7 +277,7 @@ class InventoryView(ttk.Frame):
     # ---------------------- Filtros, exportación, impresión ---------------------- #
     def _selected_ids(self) -> List[int]:
         """IDs de filas seleccionadas (tksheet o fallback Treeview)."""
-        # tksheet
+        # tksheet backend
         if hasattr(self.table, "sheet"):
             try:
                 sel_rows = sorted(set(self.table.sheet.get_selected_rows()))
@@ -234,6 +302,7 @@ class InventoryView(ttk.Frame):
         return ids
 
     def _on_filters(self):
+        """Abre diálogo de filtros, aplica y actualiza tabla + totales."""
         dlg = InventoryFiltersDialog(self, initial=self._current_filter)
         self.wait_window(dlg)
         if dlg.result:
@@ -246,6 +315,7 @@ class InventoryView(ttk.Frame):
                 messagebox.showerror("Error", f"No se pudo aplicar filtros:\n{e}")
 
     def _on_export_xlsx(self):
+        """Exporta XLSX con filtro actual (o con selección de IDs si la hay)."""
         ids = self._selected_ids()
         flt = self._current_filter
         if ids:
@@ -258,6 +328,7 @@ class InventoryView(ttk.Frame):
             messagebox.showerror("Error", f"No se pudo exportar:\n{e}")
 
     def _on_print(self):
+        """Imprime con filtro actual (o con selección de IDs si la hay)."""
         ids = self._selected_ids()
         flt = self._current_filter
         if ids:
