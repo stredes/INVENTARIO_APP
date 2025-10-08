@@ -1,0 +1,246 @@
+# src/gui/main_window.py
+from __future__ import annotations
+import sys
+import configparser
+from pathlib import Path
+import tkinter as tk
+from tkinter import ttk, Menu
+
+from src.gui.products_view import ProductsView
+from src.gui.suppliers_view import SuppliersView
+from src.gui.customers_view import CustomersView
+from src.gui.purchases_view import PurchasesView
+from src.gui.sales_view import SalesView
+from src.gui.inventory_view import InventoryView
+from src.gui.orders_admin_view import OrdersAdminView
+from src.reports.report_center import ReportCenter  # ← NUEVO
+
+from src.gui.theme_manager import ThemeManager
+from src.gui.widgets.status_bar import StatusBar
+from src.gui.widgets.toast import Toast
+from src.gui.widgets.command_palette import CommandPalette, CommandAction
+
+UI_STATE_PATH = Path("config/ui_state.ini")
+
+
+class MainWindow(ttk.Frame):
+    def __init__(self, master: tk.Misc):
+        super().__init__(master, padding=10)
+
+        # ⬇️ NO USAR self._root (colisiona con tk._root())
+        self.app_root: tk.Tk = self.winfo_toplevel()
+
+        # Tema y menú
+        ThemeManager.attach(self.app_root)
+        self._build_menu()
+
+        # Notebook + tabs
+        self.notebook = ttk.Notebook(self)
+        self.products_tab = ProductsView(self.notebook)
+        self.suppliers_tab = SuppliersView(self.notebook)
+        self.customers_tab = CustomersView(self.notebook)
+        self.purchases_tab = PurchasesView(self.notebook)
+        self.sales_tab = SalesView(self.notebook)
+        self.inventory_tab = InventoryView(self.notebook)
+        self.orders_admin_tab = OrdersAdminView(self.notebook)
+        self.report_center_tab = ReportCenter(self.notebook)  # ← NUEVO
+
+        self.notebook.add(self.products_tab, text="Productos")
+        self.notebook.add(self.suppliers_tab, text="Proveedores")
+        self.notebook.add(self.customers_tab, text="Clientes")
+        self.notebook.add(self.purchases_tab, text="Compras")
+        self.notebook.add(self.sales_tab, text="Ventas")
+        self.notebook.add(self.inventory_tab, text="Inventario")
+        self.notebook.add(self.orders_admin_tab, text="Órdenes")
+        self.notebook.add(self.report_center_tab, text="Informes")  # ← NUEVO
+
+        self.notebook.pack(fill="both", expand=True)
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_change)
+
+        # Status bar
+        self.status = StatusBar(self)
+        self.status.pack(side="bottom", fill="x")
+        self.status.set_message("Listo")
+        self.status.set_info(user="admin", env="dev")
+        self.status.set_db_status("OK")
+
+        # Atajos
+        self._setup_shortcuts()
+
+        # Persistencia
+        self._restore_ui_state()
+        self.app_root.bind("<Destroy>", self._on_root_destroy, add="+")
+
+        # Toast de ayuda
+        Toast.show(self.app_root, "Ctrl+K: Paleta de comandos", kind="info", ms=1800)
+
+    def _build_menu(self) -> None:
+        menubar = Menu(self.app_root)
+        self.app_root.config(menu=menubar)
+
+        m_file = Menu(menubar, tearoff=False)
+        m_file.add_command(label="Paleta de comandos…    Ctrl+K", command=self._open_palette)
+        m_file.add_separator()
+        m_file.add_command(label="Salir", command=self.app_root.quit)
+        menubar.add_cascade(label="Archivo", menu=m_file)
+
+        ThemeManager.build_menu(menubar)
+
+        m_tools = Menu(menubar, tearoff=False)
+        m_tools.add_command(label="Nuevo (Ctrl+N)", command=self._new_current)
+        m_tools.add_command(label="Guardar (Ctrl+S)", command=self._save_current)
+        m_tools.add_command(label="Imprimir (Ctrl+P)", command=self._print_current)
+        menubar.add_cascade(label="Herramientas", menu=m_tools)
+
+        m_view = Menu(menubar, tearoff=False)
+        m_view.add_command(label="Paleta de comandos…", command=self._open_palette)
+        m_view.add_command(label="Ir a Informes", command=self.show_report_center)  # ← NUEVO
+        menubar.add_cascade(label="Ver", menu=m_view)
+
+    def _setup_shortcuts(self) -> None:
+        self.bind_all("<Control-k>", lambda e: self._open_palette())
+        self.bind_all("<Control-n>", lambda e: self._new_current())
+        self.bind_all("<Control-s>", lambda e: self._save_current())
+        self.bind_all("<Control-p>", lambda e: self._print_current())
+
+    def _open_palette(self) -> None:
+        actions = self._build_actions()
+        CommandPalette.open(self.app_root, actions=actions)
+
+    def _build_actions(self) -> list[CommandAction]:
+        view = self._current_view()
+        actions: list[CommandAction] = [
+            CommandAction("go_products", "Ir a Productos", callback=self.show_products, keywords=["inventario", "stock"]),
+            CommandAction("go_suppliers", "Ir a Proveedores", callback=self.show_suppliers, keywords=["proveedores"]),
+            CommandAction("go_customers", "Ir a Clientes", callback=self.show_customers, keywords=["clientes"]),
+            CommandAction("go_purchases", "Ir a Compras", callback=self.show_purchases, keywords=["oc", "orden de compra"]),
+            CommandAction("go_sales", "Ir a Ventas", callback=self.show_sales, keywords=["ov", "boletas", "ventas"]),
+            CommandAction("go_inventory", "Ir a Inventario", callback=self.show_inventory, keywords=["kardex", "bodega"]),
+            CommandAction("go_orders", "Ir a Órdenes", callback=self.show_orders_admin, keywords=["admin", "oc", "ov"]),
+            CommandAction("go_reports", "Ir a Informes", callback=self.show_report_center, keywords=["reportes", "informes"]),  # ← NUEVO
+            CommandAction("act_new", "Nuevo registro", callback=self._new_current, category="Acción", shortcut="Ctrl+N"),
+            CommandAction("act_save", "Guardar cambios", callback=self._save_current, category="Acción", shortcut="Ctrl+S"),
+            CommandAction("act_print", "Imprimir vista", callback=self._print_current, category="Acción", shortcut="Ctrl+P"),
+        ]
+        if hasattr(view, "actions") and callable(getattr(view, "actions")):
+            try:
+                for label, func in view.actions():
+                    actions.append(CommandAction(f"view_{label}", label, callback=func, category="Vista"))
+            except Exception:
+                pass
+        return actions
+
+    def _current_view(self) -> ttk.Frame:
+        sel = self.notebook.select()
+        return self.notebook.nametowidget(sel)
+
+    def _select_tab_by_widget(self, widget: ttk.Frame) -> None:
+        self.notebook.select(widget)
+
+    def show_products(self) -> None: self._select_tab_by_widget(self.products_tab)
+    def show_suppliers(self) -> None: self._select_tab_by_widget(self.suppliers_tab)
+    def show_customers(self) -> None: self._select_tab_by_widget(self.customers_tab)
+    def show_purchases(self) -> None: self._select_tab_by_widget(self.purchases_tab)
+    def show_sales(self) -> None: self._select_tab_by_widget(self.sales_tab)
+    def show_inventory(self) -> None: self._select_tab_by_widget(self.inventory_tab)
+    def show_orders_admin(self) -> None: self._select_tab_by_widget(self.orders_admin_tab)
+    def show_report_center(self) -> None: self._select_tab_by_widget(self.report_center_tab)  # ← NUEVO
+
+    def _new_current(self) -> None:
+        view = self._current_view()
+        for name in ("new", "create_new", "new_record"):
+            if hasattr(view, name) and callable(getattr(view, name)):
+                getattr(view, name)()
+                self.status.flash("Nuevo registro", kind="info", ms=1200)
+                return
+        Toast.show(self.app_root, "La vista actual no soporta 'Nuevo'", kind="warning")
+
+    def _save_current(self) -> None:
+        view = self._current_view()
+        for name in ("save", "save_changes", "commit"):
+            if hasattr(view, name) and callable(getattr(view, name)):
+                try:
+                    getattr(view, name)()
+                    self.status.flash("Guardado con éxito", kind="success", ms=1400)
+                except Exception as ex:
+                    Toast.show(self.app_root, f"Error al guardar: {ex}", kind="danger", position="tr")
+                    self.status.flash("Error al guardar", kind="danger", ms=1400)
+                return
+        Toast.show(self.app_root, "La vista actual no soporta 'Guardar'", kind="warning")
+
+    def _print_current(self) -> None:
+        view = self._current_view()
+        for name in ("print_current", "print_inventory", "print", "export_pdf"):  # ← incluye print_inventory
+            if hasattr(view, name) and callable(getattr(view, name)):
+                try:
+                    self.status.progress_start(indeterminate=True)
+                    getattr(view, name)()
+                    self.status.progress_hide()
+                    self.status.flash("Impresión enviada", kind="success", ms=1400)
+                except Exception as ex:
+                    self.status.progress_hide()
+                    Toast.show(self.app_root, f"Error al imprimir: {ex}", kind="danger", position="tr")
+                    self.status.flash("Error al imprimir", kind="danger", ms=1400)
+                return
+        Toast.show(self.app_root, "La vista actual no soporta 'Imprimir'", kind="warning")
+
+    def _on_tab_change(self, _event=None):
+        w = self._current_view()
+        if hasattr(w, "refresh_lookups"):
+            try:
+                w.refresh_lookups()
+            except Exception as ex:
+                print(f"Error al refrescar lookups: {ex}", file=sys.stderr)
+        tab_text = self.notebook.tab(self.notebook.select(), "text")
+        self.status.set_message(f"Vista: {tab_text} — Ctrl+K para comandos")
+        self._save_last_tab_index()
+
+    def _restore_ui_state(self) -> None:
+        cfg = configparser.ConfigParser()
+        if UI_STATE_PATH.exists():
+            cfg.read(UI_STATE_PATH, encoding="utf-8")
+        geom = cfg.get("mainwindow", "geometry", fallback="")
+        if geom:
+            try:
+                self.app_root.geometry(geom)
+            except Exception:
+                pass
+        last_idx = cfg.getint("mainwindow", "last_tab_index", fallback=0)
+        try:
+            self.notebook.select(last_idx)
+        except Exception:
+            pass
+
+    def _save_last_tab_index(self) -> None:
+        idx = self._safe_current_index()
+        cfg = configparser.ConfigParser()
+        if UI_STATE_PATH.exists():
+            cfg.read(UI_STATE_PATH, encoding="utf-8")
+        cfg.setdefault("mainwindow", {})
+        cfg["mainwindow"]["last_tab_index"] = str(idx)
+        UI_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with UI_STATE_PATH.open("w", encoding="utf-8") as f:
+            cfg.write(f)
+
+    def _on_root_destroy(self, event) -> None:
+        if event.widget is not self.app_root:
+            return
+        try:
+            geom = self.app_root.winfo_geometry()
+            cfg = configparser.ConfigParser()
+            if UI_STATE_PATH.exists():
+                cfg.read(UI_STATE_PATH, encoding="utf-8")
+            cfg.setdefault("mainwindow", {})
+            cfg["mainwindow"]["geometry"] = geom
+            cfg["mainwindow"]["last_tab_index"] = str(self._safe_current_index())
+            UI_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with UI_STATE_PATH.open("w", encoding="utf-8") as f:
+                cfg.write(f)
+        except Exception:
+            pass
+
+    def _safe_current_index(self) -> int:
+        try:
+            return self.notebook.index(self.notebook.select())
+        except Exception:
+            return 0
