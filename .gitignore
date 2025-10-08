@@ -1,0 +1,67 @@
+# ==========================
+# Archivos de Python
+# ==========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ==========================
+# Entornos virtuales
+# ==========================
+.venv/
+venv/
+env/
+ENV/
+
+# ==========================
+# Archivos de base de datos
+# ==========================
+*.db
+*.sqlite3
+src/data/inventory.db
+
+# ==========================
+# Archivos de configuración locales
+# ==========================
+config/settings.local.ini
+.env
+*.ini~
+*.bak
+
+# ==========================
+# Logs
+# ==========================
+*.log
+logs/
+app.log
+
+# ==========================
+# Compilados / paquetes
+# ==========================
+build/
+dist/
+*.egg-info/
+*.spec
+
+# ==========================
+# PyInstaller
+# ==========================
+*.exe
+*.dll
+*.manifest
+*.spec
+
+# ==========================
+# IDEs y editores
+# ==========================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ==========================
+# Archivos temporales
+# ==========================
+.DS_Store
+Thumbs.db
+*.tmp
