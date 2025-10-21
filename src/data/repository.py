@@ -74,6 +74,17 @@ class ProductRepository(BaseRepository[Product]):
         """True si existe un producto con ese SKU (case-insensitive)."""
         return self.get_by_sku(sku) is not None
 
+    def get_by_barcode(self, barcode: str) -> Optional[Product]:
+        """Busca por código de barras exacto (trim)."""
+        code = (barcode or "").strip()
+        if not code:
+            return None
+        return (
+            self.session.query(Product)
+            .filter(Product.barcode == code)
+            .first()
+        )
+
     def upsert_by_sku(self, sku: str, **fields) -> Product:
         """
         Crea o actualiza un producto por SKU (Código).

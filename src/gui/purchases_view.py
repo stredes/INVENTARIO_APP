@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import List, Optional, Dict
@@ -16,14 +16,14 @@ IVA_RATE = 0.19  # 19% IVA por defecto
 
 class PurchasesView(ttk.Frame):
     """
-    Módulo de Compras:
+    MÃ³dulo de Compras:
     - Seleccionas Proveedor y Productos (filtrados por proveedor)
-    - El Precio Unitario se calcula automático: precio_compra * (1 + IVA)
+    - El Precio Unitario se calcula automÃ¡tico: precio_compra * (1 + IVA)
     - Confirmas compra (puede sumar stock)
     - Generas Orden de Compra (PDF) a Descargas
-    - Generas Cotización (PDF) a Descargas sin afectar stock
+    - Generas CotizaciÃ³n (PDF) a Descargas sin afectar stock
     - Autocompletado de productos por ID/nombre/SKU
-    - Validación: NO se permiten productos de proveedor distinto al seleccionado.
+    - ValidaciÃ³n: NO se permiten productos de proveedor distinto al seleccionado.
     """
 
     def __init__(self, master: tk.Misc):
@@ -68,7 +68,13 @@ class PurchasesView(ttk.Frame):
         self.ent_price = ttk.Entry(det, textvariable=self.var_price, width=14, state="readonly")
         self.ent_price.grid(row=0, column=5, sticky="w", padx=4, pady=4)
 
-        ttk.Button(det, text="Agregar ítem", command=self._on_add_item).grid(row=0, column=6, padx=8)
+        ttk.Button(det, text="Agregar Ã­tem", command=self._on_add_item).grid(row=0, column=6, padx=8)
+
+        # Escaneo por cÃ³digo de barras para ingreso rÃ¡pido
+        ttk.Label(det, text="Escanear:").grid(row=1, column=0, sticky="e", padx=4, pady=4)
+        self.ent_scan = ttk.Entry(det, width=45)
+        self.ent_scan.grid(row=1, column=1, sticky="w", padx=4, pady=4)
+        self.ent_scan.bind("<Return>", self._on_scan_add_item)
 
         # ---------- Tabla ----------
         self.tree = ttk.Treeview(
@@ -94,10 +100,10 @@ class PurchasesView(ttk.Frame):
         self.lbl_total = ttk.Label(bottom, text="Total: 0.00", font=("", 11, "bold"))
         self.lbl_total.pack(side="left")
 
-        ttk.Button(bottom, text="Eliminar ítem", command=self._on_delete_item).pack(side="right", padx=6)
+        ttk.Button(bottom, text="Eliminar Ã­tem", command=self._on_delete_item).pack(side="right", padx=6)
         ttk.Button(bottom, text="Limpiar tabla", command=self._on_clear_table).pack(side="right", padx=6)
         ttk.Button(bottom, text="Generar OC (PDF en Descargas)", command=self._on_generate_po_downloads).pack(side="right", padx=6)
-        ttk.Button(bottom, text="Generar Cotización (PDF)", command=self._on_generate_quote_downloads).pack(side="right", padx=6)
+        ttk.Button(bottom, text="Generar CotizaciÃ³n (PDF)", command=self._on_generate_quote_downloads).pack(side="right", padx=6)
         ttk.Button(bottom, text="Confirmar compra", command=self._on_confirm_purchase).pack(side="right", padx=6)
 
         # Inicializa proveedores y dataset de productos (filtrado)
@@ -105,24 +111,24 @@ class PurchasesView(ttk.Frame):
 
     # ======================== Lookups ========================
     def refresh_lookups(self):
-        """Carga proveedores y productos según proveedor seleccionado."""
-        # Proveedores por razón social
+        """Carga proveedores y productos segÃºn proveedor seleccionado."""
+        # Proveedores por razÃ³n social
         self.suppliers = self.session.query(Supplier).order_by(Supplier.razon_social.asc()).all()
         self.cmb_supplier["values"] = [self._display_supplier(s) for s in self.suppliers]
         if self.suppliers and not self.cmb_supplier.get():
             self.cmb_supplier.current(0)
 
-        # Cargar dataset de productos según proveedor seleccionado
+        # Cargar dataset de productos segÃºn proveedor seleccionado
         self._on_supplier_selected()
 
     def _on_supplier_selected(self, _evt=None):
-        """Cuando cambia el proveedor, filtra el dataset de productos y limpia selección."""
+        """Cuando cambia el proveedor, filtra el dataset de productos y limpia selecciÃ³n."""
         sup = self._selected_supplier()
         if sup:
             # Solo productos del proveedor seleccionado
             self.products = self.repo_prod.get_by_supplier(sup.id)
         else:
-            # Fallback: todos (no recomendado, pero evita dejar vacío)
+            # Fallback: todos (no recomendado, pero evita dejar vacÃ­o)
             self.products = self.session.query(Product).order_by(Product.nombre.asc()).all()
 
         # Configurar dataset del autocompletado
@@ -139,14 +145,14 @@ class PurchasesView(ttk.Frame):
             ]
 
         self.cmb_product.set_dataset(self.products, keyfunc=_disp, searchkeys=_keys)
-        self.cmb_product.set("")  # limpiar selección visible
+        self.cmb_product.set("")  # limpiar selecciÃ³n visible
         self._update_price_field()
 
     def _display_supplier(self, s: Supplier) -> str:
         rut = getattr(s, "rut", "") or ""
         rs = getattr(s, "razon_social", "") or ""
         if rut and rs:
-            return f"{rut} — {rs}"
+            return f"{rut} â€” {rs}"
         return rs or rut or f"Proveedor {s.id}"
 
     # ======================== Precio con IVA ========================
@@ -159,7 +165,7 @@ class PurchasesView(ttk.Frame):
         it = self.cmb_product.get_selected_item()
         if it is not None:
             return it
-        # Fallback por índice visible (si el usuario navegó con flechas)
+        # Fallback por Ã­ndice visible (si el usuario navegÃ³ con flechas)
         try:
             idx = self.cmb_product.current()
         except Exception:
@@ -182,9 +188,9 @@ class PurchasesView(ttk.Frame):
     def _on_product_change(self, _evt=None):
         self._update_price_field()
 
-    # ======================== Ítems ========================
+    # ======================== Ãtems ========================
     def _on_add_item(self):
-        """Agrega un ítem validando que el producto pertenezca al proveedor seleccionado y no esté duplicado."""
+        """Agrega un Ã­tem validando que el producto pertenezca al proveedor seleccionado y no estÃ© duplicado."""
         try:
             sup = self._selected_supplier()
             if not sup:
@@ -196,7 +202,7 @@ class PurchasesView(ttk.Frame):
                 self._warn("Seleccione un producto.")
                 return
 
-            # VALIDACIÓN CLAVE: el producto debe pertenecer al proveedor de la compra
+            # VALIDACIÃ“N CLAVE: el producto debe pertenecer al proveedor de la compra
             if getattr(p, "id_proveedor", None) != sup.id:
                 self._error("El producto seleccionado no corresponde al proveedor de la compra.")
                 return
@@ -204,7 +210,7 @@ class PurchasesView(ttk.Frame):
             try:
                 qty = float(self.ent_qty.get())
             except ValueError:
-                self._warn("Cantidad inválida.")
+                self._warn("Cantidad invÃ¡lida.")
                 return
             if qty <= 0:
                 self._warn("La cantidad debe ser > 0.")
@@ -212,20 +218,20 @@ class PurchasesView(ttk.Frame):
 
             price = self._price_with_iva(p)
             if price <= 0:
-                self._warn("El producto no tiene precio de compra válido.")
+                self._warn("El producto no tiene precio de compra vÃ¡lido.")
                 return
 
             # Evita duplicados (opcional)
             for iid in self.tree.get_children():
                 if str(p.id) == str(self.tree.item(iid, "values")[0]):
-                    self._warn("Este producto ya está en la tabla.")
+                    self._warn("Este producto ya estÃ¡ en la tabla.")
                     return
 
             subtotal = qty * price
             self.tree.insert("", "end", values=(p.id, p.nombre, qty, f"{price:.2f}", f"{subtotal:.2f}"))
             self._update_total()
 
-            # reset mínimo
+            # reset mÃ­nimo
             self.ent_qty.delete(0, "end"); self.ent_qty.insert(0, "1")
             self.cmb_product.set("")
             self.cmb_product.focus_set()
@@ -279,7 +285,7 @@ class PurchasesView(ttk.Frame):
 
     # ======================== Acciones ========================
     def _on_confirm_purchase(self):
-        """Confirma compra usando PurchaseManager (que también valida coherencia)."""
+        """Confirma compra usando PurchaseManager (que tambiÃ©n valida coherencia)."""
         try:
             sup = self._selected_supplier()
             if not sup:
@@ -287,11 +293,11 @@ class PurchasesView(ttk.Frame):
                 return
             items = self._collect_items_for_manager()
             if not items:
-                self._warn("Agregue al menos un ítem.")
+                self._warn("Agregue al menos un Ã­tem.")
                 return
 
-            # Validación extra en UI: por si editaron manualmente la tabla
-            # (la capa core también valida, pero esto mejora la UX)
+            # ValidaciÃ³n extra en UI: por si editaron manualmente la tabla
+            # (la capa core tambiÃ©n valida, pero esto mejora la UX)
             for it in items:
                 p: Optional[Product] = self.session.get(Product, it.product_id)
                 if not p or getattr(p, "id_proveedor", None) != sup.id:
@@ -321,7 +327,7 @@ class PurchasesView(ttk.Frame):
                 return
             items = self._collect_items_for_pdf()
             if not items:
-                self._warn("Agregue al menos un ítem.")
+                self._warn("Agregue al menos un Ã­tem.")
                 return
 
             po_number = f"OC-{sup.id}-{self._stamp()}"
@@ -347,7 +353,7 @@ class PurchasesView(ttk.Frame):
 
     def _on_generate_quote_downloads(self):
         """
-        Genera una 'COTIZACIÓN' en PDF con la info de la tabla,
+        Genera una 'COTIZACIÃ“N' en PDF con la info de la tabla,
         sin guardar la compra ni modificar stock. Guarda en Descargas.
         """
         try:
@@ -358,7 +364,7 @@ class PurchasesView(ttk.Frame):
 
             items = self._collect_items_for_pdf()
             if not items:
-                self._warn("Agregue al menos un ítem.")
+                self._warn("Agregue al menos un Ã­tem.")
                 return
 
             quote_number = f"COT-{sup.id}-{self._stamp()}"
@@ -377,12 +383,12 @@ class PurchasesView(ttk.Frame):
                 items=items,
                 currency="CLP",
                 notes=None,
-                auto_open=True,   # abrir automáticamente el PDF
+                auto_open=True,   # abrir automÃ¡ticamente el PDF
             )
-            self._info(f"Cotización creada en Descargas:\n{out}")
+            self._info(f"CotizaciÃ³n creada en Descargas:\n{out}")
 
         except Exception as e:
-            self._error(f"No se pudo generar la Cotización:\n{e}")
+            self._error(f"No se pudo generar la CotizaciÃ³n:\n{e}")
 
     @staticmethod
     def _stamp() -> str:
@@ -391,10 +397,62 @@ class PurchasesView(ttk.Frame):
 
     # ======================== Mensajes ========================
     def _warn(self, msg: str):
-        messagebox.showwarning("Validación", msg)
+        messagebox.showwarning("ValidaciÃ³n", msg)
 
     def _error(self, msg: str):
         messagebox.showerror("Error", msg)
 
     def _info(self, msg: str):
         messagebox.showinfo("OK", msg)
+
+    def _on_scan_add_item(self, _evt=None):
+        """Agrega/incrementa un ítem a partir de un código escaneado.
+        Valida proveedor y usa precio con IVA.
+        """
+        try:
+            sup = self._selected_supplier()
+            if not sup:
+                self._warn("Seleccione un proveedor antes de escanear.")
+                return
+            code = (self.ent_scan.get() or "").strip()
+            if not code:
+                return
+            p = self.repo_prod.get_by_barcode(code) or self.repo_prod.get_by_sku(code)
+            if not p:
+                self._warn(f"Código no encontrado: {code}")
+                self.ent_scan.delete(0, "end")
+                return
+            if getattr(p, "id_proveedor", None) != sup.id:
+                self._error("El producto escaneado no corresponde al proveedor seleccionado.")
+                self.ent_scan.delete(0, "end")
+                return
+
+            price = self._price_with_iva(p)
+            if price <= 0:
+                self._warn("El producto no tiene precio de compra válido.")
+                self.ent_scan.delete(0, "end")
+                return
+
+            # Si ya está en la tabla, incrementa cantidad
+            for iid in self.tree.get_children():
+                vals = list(self.tree.item(iid, "values"))
+                if str(vals[0]) == str(p.id):
+                    try:
+                        qty = float(vals[2]) + 1
+                    except Exception:
+                        qty = 1.0
+                    subtotal = qty * price
+                    vals[2] = f"{qty:.2f}"
+                    vals[4] = f"{subtotal:.2f}"
+                    self.tree.item(iid, values=tuple(vals))
+                    self._update_total()
+                    self.ent_scan.delete(0, "end")
+                    return
+
+            # No estaba: agregar con cantidad 1
+            subtotal = 1 * price
+            self.tree.insert("", "end", values=(p.id, p.nombre, 1, f"{price:.2f}", f"{subtotal:.2f}"))
+            self._update_total()
+            self.ent_scan.delete(0, "end")
+        except Exception as e:
+            self._error(f"No se pudo agregar por escaneo:\n{e}")

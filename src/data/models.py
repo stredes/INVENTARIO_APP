@@ -62,6 +62,8 @@ class Product(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     nombre: Mapped[str] = mapped_column(String, nullable=False)
     sku: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    # Código de barras (EAN/UPC/etc). Opcional pero único si se define
+    barcode: Mapped[Optional[str]] = mapped_column(String, nullable=True, unique=True)
     precio_compra: Mapped[float] = mapped_column(Float, nullable=False)
     precio_venta: Mapped[float] = mapped_column(Float, nullable=False)
     stock_actual: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

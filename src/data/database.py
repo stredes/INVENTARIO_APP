@@ -15,6 +15,7 @@ from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import scoped_session, sessionmaker
 import os
+import sys
 
 CONFIG_PATH = Path("config/settings.ini")
 
@@ -32,15 +33,55 @@ def _read_config() -> configparser.ConfigParser:
     return cfg
 
 
-def _safe_sqlite_url(db_url: str) -> str:
+def _resolve_portable_db_path(raw: str) -> Path:
+    """
+    Resuelve una ruta de archivo de base de datos (posiblemente relativa) para modo portable.
+
+    - Expande variables de entorno y ~.
+    - Si es relativa:
+        * En ejecutable PyInstaller (sys.frozen): junto al .exe.
+        * En desarrollo: relativa a la raíz del proyecto (dos niveles arriba de este archivo).
+    - Crea la carpeta padre si falta.
+    """
+    p = Path(os.path.expandvars(os.path.expanduser(raw)))
+    if not p.is_absolute():
+        if getattr(sys, "frozen", False):  # running from .exe
+            base = Path(sys.executable).resolve().parent
+        else:
+            base = Path(__file__).resolve().parents[2]
+        p = base / p
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    return p
+
+
+def _safe_sqlite_url(db_url: str, cfg: configparser.ConfigParser) -> str:
     """
     Si es SQLite, garantiza que el directorio del archivo exista y que la ruta
     sea escribible en entornos empaquetados (PyInstaller).
 
-    - Rutas absolutas: crea el directorio padre si falta.
-    - Rutas relativas: coloca el archivo en %LOCALAPPDATA%/InventarioApp/<nombre>.
-      (Evita fallos al ejecutar el .exe donde no existe ./src/data/).
+    Precedencia para ruta de archivo:
+    1) ENV INVENTARIO_DB_PATH (ruta al archivo .db)
+    2) settings.ini [database] file o path (ruta al archivo .db)
+    3) URL original (si es relativa): %LOCALAPPDATA%/InventarioApp/<nombre>
+       (evita fallos en ejecución del .exe)
     """
+    # 1) ENV explícito a archivo
+    env_path = os.getenv("INVENTARIO_DB_PATH", "").strip()
+    if env_path:
+        file_path = _resolve_portable_db_path(env_path)
+        return f"sqlite:///{file_path}"
+
+    # 2) settings.ini con 'file' o 'path'
+    for key in ("file", "path"):
+        val = cfg.get("database", key, fallback="").strip()
+        if val:
+            file_path = _resolve_portable_db_path(val)
+            return f"sqlite:///{file_path}"
+
+    # 3) Derivado desde la URL existente
     prefix = "sqlite:///"
     if not db_url.startswith(prefix):
         return db_url
@@ -72,7 +113,7 @@ def get_engine() -> Engine:
 
     cfg = _read_config()
     db_url = cfg.get("database", "url", fallback="sqlite:///./src/data/inventory.db")
-    db_url = _safe_sqlite_url(db_url)
+    db_url = _safe_sqlite_url(db_url, cfg)
 
     _engine = create_engine(db_url, future=True)
 
@@ -230,6 +271,7 @@ def _ensure_schema(engine: Engine) -> None:
     Aplica pequeñas migraciones idempotentes necesarias para la app.
     - products.image_path TEXT
     - products.id_proveedor INTEGER REFERENCES suppliers(id)
+    - products.barcode TEXT (y UNIQUE INDEX)
       (queda NULL-permitido para no romper BD con datos previos; validar en capa de app)
     - Índice en products(id_proveedor) para acelerar filtros por proveedor.
     """
@@ -250,6 +292,14 @@ def _ensure_schema(engine: Engine) -> None:
             engine,
             index_sql='CREATE INDEX IF NOT EXISTS idx_products_id_proveedor ON products(id_proveedor);',
             index_name='idx_products_id_proveedor',
+        )
+
+        # Asegurar columna de código de barras y UNIQUE INDEX
+        _add_column_if_missing(engine, table="products", column="barcode", type_sql="TEXT")
+        _create_index_if_missing(
+            engine,
+            index_sql='CREATE UNIQUE INDEX IF NOT EXISTS uq_products_barcode ON products(barcode) WHERE barcode IS NOT NULL;',
+            index_name='uq_products_barcode',
         )
 
     except Exception:

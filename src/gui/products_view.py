@@ -1,4 +1,4 @@
-# src/gui/products_view.py
+﻿# src/gui/products_view.py
 from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -10,7 +10,7 @@ from src.data.models import Product, Supplier
 from src.data.repository import ProductRepository, SupplierRepository
 from src.gui.widgets.product_image_box import ProductImageBox  # <-- recuadro imagen
 
-# Grilla tipo hoja (tksheet si está, o fallback Treeview)
+# Grilla tipo hoja (tksheet si estÃ¡, o fallback Treeview)
 from src.gui.widgets.grid_table import GridTable
 
 
@@ -26,13 +26,13 @@ class ProductsView(ttk.Frame):
     """
     CRUD de Productos con grilla tipo hoja:
     - Recuadro de imagen (Cargar/Ver/Quitar)
-    - Código (SKU)
+    - CÃ³digo (SKU)
     - Precio Compra (neto), IVA %, %Ganancia -> calcula (IVA, P+IVA)
     - Precio Venta (editable)
-    - Proveedor (obligatorio) vía Combobox
+    - Proveedor (obligatorio) vÃ­a Combobox
     """
 
-    COLS = ["ID", "Nombre", "Código", "P. Compra", "IVA %", "Monto IVA", "P. + IVA", "Margen %", "P. Venta", "Unidad"]
+    COLS = ["ID", "Nombre", "CÃ³digo", "P. Compra", "IVA %", "Monto IVA", "P. + IVA", "Margen %", "P. Venta", "Unidad"]
     COL_WIDTHS = [50, 220, 120, 90, 70, 90, 90, 90, 90, 90]
 
     def __init__(self, master: tk.Misc):
@@ -52,6 +52,7 @@ class ProductsView(ttk.Frame):
         # ---------- Estado (variables UI) ----------
         self.var_nombre = tk.StringVar()
         self.var_codigo = tk.StringVar()
+        self.var_barcode = tk.StringVar()
         self.var_unidad = tk.StringVar(value="unidad")
         self.var_pc = tk.DoubleVar(value=0.0)
         self.var_iva = tk.DoubleVar(value=19.0)
@@ -59,6 +60,8 @@ class ProductsView(ttk.Frame):
         self.var_iva_monto = tk.DoubleVar(value=0.0)
         self.var_pmasiva = tk.DoubleVar(value=0.0)
         self.var_pventa = tk.DoubleVar(value=0.0)
+        # Marca si el producto maneja código de barras (solo UI por ahora)
+        self.var_has_barcode = tk.BooleanVar(value=True)
 
         # ---------- Formulario ----------
         frm = ttk.Labelframe(self, text="Producto", padding=10)
@@ -74,14 +77,42 @@ class ProductsView(ttk.Frame):
         right = ttk.Frame(frm)
         right.grid(row=0, column=1, sticky="nw")
 
-        # Fila 0: Nombre / Código
+        # Fila 0: Nombre / CÃ³digo
         ttk.Label(right, text="Nombre:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
         ent_nombre = ttk.Entry(right, textvariable=self.var_nombre, width=35)
         ent_nombre.grid(row=0, column=1, sticky="w", padx=4, pady=4)
         self.ent_nombre = ent_nombre  # para foco
 
-        ttk.Label(right, text="Código:").grid(row=0, column=2, sticky="e", padx=4, pady=4)
-        ttk.Entry(right, textvariable=self.var_codigo, width=20).grid(row=0, column=3, sticky="w", padx=4, pady=4)
+        ttk.Label(right, text="CÃ³digo:").grid(row=0, column=2, sticky="e", padx=4, pady=4)
+        self.ent_codigo = ttk.Entry(right, textvariable=self.var_codigo, width=20)
+        self.ent_codigo.grid(row=0, column=3, sticky="w", padx=4, pady=4)
+        ttk.Checkbutton(right, text="Cod. barras", variable=self.var_has_barcode).grid(row=0, column=4, sticky="w", padx=(8, 0))
+        try:
+            # Refrescar vista cuando cambia código o toggle
+            self.ent_codigo.bind("<KeyRelease>", lambda e: self._refresh_barcode_preview())
+            self.var_has_barcode.trace_add("write", lambda *_: self._refresh_barcode_preview())
+            self.var_barcode.trace_add("write", lambda *_: self._refresh_barcode_preview())
+        except Exception:
+            pass
+
+        # Recuadro de código de barras (vista previa + acciones)
+        self._barcode_box = ttk.Labelframe(right, text="Código de barras", padding=4)
+        self._barcode_box.grid(row=0, column=5, rowspan=4, sticky="nsew", padx=(12, 0))
+        self._barcode_img_lbl = ttk.Label(self._barcode_box, text="(sin vista)", width=28)
+        self._barcode_img_lbl.pack(padx=6, pady=6)
+        btns_bc = ttk.Frame(self._barcode_box)
+        btns_bc.pack(pady=(0, 4))
+        ttk.Button(btns_bc, text="Editar/Imprimir…", command=self._open_barcode_editor).pack(side="left", padx=4)
+        ttk.Button(btns_bc, text="Refrescar", command=self._refresh_barcode_preview).pack(side="left", padx=4)
+        # Mueve las acciones fuera del recuadro
+        try:
+            btns_bc.destroy()
+        except Exception:
+            pass
+        self._barcode_actions = ttk.Frame(right)
+        self._barcode_actions.grid(row=4, column=5, sticky="nw", padx=(12, 0), pady=(2, 0))
+        ttk.Button(self._barcode_actions, text="Editar/Imprimir…", command=self._open_barcode_editor).pack(side="left", padx=4)
+        ttk.Button(self._barcode_actions, text="Refrescar", command=self._refresh_barcode_preview).pack(side="left", padx=4)
 
         # Fila 1: Precio Compra / IVA %
         ttk.Label(right, text="Precio Compra (neto):").grid(row=1, column=0, sticky="e", padx=4, pady=4)
@@ -154,7 +185,7 @@ class ProductsView(ttk.Frame):
             # Limpia formulario si clic en encabezado
             tv.bind("<Button-1>", self._on_tree_click)
 
-        # Recalcular automáticamente
+        # Recalcular automÃ¡ticamente
         for w in (ent_pc, sp_iva, sp_margen, ent_pventa):
             w.bind("<KeyRelease>", self._on_auto_calc)
         sp_iva.bind("<<Increment>>", self._on_auto_calc)
@@ -167,6 +198,7 @@ class ProductsView(ttk.Frame):
         self._load_table()
         self._recalc_prices()
         self.ent_nombre.focus_set()
+        self._refresh_barcode_preview()
 
     # ----------------- Utilidades de grilla ----------------- #
     def _apply_column_widths(self) -> None:
@@ -189,7 +221,7 @@ class ProductsView(ttk.Frame):
         self._apply_column_widths()
 
     def _selected_row_index(self) -> Optional[int]:
-        """Índice de fila seleccionada (o None)."""
+        """Ãndice de fila seleccionada (o None)."""
         if hasattr(self.table, "sheet"):
             try:
                 rows = list(self.table.sheet.get_selected_rows())
@@ -212,7 +244,7 @@ class ProductsView(ttk.Frame):
         except Exception:
             return None
 
-    # ---------- Cálculos ----------
+    # ---------- CÃ¡lculos ----------
     def _recalc_prices(self):
         """Calcula IVA, P+IVA y sugiere pventa (redondeo a entero)."""
         try:
@@ -240,8 +272,15 @@ class ProductsView(ttk.Frame):
             self.session.commit()
             self._current_product = prod
             self.img_box.set_product(prod.id, on_image_changed=self._on_image_changed)
-            self._clear_form()
+            # Tras crear, mantener el formulario con el producto cargado
+            # y mostrar su código de barras (usa SKU si no hay barcode)
+            try:
+                self._editing_id = int(prod.id)
+            except Exception:
+                self._editing_id = None
+            self.var_has_barcode.set(True)
             self._load_table()
+            self._refresh_barcode_preview()
             messagebox.showinfo("OK", f"Producto '{data['nombre']}' creado.")
         except Exception as e:
             self.session.rollback()
@@ -271,7 +310,7 @@ class ProductsView(ttk.Frame):
     def _on_delete(self):
         if self._editing_id is None:
             return
-        if not messagebox.askyesno("Confirmar", "¿Eliminar este producto?"):
+        if not messagebox.askyesno("Confirmar", "Â¿Eliminar este producto?"):
             return
         try:
             self.repo.delete(self._editing_id)
@@ -288,11 +327,15 @@ class ProductsView(ttk.Frame):
         if idx is None or idx < 0 or idx >= len(self._rows_cache):
             return
         vals = self._rows_cache[idx]
-        # 0 id, 1 nombre, 2 código, 3 pcompra, 4 iva, 5 iva_monto, 6 pmasiva, 7 margen, 8 pventa, 9 unidad
+        # 0 id, 1 nombre, 2 cÃ³digo, 3 pcompra, 4 iva, 5 iva_monto, 6 pmasiva, 7 margen, 8 pventa, 9 unidad
         self._editing_id = int(vals[0])
         self._current_product = self.repo.get(self._editing_id)
         self.var_nombre.set(vals[1])
         self.var_codigo.set(vals[2])
+        try:
+            self.var_barcode.set(getattr(self._current_product, "barcode", None) or "")
+        except Exception:
+            self.var_barcode.set("")
         try: self.var_pc.set(float(vals[3] or 0))
         except Exception: self.var_pc.set(0.0)
         try: self.var_iva.set(float(vals[4] or 19.0))
@@ -305,6 +348,12 @@ class ProductsView(ttk.Frame):
         except Exception: self.var_margen.set(30.0)
         try: self.var_pventa.set(float(vals[8] or 0))
         except Exception: self.var_pventa.set(0.0)
+        # Activar vista de código de barras si el producto tiene barcode o al menos un código visible
+        try:
+            has_bar = bool(getattr(self._current_product, "barcode", None)) or bool(self.var_codigo.get().strip())
+        except Exception:
+            has_bar = bool(self.var_codigo.get().strip())
+        self.var_has_barcode.set(has_bar)
         try: self.var_unidad.set(vals[9] or "unidad")
         except Exception: self.var_unidad.set("unidad")
 
@@ -312,6 +361,7 @@ class ProductsView(ttk.Frame):
             self.img_box.set_product(self._current_product.id, on_image_changed=self._on_image_changed)
         else:
             self.img_box.set_product(None)
+        self._refresh_barcode_preview()
 
         self._select_supplier_for_current_product()
 
@@ -340,29 +390,32 @@ class ProductsView(ttk.Frame):
             pc = float(self.var_pc.get())
             pventa = float(self.var_pventa.get())
             if not nombre or not codigo:
-                messagebox.showwarning("Validación", "Nombre y Código son obligatorios.")
+                messagebox.showwarning("ValidaciÃ³n", "Nombre y CÃ³digo son obligatorios.")
                 return None
             if pc <= 0:
-                messagebox.showwarning("Validación", "Precio de compra debe ser > 0.")
+                messagebox.showwarning("ValidaciÃ³n", "Precio de compra debe ser > 0.")
                 return None
             if pventa <= 0:
-                messagebox.showwarning("Validación", "Precio de venta debe ser > 0.")
+                messagebox.showwarning("ValidaciÃ³n", "Precio de venta debe ser > 0.")
                 return None
             idx = self.cmb_supplier.current()
             if idx is None or idx < 0 or idx >= len(self._suppliers):
-                messagebox.showwarning("Validación", "Seleccione un proveedor.")
+                messagebox.showwarning("ValidaciÃ³n", "Seleccione un proveedor.")
                 return None
             proveedor = self._suppliers[idx]
+            # Barcode opcional (solo si el checkbox está activo)
+            bc_val = (self.var_barcode.get().strip() or None) if self.var_has_barcode.get() else None
             return dict(
                 nombre=nombre,
                 sku=codigo,
+                barcode=bc_val,
                 precio_compra=pc,
                 precio_venta=pventa,
                 unidad_medida=unidad,
                 id_proveedor=proveedor.id,
             )
         except ValueError:
-            messagebox.showwarning("Validación", "Revisa números (PC/IVA/Margen/Precios).")
+            messagebox.showwarning("ValidaciÃ³n", "Revisa nÃºmeros (PC/IVA/Margen/Precios).")
             return None
 
     def _clear_form(self):
@@ -371,12 +424,15 @@ class ProductsView(ttk.Frame):
         self.var_nombre.set("")
         self.var_codigo.set("")
         self.var_unidad.set("unidad")
+        self.var_barcode.set("")
+        self.var_has_barcode.set(False)
         self.var_pc.set(0.0)
         self.var_iva.set(19.0)
         self.var_margen.set(30.0)
         self.var_iva_monto.set(0.0)
         self.var_pmasiva.set(0.0)
         self.var_pventa.set(0.0)
+        self.var_has_barcode.set(False)
         self.img_box.set_product(None)
         self.btn_save.config(state="normal")
         self.btn_update.config(state="disabled")
@@ -385,7 +441,7 @@ class ProductsView(ttk.Frame):
             self.cmb_supplier.set("")
         except Exception:
             pass
-        # Limpia selección en la grilla y foco en nombre
+        # Limpia selecciÃ³n en la grilla y foco en nombre
         try:
             if hasattr(self.table, "sheet"):
                 self.table.sheet.deselect("all")
@@ -396,6 +452,65 @@ class ProductsView(ttk.Frame):
         except Exception:
             pass
         self.after(100, lambda: self.ent_nombre.focus_set())
+        self._refresh_barcode_preview()
+
+    # ----------------- Código de barras ----------------- #
+    def _current_barcode_value(self) -> str:
+        try:
+            if self.var_has_barcode.get():
+                v = (self.var_barcode.get() or "").strip()
+                if v:
+                    return v
+        except Exception:
+            pass
+        code = ""
+        if self._current_product is not None:
+            try:
+                code = (getattr(self._current_product, "barcode", None) or "").strip()
+            except Exception:
+                code = ""
+        return code or (self.var_codigo.get().strip())
+
+    def _refresh_barcode_preview(self):
+        try:
+            from src.reports.barcode_label import generate_barcode_png
+            code = self._current_barcode_value()
+            # Mostrar preview si hay algún código disponible (barcode o SKU),
+            if not code:
+                self._barcode_img_lbl.config(text="(sin vista)", image="")
+                self._barcode_img_lbl.image = None
+                return
+            png = generate_barcode_png(code)
+            try:
+                import PIL.Image, PIL.ImageTk  # type: ignore
+                im = PIL.Image.open(png)
+                if im.width > 220:
+                    ratio = 220 / im.width
+                    im = im.resize((220, int(im.height * ratio)))
+                photo = PIL.ImageTk.PhotoImage(im)
+                self._barcode_img_lbl.configure(image=photo, text="")
+                self._barcode_img_lbl.image = photo
+            except Exception:
+                # Como fallback, mostrar el código en texto para verificar el flujo
+                self._barcode_img_lbl.configure(text=f"{code}", image="")
+                self._barcode_img_lbl.image = None
+        except Exception as e:
+            # Para depurar en caso de fallo silencioso
+            try:
+                self._barcode_img_lbl.configure(text=f"Error: {e}", image="")
+            except Exception:
+                pass
+
+    def _open_barcode_editor(self):
+        try:
+            from src.gui.barcode_label_editor import BarcodeLabelEditor
+        except Exception:
+            return
+        init_code = self._current_barcode_value()
+        text = self.var_nombre.get().strip()
+        dlg = BarcodeLabelEditor(self, initial_code=init_code, initial_text=text)
+        self.wait_window(dlg)
+        self._refresh_barcode_preview()
 
     def _load_table(self):
         """Carga los productos y calcula columnas derivadas para mostrar."""
@@ -438,10 +553,10 @@ class ProductsView(ttk.Frame):
         def _disp(s: Supplier) -> str:
             rut = (s.rut or "").strip()
             rs = (s.razon_social or "").strip()
-            return f"{rs} — {rut}" if rut else rs
+            return f"{rs} â€” {rut}" if rut else rs
 
         self.cmb_supplier["values"] = [_disp(s) for s in self._suppliers]
-        # Selecciona automáticamente si solo hay un proveedor
+        # Selecciona automÃ¡ticamente si solo hay un proveedor
         if len(self._suppliers) == 1:
             self.cmb_supplier.current(0)
 
@@ -463,7 +578,7 @@ class ProductsView(ttk.Frame):
         except Exception:
             self.cmb_supplier.set("")
 
-    # ---------- Solo fallback: limpiar selección al click de encabezado ----------
+    # ---------- Solo fallback: limpiar selecciÃ³n al click de encabezado ----------
     def _on_tree_click(self, event):
         tv = getattr(self.table, "_fallback", None)
         if tv is None:
