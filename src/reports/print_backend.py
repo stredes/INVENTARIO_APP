@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 def _find_soffice() -> Optional[Path]:
-    """
+    r"""
     Devuelve la ruta a soffice.exe si la encuentra.
     En Windows prueba:
       - ENV LIBREOFFICE_PATH
