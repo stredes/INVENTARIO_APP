@@ -88,7 +88,9 @@ def generate_barcode_png(code: str, *, text: Optional[str] = None, symbology: Sy
         img.save(tmp)
         return tmp
     except Exception:
-        raise RuntimeError("Failed to generate barcode image.")def generate_label_pdf(code: str, *, text: Optional[str] = None, symbology: Symbology = "code128",
+        raise RuntimeError("Failed to generate barcode image.")
+
+def generate_label_pdf(code: str, *, text: Optional[str] = None, symbology: Symbology = "code128",
                         label_w_mm: float = 50, label_h_mm: float = 30, copies: int = 1,
                         out_path: Optional[Path] = None, auto_open: bool = True) -> Path:
     # small label; place multiple copies on pages if needed (1 per page for simplicity)
