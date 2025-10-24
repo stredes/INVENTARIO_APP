@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable, List, Optional
+from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
@@ -14,6 +15,7 @@ from src.data.repository import (
     ProductRepository,
 )
 from .inventory_manager import InventoryManager
+from src.utils.money import D, mul, money_sum, q2
 
 
 class PurchaseError(Exception):
@@ -29,11 +31,11 @@ class PurchaseItem:
     """
     product_id: int
     cantidad: int
-    precio_unitario: float
+    precio_unitario: Decimal
 
     @property
-    def subtotal(self) -> float:
-        return float(self.cantidad) * float(self.precio_unitario)
+    def subtotal(self) -> Decimal:
+        return mul(self.cantidad, self.precio_unitario)
 
 
 class PurchaseManager:
@@ -120,7 +122,7 @@ class PurchaseManager:
         items = self._validate_items(items)
         self._validate_items_belong_to_supplier(items, supplier_id)
 
-        total = sum(it.subtotal for it in items)
+        total = q2(money_sum(it.subtotal for it in items))
 
         try:
             # Cabecera
@@ -139,8 +141,8 @@ class PurchaseManager:
                     id_compra=pur.id,
                     id_producto=it.product_id,
                     cantidad=it.cantidad,
-                    precio_unitario=it.precio_unitario,  # con IVA
-                    subtotal=it.subtotal,
+                    precio_unitario=q2(it.precio_unitario),  # con IVA
+                    subtotal=q2(it.subtotal),
                 )
                 self.details.add(det)
 

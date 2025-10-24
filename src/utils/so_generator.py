@@ -11,6 +11,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 
 from src.utils.helpers import get_company_info, get_po_terms, get_downloads_dir, unique_path
 from src.utils.po_generator import open_file  # reutilizamos open_file
+from src.utils.money import D, q2
 
 
 def generate_so_pdf(
@@ -69,13 +70,13 @@ def generate_so_pdf(
 
     # Detalle
     data = [["ID", "Producto", "Cantidad", f"Precio ({currency})", f"Subtotal ({currency})"]]
-    total = 0.0
+    total = D(0)
     for it in items:
-        cantidad = it.get("cantidad", 0)
-        precio = float(it.get("precio", 0))
-        subtotal = float(it.get("subtotal", cantidad * precio))
+        cantidad = D(it.get("cantidad", 0) or 0)
+        precio = D(it.get("precio", 0) or 0)
+        subtotal = q2(it.get("subtotal", cantidad * precio))
         data.append([str(it.get("id","")), it.get("nombre",""), f"{cantidad}", f"{precio:.2f}", f"{subtotal:.2f}"])
-        total += subtotal
+        total += D(subtotal)
 
     table = Table(data, colWidths=[18*mm, 90*mm, 20*mm, 30*mm, 30*mm])
     table.setStyle(TableStyle([

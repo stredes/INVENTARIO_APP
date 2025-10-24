@@ -2,6 +2,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import List, Optional, Dict, Callable
+from decimal import Decimal
 
 from src.data.database import get_session
 from src.data.models import Product, Customer
@@ -11,6 +12,7 @@ from src.utils.so_generator import generate_so_to_downloads
 from src.gui.widgets.autocomplete_combobox import AutoCompleteCombobox
 from src.reports.sales_report_pdf import generate_sales_report_to_downloads
 from sqlalchemy import and_
+from src.utils.money import D, q2, fmt_2
 
 class SalesView(ttk.Frame):
     """
@@ -239,10 +241,10 @@ class SalesView(ttk.Frame):
         if not p:
             return
         try:
-            pv = float(p.precio_venta or 0)
+            pv = D(getattr(p, "precio_venta", 0) or 0)
             if pv > 0:
                 self.ent_price.delete(0, "end")
-                self.ent_price.insert(0, f"{pv:.2f}")
+                self.ent_price.insert(0, fmt_2(pv))
         except Exception:
             pass
 
@@ -255,9 +257,9 @@ class SalesView(ttk.Frame):
                 self._warn("Seleccione un producto.")
                 return
 
-            # Cantidad (permite decimales)
+            # Cantidad (entera para stock)
             try:
-                qty = float(self.ent_qty.get())
+                qty = int(float(self.ent_qty.get()))
             except Exception:
                 self._warn("Cantidad inválida.")
                 return
@@ -267,11 +269,11 @@ class SalesView(ttk.Frame):
 
             # Precio: si no se indicó, usar precio_venta del producto
             try:
-                price = float(self.ent_price.get())
-            except ValueError:
-                price = 0.0
+                price = D(self.ent_price.get())
+            except Exception:
+                price = D(0)
             if price <= 0:
-                price = float(p.precio_venta or 0)
+                price = D(getattr(p, "precio_venta", 0) or 0)
             if price <= 0:
                 self._warn("Ingrese un precio válido (> 0).")
                 return
@@ -282,9 +284,9 @@ class SalesView(ttk.Frame):
                     self._warn("Este producto ya está en la tabla.")
                     return
 
-            subtotal = qty * price
+            subtotal = q2(D(qty) * D(price))
             self.tree.insert("", "end",
-                             values=(p.id, p.nombre, qty, f"{price:.2f}", f"{subtotal:.2f}"))
+                             values=(p.id, p.nombre, qty, fmt_2(price), fmt_2(subtotal)))
             self._update_total()
 
             self.ent_qty.delete(0, "end"); self.ent_qty.insert(0, "1")
@@ -306,13 +308,13 @@ class SalesView(ttk.Frame):
         self._update_total()
 
     def _update_total(self):
-        total = 0.0
+        total = D(0)
         for iid in self.tree.get_children():
             try:
-                total += float(self.tree.item(iid, "values")[4])
+                total += D(self.tree.item(iid, "values")[4])
             except Exception:
                 pass
-        self.lbl_total.config(text=f"Total: {total:.2f}")
+        self.lbl_total.config(text=f"Total: {fmt_2(total)}")
 
     def _collect_items(self) -> List[dict]:
         items: List[dict] = []
@@ -321,9 +323,9 @@ class SalesView(ttk.Frame):
             items.append({
                 "id": int(prod_id),
                 "nombre": str(name),
-                "cantidad": float(qty),
-                "precio": float(price),
-                "subtotal": float(sub),
+                "cantidad": int(float(qty)),
+                "precio": D(price),
+                "subtotal": D(sub),
             })
         return items
 

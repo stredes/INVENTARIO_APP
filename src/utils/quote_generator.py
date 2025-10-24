@@ -1,16 +1,27 @@
-# src/utils/quote_generator.py
-# -*- coding: utf-8 -*-
+"""
+Generador de Cotización con estilo unificado:
+- Encabezado con logo y datos de empresa desde config/settings.ini
+- Aviso "Documento sujeto a modificación (Provisorio)"
+- Banda "Detalles generales" (datos del destinatario)
+- Tabla de ítems
+- Bloque de Facturación (Neto/IVA/Total) con datos de la empresa
+"""
+
 from __future__ import annotations
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from datetime import datetime
 import webbrowser
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+from reportlab.lib.styles import ParagraphStyle
+
+from src.utils.helpers import get_company_info, get_downloads_dir, get_po_payment_method
+from src.utils.money import D, q2
+
 
 def _downloads_dir() -> Path:
     home = Path.home()
@@ -20,80 +31,129 @@ def _downloads_dir() -> Path:
             return p
     return home
 
-def _fmt_moneda(n: float, currency: str = "CLP") -> str:
+
+def _fmt_moneda(n, currency: str = "CLP") -> str:
     try:
-        x = float(n)
+        x = D(n)
     except Exception:
         return str(n)
     if currency.upper() == "CLP":
-        return f"${int(round(x)):,.0f}".replace(",", ".")
-    return f"${x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        return f"${x:,.0f}".replace(",", ".")
+    return f"${x:,.2f}"
 
-def _label(s: Optional[str]) -> str:
-    return s or ""
 
-def _styles():
-    return getSampleStyleSheet()
-
-def _header_story(st, quote_number: str, supplier: Dict[str, str]):
-    story = []
-    story.append(Paragraph("<b><font size=16>COTIZACIÓN</font></b>", st["Title"]))
-    story.append(Spacer(1, 6))
-    meta = f"<b>N°:</b> {quote_number} &nbsp;&nbsp;&nbsp; <b>Fecha:</b> {datetime.now().strftime('%d-%m-%Y %H:%M')}"
-    story.append(Paragraph(meta, st["Normal"]))
-    story.append(Spacer(1, 8))
-    sup_html = (
-        f"<b>Proveedor:</b> {_label(supplier.get('nombre'))}<br/>"
-        f"<b>Contacto:</b> {_label(supplier.get('contacto'))} &nbsp;&nbsp; "
-        f"<b>Tel:</b> {_label(supplier.get('telefono'))}<br/>"
-        f"<b>Email:</b> {_label(supplier.get('email'))}<br/>"
-        f"<b>Dirección:</b> {_label(supplier.get('direccion'))}"
-    )
-    story.append(Paragraph(sup_html, st["Normal"]))
-    story.append(Spacer(1, 10))
-    return story
-
-def _items_table(items: List[Dict[str, object]], currency: str) -> Table:
-    data = [["Código", "Producto", "Unidad", "Cantidad", "Precio Unit.", "Subtotal"]]
-    for it in items:
-        cant = int(float(it.get("cantidad", 0)))
-        precio = float(it.get("precio", 0.0))
-        sub = float(it.get("subtotal", cant * precio))
-        data.append([
-            str(it.get("id", "")),
-            str(it.get("nombre", "")),
-            str(it.get("unidad", "")),  # si no manejas unidad, queda vacío
-            f"{cant:d}",
-            _fmt_moneda(precio, currency),
-            _fmt_moneda(sub, currency),
-        ])
-    tbl = Table(data, colWidths=[25*mm, 60*mm, 18*mm, 22*mm, 30*mm, 30*mm])
+def _band(title: str):
+    style = ParagraphStyle(name="band", fontName="Helvetica-Bold", fontSize=11, textColor=colors.white, alignment=1)
+    tbl = Table([[Paragraph(title, style)]], colWidths=[180 * mm])
     tbl.setStyle(TableStyle([
-        ("GRID", (0,0), (-1,-1), 0.4, colors.black),
-        ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
-        ("ALIGN", (3,1), (5,-1), "RIGHT"),
-        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-        ("FONTSIZE", (0,0), (-1,-1), 9),
-        ("LEADING", (0,0), (-1,-1), 11),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#1E6AA8")),
+        ("TEXTCOLOR", (0, 0), (-1, -1), colors.white),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     return tbl
 
-def _totals_story(st, items: List[Dict[str, object]], currency: str):
-    total = 0.0
+
+def _header(company: Dict[str, Any], quote_number: str):
+    h1 = ParagraphStyle(name="h1", fontName="Helvetica-Bold", fontSize=14, leading=16)
+    p = ParagraphStyle(name="p", fontName="Helvetica", fontSize=10, leading=13)
+
+    # Logo / Empresa
+    logo_cell: Any
+    logo_path = (company.get("logo") or "").strip()
+    if logo_path and Path(logo_path).exists():
+        try:
+            img = Image(logo_path)
+            img._restrictSize(35 * mm, 20 * mm)
+            logo_cell = img
+        except Exception:
+            logo_cell = Paragraph(company.get("name", ""), h1)
+    else:
+        logo_cell = Paragraph(company.get("name", ""), h1)
+
+    comp_lines = [
+        f"<b>{company.get('name','')}</b>",
+        f"RUT: {company.get('rut','')}" if company.get('rut') else "",
+        company.get('address',''),
+        " | ".join([x for x in [f"Tel: {company.get('phone','')}" if company.get('phone') else '', company.get('email','')] if x]),
+    ]
+    comp_html = "<br/>".join([x for x in comp_lines if x])
+    right = Paragraph(f"<b>COTIZACIÓN</b><br/>Nº {quote_number}", h1)
+    header_tbl = Table([[logo_cell, Paragraph(comp_html, p), right]], colWidths=[45 * mm, 90 * mm, 45 * mm])
+    header_tbl.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ALIGN", (2, 0), (2, 0), "RIGHT"),
+    ]))
+    return header_tbl
+
+
+def _items_table(items: List[Dict[str, object]], currency: str) -> Table:
+    data = [["Item", "Código", "Descripción", "Unidad", "Cantidad", "Precio Unit.", "Dcto", "Total"]]
+    for idx, it in enumerate(items, start=1):
+        cant = D(it.get("cantidad", 0) or 0)
+        precio = D(it.get("precio", 0) or 0)
+        sub = q2(it.get("subtotal", cant * precio) or 0)
+        data.append([
+            str(idx),
+            str(it.get("id", "")),
+            str(it.get("nombre", "")),
+            str(it.get("unidad", "U") or "U"),
+            f"{int(cant) if cant == cant.to_integral_value() else cant}",
+            _fmt_moneda(precio, currency),
+            _fmt_moneda(0, currency),
+            _fmt_moneda(sub, currency),
+        ])
+    tbl = Table(
+        data,
+        colWidths=[8 * mm, 16 * mm, 72 * mm, 12 * mm, 16 * mm, 24 * mm, 10 * mm, 24 * mm],
+        repeatRows=1,
+    )
+    tbl.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.black),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E6EFF7")),
+        ("ALIGN", (4, 1), (-1, -1), "RIGHT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("LEADING", (0, 0), (-1, -1), 11),
+    ]))
+    return tbl
+
+
+def _totals_block(company: Dict[str, Any], items: List[Dict[str, object]], currency: str):
+    total = D(0)
     for it in items:
         try:
-            total += float(it.get("subtotal", 0.0))
+            total += D(it.get("subtotal", 0))
         except Exception:
             pass
-    story = [Spacer(1, 6)]
-    story.append(Paragraph(f"<b>Total:</b> {_fmt_moneda(total, currency)}", st["Heading3"]))
-    story.append(Spacer(1, 8))
-    story.append(Paragraph(
-        "Esta cotización no constituye una orden de compra. "
-        "Precios sujetos a cambio sin previo aviso y válidos por 7 días.",
-        st["Italic"]
-    ))
-    return story
+    iva_rate = D("0.19")
+    neto = q2(total / (D(1) + iva_rate))
+    iva = q2(total - neto)
+    p = ParagraphStyle(name="p", fontName="Helvetica", fontSize=10, leading=13)
+    tot_tbl = Table([
+        [Paragraph("<b>Neto :</b>", p), Paragraph(_fmt_moneda(neto, currency), p)],
+        [Paragraph("<b>IVA :</b>", p), Paragraph(_fmt_moneda(iva, currency), p)],
+        [Paragraph("<b>Total :</b>", p), Paragraph(_fmt_moneda(total, currency), p)],
+    ], colWidths=[28 * mm, 32 * mm])
+    tot_tbl.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (-1, -1), "RIGHT"),
+        ("FONTNAME", (0, 2), (-1, 2), "Helvetica-Bold"),
+        ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.grey),
+        ("BOX", (0, 0), (-1, -1), 0.25, colors.grey),
+    ]))
+
+    left_lines = [
+        f"<b>Facturar a:</b> {company.get('name','')}",
+        f"RUT: {company.get('rut','-')}",
+        "Presentar factura en:",
+        company.get('address',''),
+    ]
+    left = Paragraph("<br/>".join([x for x in left_lines if x]), p)
+    tbl = Table([[left, tot_tbl]], colWidths=[110 * mm, 70 * mm])
+    tbl.setStyle(TableStyle([["VALIGN", (0, 0), (-1, -1), "TOP"]]))
+    return [tbl]
+
 
 def generate_quote_to_downloads(
     *,
@@ -104,27 +164,62 @@ def generate_quote_to_downloads(
     notes: Optional[str] = None,
     auto_open: bool = True,
 ) -> str:
-    """
-    Genera un PDF 'COTIZACIÓN' en Descargas y retorna la ruta absoluta.
-    No persiste compras ni modifica stock.
-    """
     out_dir = _downloads_dir(); out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{quote_number}.pdf"
 
-    st = _styles()
-    story = []
-    story += _header_story(st, quote_number, supplier)
-    if notes:
-        story.append(Paragraph(notes, st["Normal"]))
-        story.append(Spacer(1, 8))
+    company = get_company_info()
+    story: List = []
+    # Encabezado + aviso
+    story.append(_header(company, quote_number))
+    story.append(Spacer(1, 4))
+    warn = ParagraphStyle(name="warn", fontName="Helvetica-Bold", fontSize=12, textColor=colors.HexColor("#1E6AA8"), alignment=1)
+    story.append(Paragraph("*Documento sujeto a modificación (Provisorio)*", warn))
+    story.append(Spacer(1, 4))
+
+    # Detalles generales
+    story.append(_band("Detalles generales"))
+    story.append(Spacer(1, 2))
+    p = ParagraphStyle(name="p", fontName="Helvetica", fontSize=10, leading=13)
+    left_lines = [
+        ("Señor(es):", supplier.get('nombre') or "-"),
+        ("Atención:", supplier.get('contacto') or "-"),
+        ("Teléfono:", supplier.get('telefono') or "-"),
+        ("Dirección:", supplier.get('direccion') or "-"),
+    ]
+    right_lines = [
+        ("Fecha Documento:", datetime.now().strftime("%d/%m/%Y")),
+        ("Forma de Pago:", supplier.get('pago') or get_po_payment_method()),
+    ]
+    def _two_col(rows, w_label_mm: float, w_val_mm: float):
+        data = []
+        for a, b in rows:
+            data.append([Paragraph(f"<b>{a}</b>", p), Paragraph(str(b), p)])
+        return Table(data, colWidths=[w_label_mm * mm, w_val_mm * mm])
+    details = Table(
+        [[ _two_col(left_lines, 34, 78), _two_col(right_lines, 28, 40) ]],
+        colWidths=[112 * mm, 68 * mm]
+    )
+    details.setStyle(TableStyle([["VALIGN", (0, 0), (-1, -1), "TOP"]]))
+    story.append(details)
+    story.append(Spacer(1, 4))
+
+    # Ítems + totales
     story.append(_items_table(items, currency))
-    story += _totals_story(st, items, currency)
+    story.append(Spacer(1, 4))
+    story += _totals_block(company, items, currency)
+
+    # Observaciones
+    story.append(Spacer(1, 3))
+    story.append(_band("Observaciones:"))
+    if notes:
+        story.append(Spacer(1, 2))
+        story.append(Paragraph(notes, p))
 
     doc = SimpleDocTemplate(
         str(out_path),
         pagesize=A4,
-        leftMargin=14*mm, rightMargin=14*mm,
-        topMargin=12*mm, bottomMargin=14*mm,
+        leftMargin=14 * mm, rightMargin=14 * mm,
+        topMargin=14 * mm, bottomMargin=14 * mm,
         title="Cotización", author="Inventario App",
     )
     doc.build(story)
