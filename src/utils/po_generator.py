@@ -4,20 +4,13 @@ from decimal import Decimal
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import os
-import json  # <-- nuevo
+import json
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.platypus import (
-    SimpleDocTemplate,
-    Table,
-    TableStyle,
-    Paragraph,
-    Spacer,
-    Image,
-)
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
 
 from src.utils.helpers import (
     get_company_info,
@@ -26,18 +19,10 @@ from src.utils.helpers import (
     get_downloads_dir,
     unique_path,
 )
-from src.utils.money import D, q2
+from src.utils.money import D, q2, vat_breakdown
 
 
-# -----------------------------
-# Utilidades internas
-# -----------------------------
 def _fmt_money(value, currency: str) -> str:
-    """
-    Formatea el valor segÃºn moneda.
-    - CLP: miles con punto, sin decimales (e.g., 1.234.567)
-    - Otras: miles con coma, 2 decimales (e.g., 1,234,567.89)
-    """
     try:
         if currency.upper() == "CLP":
             return f"{D(value):,.0f}".replace(",", ".")
@@ -62,8 +47,6 @@ def _band(title: str, *, color=colors.HexColor("#1E6AA8")):
 def _header(company: Dict[str, Any], po_number: str):
     h1 = ParagraphStyle(name="h1", fontName="Helvetica-Bold", fontSize=14, leading=16)
     p = ParagraphStyle(name="p", fontName="Helvetica", fontSize=10, leading=13)
-
-    # Logo
     logo_cell: Any
     logo_path = (company.get("logo") or "").strip()
     if logo_path and Path(logo_path).exists():
@@ -78,18 +61,14 @@ def _header(company: Dict[str, Any], po_number: str):
 
     comp_lines = [
         f"<b>{company.get('name','')}</b>",
-        f"RUT: {company.get('rut','')}" if company.get("rut") else "",
-        company.get("address", ""),
+        f"RUT: {company.get('rut','')}" if company.get('rut') else "",
+        company.get('address',''),
         " | ".join([x for x in [f"Tel: {company.get('phone','')}" if company.get('phone') else '', company.get('email','')] if x]),
     ]
     comp_html = "<br/>".join([x for x in comp_lines if x])
-
-    right = Paragraph(f"<b>ORDEN DE COMPRA</b><br/>NÂº {po_number}", h1)
-    header_table = Table([[logo_cell, Paragraph(comp_html, p), right]], colWidths=[45*mm, 90*mm, 45*mm])
-    header_table.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("ALIGN", (2, 0), (2, 0), "RIGHT"),
-    ]))
+    right = Paragraph(f"<b>ORDEN DE COMPRA</b><br/>Nº {po_number}", h1)
+    header_table = Table([[logo_cell, Paragraph(comp_html, p), right]], colWidths=[45 * mm, 90 * mm, 45 * mm])
+    header_table.setStyle(TableStyle([["VALIGN", (0, 0), (-1, -1), "TOP"), ("ALIGN", (2, 0), (2, 0), "RIGHT")]))
     return header_table
 
 
@@ -97,9 +76,6 @@ def _dump_po_json(path_without_ext: Path, *, po_number: str,
                   supplier: Dict[str, Optional[str]],
                   items: List[Dict[str, Any]],
                   currency: str, notes: Optional[str]) -> str:
-    """
-    Guarda un archivo JSON con los datos de la OC junto al PDF.
-    """
     payload = {
         "schema": "po.v1",
         "po_number": po_number,
@@ -109,7 +85,7 @@ def _dump_po_json(path_without_ext: Path, *, po_number: str,
         "notes": notes,
         "created_at": datetime.now().isoformat(timespec="seconds"),
     }
-    # JSON seguro con Decimal: convertir a float (o str) automÃ¡ticamente
+
     def _default(o):
         if isinstance(o, Decimal):
             try:
@@ -119,16 +95,10 @@ def _dump_po_json(path_without_ext: Path, *, po_number: str,
         return str(o)
 
     json_path = path_without_ext.with_suffix(".json")
-    json_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, default=_default),
-        encoding="utf-8",
-    )
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=_default), encoding="utf-8")
     return str(json_path)
 
 
-# -----------------------------
-# API pÃºblica
-# -----------------------------
 def generate_po_pdf(
     output_path: str,
     *,
@@ -138,16 +108,9 @@ def generate_po_pdf(
     currency: str = "CLP",
     notes: Optional[str] = None,
 ) -> str:
-    """
-    Genera un PDF de Orden de Compra en 'output_path'.
-    - supplier: dict con claves: id, nombre/razon social, rut, contacto, telefono, email, direccion
-    - items: lista de dicts con claves: id, nombre, cantidad, precio, subtotal
-    Retorna la ruta del archivo creado.
-    """
     comp = get_company_info()
     terms = get_po_terms()
 
-    # Documento
     doc = SimpleDocTemplate(
         output_path,
         pagesize=A4,
@@ -156,69 +119,24 @@ def generate_po_pdf(
         leftMargin=14 * mm,
         rightMargin=14 * mm,
     )
-    story = []
+    story: List[Any] = []
 
-    # Estilos
-    h1 = ParagraphStyle(name="h1", fontName="Helvetica-Bold", fontSize=14, leading=16, spaceAfter=6)
-    h2 = ParagraphStyle(name="h2", fontName="Helvetica-Bold", fontSize=11, leading=14, spaceAfter=4)
-    p = ParagraphStyle(name="p", fontName="Helvetica", fontSize=10, leading=13)
-    small = ParagraphStyle(name="small", fontName="Helvetica", fontSize=9, leading=12, textColor=colors.grey)
-
-    # Encabezado (logo + empresa + OC)
-    header_table_data = []
-
-    # Col 1: Logo (si existe) o nombre empresa en negrita
-    logo_cell: Any
-    logo_path = (comp.get("logo") or "").strip()
-    if logo_path and Path(logo_path).exists():
-        try:
-            img = Image(logo_path)
-            img._restrictSize(35 * mm, 20 * mm)
-            logo_cell = img
-        except Exception:
-            logo_cell = Paragraph(f"<b>{comp.get('name','Mi Empresa')}</b>", h2)
-    else:
-        logo_cell = Paragraph(f"<b>{comp.get('name','Mi Empresa')}</b>", h2)
-
-    # Col 2: datos de la empresa
-    comp_lines = [
-        f"<b>{comp.get('name','')}</b>",
-        f"RUT: {comp.get('rut','')}" if comp.get("rut") else "",
-        comp.get("address", ""),
-        " Â· ".join(
-            [x for x in [
-                f"Tel: {comp.get('phone','')}" if comp.get("phone") else "",
-                comp.get("email","") or "",
-            ] if x]
-        ),
-    ]
-    comp_html = "<br/>".join([x for x in comp_lines if x])
-
-    # Col 3: tÃ­tulo + folio
-    header_table_data.append([
-        logo_cell,
-        Paragraph(comp_html, p),
-        Paragraph(f"<b>ORDEN DE COMPRA</b><br/>NÂ° {po_number}", h1),
-    ])
-    header_table = Table(header_table_data, colWidths=[45 * mm, 90 * mm, 45 * mm])
-    header_table.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("ALIGN", (2, 0), (2, 0), "RIGHT"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-    ]))
-    story.append(header_table)
+    story.append(_header(comp, po_number))
+    story.append(Spacer(1, 4 * mm))
+    warn = ParagraphStyle(name="warn", fontName="Helvetica-Bold", fontSize=12, textColor=colors.HexColor("#1E6AA8"), alignment=1)
+    story.append(Paragraph("*Documento sujeto a modificación (Provisorio)*", warn))
     story.append(Spacer(1, 4 * mm))
 
-    # Estilo solicitado: banda 'Detalles generales' y tabla de dos columnas
+    # Detalles generales
     story.append(_band("Detalles generales"))
     story.append(Spacer(1, 2 * mm))
     p = ParagraphStyle(name="p", fontName="Helvetica", fontSize=10, leading=13)
     left_lines = [
-        ("SeÃ±or(es):", supplier.get('nombre') or supplier.get('razon_social') or "-"),
-        ("AtenciÃ³n:", supplier.get('contacto') or "-"),
-        ("TelÃ©fono:", supplier.get('telefono') or "-"),
+        ("Señor(es):", supplier.get('nombre') or supplier.get('razon_social') or "-"),
+        ("Atención:", supplier.get('contacto') or "-"),
+        ("Teléfono:", supplier.get('telefono') or "-"),
         ("Giro:", supplier.get('giro', '-') or "-"),
-        ("DirecciÃ³n:", supplier.get('direccion') or "-"),
+        ("Dirección:", supplier.get('direccion') or "-"),
         ("Despachar a:", supplier.get('direccion') or "-"),
     ]
     right_lines = [
@@ -226,21 +144,20 @@ def generate_po_pdf(
         ("Rut:", supplier.get('rut', '-') or "-"),
         ("Forma de Pago:", supplier.get('pago') or get_po_payment_method()),
     ]
+
     def _two_col(rows, w_label_mm: float, w_val_mm: float):
         data = []
         for a, b in rows:
             data.append([Paragraph(f"<b>{a}</b>", p), Paragraph(str(b), p)])
         return Table(data, colWidths=[w_label_mm * mm, w_val_mm * mm])
-    details = Table([[ _two_col(left_lines, 34, 78), _two_col(right_lines, 28, 40) ]], colWidths=[112*mm, 68*mm])
-    details.setStyle(TableStyle([["VALIGN", (0,0), (-1,-1), "TOP"]]))
+
+    details = Table([[ _two_col(left_lines, 34, 78), _two_col(right_lines, 28, 40) ]], colWidths=[112 * mm, 68 * mm])
+    details.setStyle(TableStyle([["VALIGN", (0, 0), (-1, -1), "TOP"]]))
     story.append(details)
     story.append(Spacer(1, 4 * mm))
-    warn = ParagraphStyle(name="warn", fontName="Helvetica-Bold", fontSize=12, textColor=colors.HexColor("#1E6AA8"), alignment=1)
-    story.append(Paragraph("*Documento sujeto a modificaciÃ³n (Provisorio)*", warn))
-    story.append(Spacer(1, 4 * mm))
 
-    # Detalle (tabla)
-    data = [["Item", "CÃ³digo", "DescripciÃ³n", "Unidad", "Cantidad", "Precio Unit.", "Dcto", "Total"]]
+    # Ítems
+    data = [["Item", "Código", "Descripción", "Unidad", "Cantidad", "Precio Unit.", "Dcto", "Total"]]
     total = D(0)
     for idx, it in enumerate(items, start=1):
         cantidad = D(it.get("cantidad", 0) or 0)
@@ -258,12 +175,12 @@ def generate_po_pdf(
         ])
         total += D(subtotal)
 
-    table = Table(
+    items_table = Table(
         data,
-        colWidths=[8*mm, 16*mm, 72*mm, 12*mm, 16*mm, 24*mm, 10*mm, 24*mm],
+        colWidths=[8 * mm, 16 * mm, 72 * mm, 12 * mm, 16 * mm, 24 * mm, 10 * mm, 24 * mm],
         repeatRows=1,
     )
-    table.setStyle(TableStyle([
+    items_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E6EFF7")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
@@ -273,26 +190,27 @@ def generate_po_pdf(
         ("TOPPADDING", (0, 0), (-1, -1), 3),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]))
-    story.append(table)
+    story.append(items_table)
     story.append(Spacer(1, 4 * mm))
 
-    # FacturaciÃ³n (neto / IVA / total)
-    story.append(_band("FacturaciÃ³n"))
+    # Facturación (cálculo por línea para CLP)
+    story.append(_band("Facturación"))
     story.append(Spacer(1, 2 * mm))
     iva_rate = D("0.19")
-    neto = q2(D(total) / (D(1) + iva_rate))
-    iva = q2(total - neto)
+    neto, iva, total = vat_breakdown(items, currency=currency, iva_rate=iva_rate)
+    p2 = ParagraphStyle(name="p2", fontName="Helvetica", fontSize=10, leading=13)
     tot_tbl = Table([
-        [Paragraph("<b>Neto :</b>", p), Paragraph(_fmt_money(neto, currency), p)],
-        [Paragraph("<b>IVA :</b>", p), Paragraph(_fmt_money(iva, currency), p)],
-        [Paragraph("<b>Total :</b>", p), Paragraph(_fmt_money(total, currency), p)],
-    ], colWidths=[28*mm, 32*mm])
+        [Paragraph("<b>Neto :</b>", p2), Paragraph(_fmt_money(neto, currency), p2)],
+        [Paragraph("<b>IVA :</b>", p2), Paragraph(_fmt_money(iva, currency), p2)],
+        [Paragraph("<b>Total :</b>", p2), Paragraph(_fmt_money(total, currency), p2)],
+    ], colWidths=[28 * mm, 32 * mm])
     tot_tbl.setStyle(TableStyle([
         ("ALIGN", (0, 0), (-1, -1), "RIGHT"),
         ("FONTNAME", (0, 2), (-1, 2), "Helvetica-Bold"),
         ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.grey),
         ("BOX", (0, 0), (-1, -1), 0.25, colors.grey),
     ]))
+
     fact_left_lines = [
         f"<b>Facturar a:</b> {comp.get('name','')}",
         f"RUT: {comp.get('rut','-')}",
@@ -300,28 +218,27 @@ def generate_po_pdf(
         comp.get('address',''),
     ]
     fact_left = Paragraph("<br/>".join([x for x in fact_left_lines if x]), p)
-    fact_tbl = Table([[fact_left, tot_tbl]], colWidths=[110*mm, 70*mm])
-    fact_tbl.setStyle(TableStyle([["VALIGN", (0,0), (-1,-1), "TOP"]]))
+    fact_tbl = Table([[fact_left, tot_tbl]], colWidths=[110 * mm, 70 * mm])
+    fact_tbl.setStyle(TableStyle([["VALIGN", (0, 0), (-1, -1), "TOP"]]))
     story.append(fact_tbl)
 
-    # Observaciones / TÃ©rminos
+    # Observaciones / Términos
     story.append(Spacer(1, 3 * mm))
     story.append(_band("Observaciones:"))
     if notes:
         story.append(Spacer(1, 2 * mm))
         story.append(Paragraph(str(notes), p))
+    terms = get_po_terms()
     if terms:
         story.append(Spacer(1, 3 * mm))
         small2 = ParagraphStyle(name="small2", fontName="Helvetica", fontSize=9, leading=12, textColor=colors.grey)
         story.append(Paragraph(terms, small2))
 
-    # Construir PDF
     doc.build(story)
     return str(output_path)
 
 
 def open_file(path: str) -> None:
-    """Abre el archivo con la app por defecto del SO."""
     try:
         if os.name == "nt":
             os.startfile(path)  # type: ignore[attr-defined]
@@ -341,13 +258,8 @@ def generate_po_to_downloads(
     currency: str = "CLP",
     notes: Optional[str] = None,
     auto_open: bool = True,
-    save_json: bool = True,  # <-- nuevo
+    save_json: bool = True,
 ) -> str:
-    """
-    Genera la OC en la carpeta Descargas con nombre Ãºnico y la abre si se pide.
-    AdemÃ¡s guarda un JSON con los datos (save_json=True).
-    Retorna la ruta del PDF creado.
-    """
     safe_supplier = (supplier.get("nombre") or supplier.get("razon_social") or "Proveedor").strip().replace("/", "-").replace("\\", "-")
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     base_name = f"{po_number}_{safe_supplier}_{ts}"
@@ -355,7 +267,6 @@ def generate_po_to_downloads(
     downloads = get_downloads_dir()
     out_pdf = unique_path(downloads, base_name + ".pdf")
 
-    # PDF
     generate_po_pdf(
         output_path=str(out_pdf),
         po_number=po_number,
@@ -365,7 +276,6 @@ def generate_po_to_downloads(
         notes=notes,
     )
 
-    # JSON (mismo nombre)
     if save_json:
         _dump_po_json(
             out_pdf.with_suffix(""),
