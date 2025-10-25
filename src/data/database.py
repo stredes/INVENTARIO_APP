@@ -14,6 +14,7 @@ from typing import Optional
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import scoped_session, sessionmaker
+import os
 
 CONFIG_PATH = Path("config/settings.ini")
 
@@ -31,6 +32,35 @@ def _read_config() -> configparser.ConfigParser:
     return cfg
 
 
+def _safe_sqlite_url(db_url: str) -> str:
+    """
+    Si es SQLite, garantiza que el directorio del archivo exista y que la ruta
+    sea escribible en entornos empaquetados (PyInstaller).
+
+    - Rutas absolutas: crea el directorio padre si falta.
+    - Rutas relativas: coloca el archivo en %LOCALAPPDATA%/InventarioApp/<nombre>.
+      (Evita fallos al ejecutar el .exe donde no existe ./src/data/).
+    """
+    prefix = "sqlite:///"
+    if not db_url.startswith(prefix):
+        return db_url
+    raw_path = db_url[len(prefix):]
+    path = Path(raw_path)
+    if not path.is_absolute():
+        # Carpeta de datos del usuario
+        base = os.getenv("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        app_dir = Path(base) / "InventarioApp"
+        # Usa solo el nombre del archivo para evitar anidar 'src/data'
+        fname = path.name if path.name else "inventory.db"
+        path = app_dir / fname
+    # Crear directorio padre si no existe
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    return f"sqlite:///{path}"
+
+
 def get_engine() -> Engine:
     """
     Crea (o retorna) un Engine global. Para SQLite, fuerza foreign_keys=ON
@@ -42,6 +72,7 @@ def get_engine() -> Engine:
 
     cfg = _read_config()
     db_url = cfg.get("database", "url", fallback="sqlite:///./src/data/inventory.db")
+    db_url = _safe_sqlite_url(db_url)
 
     _engine = create_engine(db_url, future=True)
 

@@ -48,6 +48,15 @@ def get_po_terms() -> str:
     return cfg.get("po", "footer_terms", fallback="Gracias por su preferencia.")
 
 
+def get_po_payment_method() -> str:
+    """
+    Forma de pago por defecto para documentos (OC/Cotización).
+    Se puede cambiar en config/settings.ini -> [po] payment_method = 'Crédito 30 días' | 'Efectivo' | ...
+    """
+    cfg = read_config()
+    return cfg.get("po", "payment_method", fallback="Crédito 30 días")
+
+
 # -----------------------------
 # DESCARGAS / NOMBRES ÚNICOS
 # -----------------------------

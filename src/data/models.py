@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from typing import Optional, List
+from decimal import Decimal
 from datetime import datetime as dt
 
 from sqlalchemy import (
     Integer,
     String,
-    Float,
+    Numeric,
     DateTime,
     ForeignKey,
     UniqueConstraint,
@@ -62,8 +63,8 @@ class Product(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     nombre: Mapped[str] = mapped_column(String, nullable=False)
     sku: Mapped[str] = mapped_column(String, nullable=False, unique=True)
-    precio_compra: Mapped[float] = mapped_column(Float, nullable=False)
-    precio_venta: Mapped[float] = mapped_column(Float, nullable=False)
+    precio_compra: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    precio_venta: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     stock_actual: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     unidad_medida: Mapped[Optional[str]] = mapped_column(String)
 
@@ -95,7 +96,7 @@ class SupplierProduct(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     id_proveedor: Mapped[int] = mapped_column(ForeignKey("suppliers.id"), nullable=False)
     id_producto: Mapped[int] = mapped_column(ForeignKey("products.id"), nullable=False)
-    precio_proveedor: Mapped[float] = mapped_column(Float, nullable=False)
+    precio_proveedor: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
 
     # Sin back_populates para no interferir con la relación directa nueva
     supplier: Mapped["Supplier"] = relationship()
@@ -114,7 +115,7 @@ class Purchase(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     id_proveedor: Mapped[int] = mapped_column(ForeignKey("suppliers.id"), nullable=False)
     fecha_compra: Mapped[dt] = mapped_column(DateTime, nullable=False, default=dt.utcnow)
-    total_compra: Mapped[float] = mapped_column(Float, nullable=False)
+    total_compra: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     estado: Mapped[str] = mapped_column(String, nullable=False)  # Pendiente/Completada/Cancelada
 
     supplier: Mapped["Supplier"] = relationship()
@@ -133,8 +134,8 @@ class PurchaseDetail(Base):
     id_compra: Mapped[int] = mapped_column(ForeignKey("purchases.id", ondelete="CASCADE"), nullable=False)
     id_producto: Mapped[int] = mapped_column(ForeignKey("products.id"), nullable=False)
     cantidad: Mapped[int] = mapped_column(Integer, nullable=False)
-    precio_unitario: Mapped[float] = mapped_column(Float, nullable=False)
-    subtotal: Mapped[float] = mapped_column(Float, nullable=False)
+    precio_unitario: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
 
     purchase: Mapped["Purchase"] = relationship(back_populates="details")
     product: Mapped["Product"] = relationship()
@@ -212,7 +213,7 @@ class Sale(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     id_cliente: Mapped[int] = mapped_column(ForeignKey("customers.id"), nullable=False)
     fecha_venta: Mapped[dt] = mapped_column(DateTime, nullable=False, default=dt.utcnow)
-    total_venta: Mapped[float] = mapped_column(Float, nullable=False)
+    total_venta: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     estado: Mapped[str] = mapped_column(String, nullable=False)  # Borrador/Confirmada/Cancelada
 
     customer: Mapped["Customer"] = relationship(back_populates="sales")
@@ -231,8 +232,8 @@ class SaleDetail(Base):
     id_venta: Mapped[int] = mapped_column(ForeignKey("sales.id", ondelete="CASCADE"), nullable=False)
     id_producto: Mapped[int] = mapped_column(ForeignKey("products.id"), nullable=False)
     cantidad: Mapped[int] = mapped_column(Integer, nullable=False)
-    precio_unitario: Mapped[float] = mapped_column(Float, nullable=False)
-    subtotal: Mapped[float] = mapped_column(Float, nullable=False)
+    precio_unitario: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
 
     sale: Mapped["Sale"] = relationship(back_populates="details")
     product: Mapped["Product"] = relationship()

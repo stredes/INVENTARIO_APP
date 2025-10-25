@@ -3,14 +3,13 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 from typing import Iterable, Sequence, TYPE_CHECKING, Optional, List
-import importlib
 
 # Tipado opcional para Pylance sin requerir que tksheet esté instalado
 if TYPE_CHECKING:
     from tksheet import Sheet  # type: ignore[import-not-found]
 
-# Detección dinámica de tksheet (evita reportMissingImports si no está instalado)
-_HAS_TKSHEET = importlib.util.find_spec("tksheet") is not None
+# Forzar Treeview: desactivar tksheet siempre
+_HAS_TKSHEET = False
 
 # ThemeManager es opcional; no dependemos de APIs privadas
 try:
@@ -21,7 +20,7 @@ except Exception:
 
 class GridTable(ttk.Frame):
     """
-    Tabla con cuadrícula real (tksheet si está disponible; si no, Treeview).
+    Tabla basada únicamente en Treeview (sin tksheet).
     API:
         set_data(columns, rows)                 # rows: lista de dicts o secuencias
         set_row_backgrounds(bg_colors)         # lista del mismo largo que rows con str|None

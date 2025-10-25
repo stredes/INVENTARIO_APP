@@ -2,6 +2,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import List, Optional, Dict
+from decimal import Decimal
 
 from src.data.database import get_session
 from src.data.models import Product, Supplier
@@ -9,9 +10,11 @@ from src.data.repository import ProductRepository, SupplierRepository
 from src.core import PurchaseManager, PurchaseItem
 from src.utils.po_generator import generate_po_to_downloads
 from src.utils.quote_generator import generate_quote_to_downloads as generate_quote_downloads
+from src.utils.helpers import get_po_payment_method
 from src.gui.widgets.autocomplete_combobox import AutoCompleteCombobox
+from src.utils.money import D, q2, fmt_2, mul
 
-IVA_RATE = 0.19  # 19% IVA por defecto
+IVA_RATE = Decimal("0.19")  # 19% IVA por defecto
 
 
 class PurchasesView(ttk.Frame):
@@ -48,6 +51,20 @@ class PurchasesView(ttk.Frame):
 
         self.var_apply = tk.BooleanVar(value=True)
         ttk.Checkbutton(head, text="Sumar stock (Completada)", variable=self.var_apply).grid(row=0, column=2, padx=10)
+
+        # Estado + forma de pago (acordeón = combobox)
+        ttk.Label(head, text="Estado:").grid(row=0, column=3, sticky="e", padx=4)
+        self.ESTADOS = ("Completada", "Pendiente", "Cancelada")
+        self.cmb_estado = ttk.Combobox(head, state="readonly", width=14, values=self.ESTADOS)
+        self.cmb_estado.set("Completada")
+        self.cmb_estado.grid(row=0, column=4, sticky="w", padx=4)
+        self.cmb_estado.bind("<<ComboboxSelected>>", lambda _e=None: self._on_estado_change())
+
+        ttk.Label(head, text="Pago:").grid(row=0, column=5, sticky="e", padx=4)
+        self.PAGOS = ("Crédito 30 días", "Efectivo", "Débito", "Transferencia", "Cheque")
+        self.cmb_pago = ttk.Combobox(head, state="readonly", width=18, values=self.PAGOS)
+        self.cmb_pago.set(get_po_payment_method())
+        self.cmb_pago.grid(row=0, column=6, sticky="w", padx=4)
 
         # ---------- Detalle ----------
         det = ttk.Labelframe(self, text="Detalle de compra", padding=10)
@@ -150,9 +167,9 @@ class PurchasesView(ttk.Frame):
         return rs or rut or f"Proveedor {s.id}"
 
     # ======================== Precio con IVA ========================
-    def _price_with_iva(self, p: Product) -> float:
-        base = float(p.precio_compra or 0.0)
-        return round(base * (1.0 + IVA_RATE), 2)
+    def _price_with_iva(self, p: Product) -> Decimal:
+        base = D(getattr(p, "precio_compra", 0) or 0)
+        return q2(base * (Decimal(1) + IVA_RATE))
 
     def _selected_product(self) -> Optional[Product]:
         # Primero intentamos tomar el objeto real desde el autocomplete
@@ -176,8 +193,8 @@ class PurchasesView(ttk.Frame):
 
     def _update_price_field(self):
         p = self._selected_product()
-        price = self._price_with_iva(p) if p else 0.0
-        self.var_price.set(f"{price:.2f}")
+        price = self._price_with_iva(p) if p else Decimal(0)
+        self.var_price.set(fmt_2(price))
 
     def _on_product_change(self, _evt=None):
         self._update_price_field()
@@ -202,7 +219,7 @@ class PurchasesView(ttk.Frame):
                 return
 
             try:
-                qty = float(self.ent_qty.get())
+                qty = int(float(self.ent_qty.get()))
             except ValueError:
                 self._warn("Cantidad inválida.")
                 return
@@ -221,8 +238,8 @@ class PurchasesView(ttk.Frame):
                     self._warn("Este producto ya está en la tabla.")
                     return
 
-            subtotal = qty * price
-            self.tree.insert("", "end", values=(p.id, p.nombre, qty, f"{price:.2f}", f"{subtotal:.2f}"))
+            subtotal = q2(D(qty) * D(price))
+            self.tree.insert("", "end", values=(p.id, p.nombre, qty, fmt_2(price), fmt_2(subtotal)))
             self._update_total()
 
             # reset mínimo
@@ -243,13 +260,13 @@ class PurchasesView(ttk.Frame):
         self._update_total()
 
     def _update_total(self):
-        total = 0.0
+        total = D(0)
         for iid in self.tree.get_children():
             try:
-                total += float(self.tree.item(iid, "values")[4])
+                total += D(self.tree.item(iid, "values")[4])
             except Exception:
                 pass
-        self.lbl_total.config(text=f"Total: {total:.2f}")
+        self.lbl_total.config(text=f"Total: {fmt_2(total)}")
 
     def _collect_items_for_manager(self) -> List[PurchaseItem]:
         items: List[PurchaseItem] = []
@@ -258,8 +275,8 @@ class PurchasesView(ttk.Frame):
             items.append(
                 PurchaseItem(
                     product_id=int(prod_id),
-                    cantidad=float(scnt),
-                    precio_unitario=float(sprice),  # ya viene con IVA
+                    cantidad=int(float(scnt)),
+                    precio_unitario=D(sprice),  # ya viene con IVA
                 )
             )
         return items
@@ -271,9 +288,9 @@ class PurchasesView(ttk.Frame):
             rows.append({
                 "id": int(prod_id),
                 "nombre": str(name),
-                "cantidad": float(scnt),
-                "precio": float(sprice),
-                "subtotal": float(ssub),
+                "cantidad": int(float(scnt)),
+                "precio": D(sprice),
+                "subtotal": D(ssub),
             })
         return rows
 
@@ -298,11 +315,14 @@ class PurchasesView(ttk.Frame):
                     self._error(f"El producto id={it.product_id} no corresponde al proveedor seleccionado.")
                     return
 
+            estado = (getattr(self, 'cmb_estado', None).get() if hasattr(self, 'cmb_estado') else "Completada") or "Completada"
+            apply_to_stock = self.var_apply.get() and (estado == "Completada")
+
             self.pm.create_purchase(
                 supplier_id=sup.id,
                 items=items,
-                estado="Completada" if self.var_apply.get() else "Pendiente",
-                apply_to_stock=self.var_apply.get(),  # suma stock si confirmada
+                estado=estado,
+                apply_to_stock=apply_to_stock,
             )
 
             # limpiar
@@ -332,6 +352,7 @@ class PurchasesView(ttk.Frame):
                 "telefono": getattr(sup, "telefono", ""),
                 "email": getattr(sup, "email", ""),
                 "direccion": getattr(sup, "direccion", ""),
+                "pago": (getattr(self, 'cmb_pago', None).get() if hasattr(self, 'cmb_pago') else get_po_payment_method()),
             }
             out = generate_po_to_downloads(
                 po_number=po_number,
@@ -369,6 +390,7 @@ class PurchasesView(ttk.Frame):
                 "telefono": getattr(sup, "telefono", "") or "",
                 "email": getattr(sup, "email", "") or "",
                 "direccion": getattr(sup, "direccion", "") or "",
+                "pago": (getattr(self, 'cmb_pago', None).get() if hasattr(self, 'cmb_pago') else get_po_payment_method()),
             }
 
             out = generate_quote_downloads(

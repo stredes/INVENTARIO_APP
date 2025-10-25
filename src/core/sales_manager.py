@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from datetime import datetime
 from typing import Iterable, List, Optional
 
@@ -15,6 +16,7 @@ from src.data.repository import (
     SaleDetailRepository,
 )
 from .inventory_manager import InventoryManager
+from src.utils.money import D, mul, money_sum, q2
 
 
 class SalesError(Exception):
@@ -26,11 +28,11 @@ class SaleItem:
     """Ítem de venta (precio_unitario = precio de venta)."""
     product_id: int
     cantidad: int
-    precio_unitario: float
+    precio_unitario: Decimal
 
     @property
-    def subtotal(self) -> float:
-        return float(self.cantidad) * float(self.precio_unitario)
+    def subtotal(self) -> Decimal:
+        return mul(self.cantidad, self.precio_unitario)
 
 
 class SalesManager:
@@ -99,7 +101,7 @@ class SalesManager:
         fecha = fecha or datetime.utcnow()
         self._validate_customer(customer_id)
         items = self._validate_items(items)
-        total = sum(it.subtotal for it in items)
+        total = q2(money_sum(it.subtotal for it in items))
 
         try:
             # Cabecera
@@ -118,8 +120,8 @@ class SalesManager:
                     id_venta=sale.id,
                     id_producto=it.product_id,
                     cantidad=it.cantidad,
-                    precio_unitario=it.precio_unitario,
-                    subtotal=it.subtotal,
+                    precio_unitario=q2(it.precio_unitario),
+                    subtotal=q2(it.subtotal),
                 )
                 self.sale_details.add(det)
 
