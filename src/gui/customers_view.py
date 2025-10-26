@@ -97,6 +97,11 @@ class CustomersView(ttk.Frame):
                 # En fallback los ids de columna son exactamente los títulos
                 tv.heading(name, text=name, anchor="center")
                 tv.column(name, width=self.COL_WIDTHS[i], anchor="center")
+            try:
+                from src.gui.treeview_utils import enable_treeview_sort
+                enable_treeview_sort(tv)
+            except Exception:
+                pass
 
     def _read_form(self) -> dict | None:
         razon = self.var_razon.get().strip()

@@ -88,12 +88,14 @@ class SalesView(ttk.Frame):
         ttk.Button(det, text="Agregar ítem", command=self._on_add_item)\
             .grid(row=0, column=6, padx=8)
 
-        # ---------- Tabla ----------
+        # ---------- Tabla + Scrollbar ----------
+        tree_frame = ttk.Frame(self)
+        tree_frame.pack(fill="both", expand=True, pady=(10, 0))
         self.tree = ttk.Treeview(
-            self,
+            tree_frame,
             columns=("prod_id", "producto", "cant", "precio", "subtotal"),
             show="headings",
-            height=10,
+            height=8,
         )
         for cid, text, w in [
             ("prod_id", "ID", 60),
@@ -104,7 +106,23 @@ class SalesView(ttk.Frame):
         ]:
             self.tree.heading(cid, text=text, anchor="center")
             self.tree.column(cid, width=w, anchor="center")
-        self.tree.pack(fill="both", expand=True, pady=(10, 0))
+        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=vsb.set)
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        tree_frame.rowconfigure(0, weight=1)
+        tree_frame.columnconfigure(0, weight=1)
+
+        # Soporte de rueda del ratón (Windows/macOS/Linux)
+        self.tree.bind("<MouseWheel>", self._on_mousewheel)
+        self.tree.bind("<Button-4>", self._on_mousewheel)   # Linux scroll up
+        self.tree.bind("<Button-5>", self._on_mousewheel)   # Linux scroll down
+        # Ordenar por click en encabezados
+        try:
+            from src.gui.treeview_utils import enable_treeview_sort
+            enable_treeview_sort(self.tree)
+        except Exception:
+            pass
 
         # ---------- Total + Acciones ----------
         bottom = ttk.Frame(self)
@@ -331,6 +349,22 @@ class SalesView(ttk.Frame):
                 pass
         self.lbl_total.config(text=f"Total: {fmt_2(total)}")
 
+    # -------------------- Scroll wheel --------------------
+    def _on_mousewheel(self, event):
+        try:
+            if event.delta:
+                # Windows / macOS
+                self.tree.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            else:
+                # Linux (Button-4/5)
+                if event.num == 4:
+                    self.tree.yview_scroll(-1, "units")
+                elif event.num == 5:
+                    self.tree.yview_scroll(1, "units")
+        except Exception:
+            pass
+        return "break"
+
     def _collect_items(self) -> List[dict]:
         items: List[dict] = []
         for iid in self.tree.get_children():
@@ -542,6 +576,13 @@ class SalesView(ttk.Frame):
         tree.configure(yscroll=vsb.set)
         tree.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=8)
         vsb.pack(side="left", fill="y", pady=8)
+
+        # Habilitar ordenamiento por encabezado
+        try:
+            from src.gui.treeview_utils import enable_treeview_sort
+            enable_treeview_sort(tree)
+        except Exception:
+            pass
 
         total_general = 0.0
         for r in rows:

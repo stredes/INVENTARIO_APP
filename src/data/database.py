@@ -70,11 +70,23 @@ def get_engine() -> Engine:
     if _engine is not None:
         return _engine
 
-    cfg = _read_config()
-    db_url = cfg.get("database", "url", fallback="sqlite:///./src/data/inventory.db")
+    # 1) Prioridad a env var (multiusuario en servidor) y fallback a settings.ini/SQLite local
+    env_url = os.getenv("DATABASE_URL", "").strip()
+    if env_url:
+        db_url = env_url
+    else:
+        cfg = _read_config()
+        db_url = cfg.get("database", "url", fallback="sqlite:///./src/data/inventory.db")
     db_url = _safe_sqlite_url(db_url)
 
-    _engine = create_engine(db_url, future=True)
+    # 2) Engine con pool razonable si es servidor (PostgreSQL)
+    kw = {"future": True, "pool_pre_ping": True}
+    try:
+        if db_url.startswith("postgresql"):
+            kw.update({"pool_size": 5, "max_overflow": 5})
+    except Exception:
+        pass
+    _engine = create_engine(db_url, **kw)
 
     # PRAGMA foreign_keys=ON para SQLite
     @event.listens_for(_engine, "connect")

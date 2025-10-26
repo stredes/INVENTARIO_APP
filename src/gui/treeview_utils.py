@@ -49,7 +49,7 @@ def apply_default_treeview_styles():
     style.configure(
         "Treeview.Heading",
         anchor="center",
-        font=("Segoe UI", 10, "bold"),
+        font=("Segoe UI", 12, "bold"),
         padding=(4, 6),
         relief="flat",
         background="#D5EAF7",
@@ -57,8 +57,8 @@ def apply_default_treeview_styles():
     # Rows: slightly larger height for readability
     style.configure(
         "Treeview",
-        font=("Segoe UI", 10),
-        rowheight=24,
+        font=("Segoe UI", 12),
+        rowheight=28,
     )
 
 
@@ -69,6 +69,77 @@ def apply_professional_style_to(tree: ttk.Treeview) -> None:
         tree.configure(style="Treeview")
     except Exception:
         pass
+
+
+def enable_treeview_sort(tree: ttk.Treeview) -> None:
+    """Añade ordenamiento al click en encabezados.
+
+    - Texto: orden A→Z por defecto, alterna Z→A en clics sucesivos.
+    - Números/moneda: orden mayor→menor por defecto, alterna.
+    - Detecta números intentando convertir quitando símbolos ($, CLP, %, separadores).
+    """
+    try:
+        cols = list(tree.cget("columns") or [])
+    except Exception:
+        cols = []
+    if not cols:
+        return
+
+    if not hasattr(tree, "_sort_state"):
+        tree._sort_state = {}  # type: ignore[attr-defined]
+
+    def _to_number(v: str):
+        s = str(v or "").strip()
+        s = s.replace("$", "").replace("CLP", "").replace("%", "").strip()
+        # Normaliza separadores: quita miles (.) y usa coma como miles posible
+        s = s.replace(".", "").replace(",", ".")
+        try:
+            return float(s)
+        except Exception:
+            return None
+
+    def _sort_by(col: str):
+        children = tree.get_children("")
+        data = []
+        all_numeric = True
+        for iid in children:
+            val = tree.set(iid, col)
+            num = _to_number(val)
+            if num is None and str(val).strip() != "":
+                all_numeric = False
+            data.append((num if num is not None else val, iid))
+
+        # Dirección por defecto según tipo
+        prev = getattr(tree, "_sort_state", {}).get(col, None)  # type: ignore[attr-defined]
+        if all_numeric:
+            default_desc = True
+            reverse = (prev is None) or (prev is False)
+            # Si numérico, queremos mayor→menor por defecto
+            reverse = True if prev is None else not prev
+        else:
+            # Texto: A→Z por defecto
+            reverse = False if prev is None else not prev
+
+        # Ordena
+        if all_numeric:
+            keyfunc = lambda x: (float('-inf') if x[0] == '' else x[0])
+        else:
+            keyfunc = lambda x: str(x[0]).lower()
+        data.sort(key=keyfunc, reverse=reverse)
+
+        # Reordenar items
+        for index, (_val, iid) in enumerate(data):
+            tree.move(iid, "", index)
+
+        # Guarda estado (True si orden descendente)
+        tree._sort_state[col] = reverse  # type: ignore[attr-defined]
+
+    # Asigna comando a cada encabezado
+    for c in cols:
+        try:
+            tree.heading(c, command=lambda cc=c: _sort_by(cc))
+        except Exception:
+            pass
 
 
 def enable_auto_center_for_new_treeviews():

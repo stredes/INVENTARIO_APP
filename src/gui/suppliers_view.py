@@ -107,6 +107,11 @@ class SuppliersView(ttk.Frame):
             for i, name in enumerate(self.COLS):
                 tv.heading(name, text=name, anchor="center")
                 tv.column(name, width=self.COL_WIDTHS[i], anchor="center")
+            try:
+                from src.gui.treeview_utils import enable_treeview_sort
+                enable_treeview_sort(tv)
+            except Exception:
+                pass
 
     def _normalize_rut(self, rut: str) -> str:
         """Normaliza espacios y mayúsculas."""

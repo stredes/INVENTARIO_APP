@@ -23,6 +23,7 @@ try:
         apply_default_treeview_styles,
         enable_auto_center_for_new_treeviews,
         center_treeview,
+        enable_treeview_sort,
     )
 except Exception:
     def center_treeview(*_a, **_k):  # type: ignore
@@ -177,6 +178,10 @@ class GridTable(ttk.Frame):
             for r in rows_list:
                 tv.insert("", "end", values=list(r))
         self._retag_zebra()
+        try:
+            enable_treeview_sort(tv)
+        except Exception:
+            pass
 
     # ----------------------- ROW BACKGROUNDS (NEW) ---------------------- #
     def set_row_backgrounds(self, bg_colors: List[Optional[str]]) -> None:
@@ -205,12 +210,17 @@ class GridTable(ttk.Frame):
         children = tv.get_children("")
         for i, iid in enumerate(children):
             tags = set(tv.item(iid, "tags") or [])
-            tags.discard("state_low"); tags.discard("state_high")
+            # Limpia tags previas de estado/bg
+            tags = {t for t in tags if not (t.startswith("bg_") or t.startswith("state_"))}
             c = bg_colors[i] if i < len(bg_colors) else None
-            if c == "#ffdddd":
-                tags.add("state_low")
-            elif c == "#fff6cc":
-                tags.add("state_high")
+            if c:
+                # Tag dinámico por color para soportar múltiples rangos
+                tag = f"bg_{str(c).lstrip('#').lower()}"
+                try:
+                    tv.tag_configure(tag, background=str(c))
+                except Exception:
+                    pass
+                tags.add(tag)
             tv.item(iid, tags=tuple(tags))
         # Reaplica zebra solo en filas SIN estado
         self._retag_zebra()
@@ -223,11 +233,10 @@ class GridTable(ttk.Frame):
         children = tv.get_children("")
         for i, iid in enumerate(children):
             tags = set(tv.item(iid, "tags") or [])
-            # Si ya tiene estado, no aplicamos grid_* (para no tapar color)
-            if "state_low" in tags or "state_high" in tags:
-                tags.discard("grid_even"); tags.discard("grid_odd")
-            else:
-                tags.discard("grid_even"); tags.discard("grid_odd")
+            # Si ya tiene un color de estado/bg, no aplicamos zebra para no tapar color
+            has_state = any(t.startswith("state_") or t.startswith("bg_") for t in tags)
+            tags.discard("grid_even"); tags.discard("grid_odd")
+            if not has_state:
                 tags.add("grid_even" if i % 2 == 0 else "grid_odd")
             tv.item(iid, tags=tuple(tags))
 

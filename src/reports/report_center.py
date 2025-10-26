@@ -132,8 +132,24 @@ class ReportCenter(ttk.Frame):
         self.btn_inventory_filters = ttk.Button(filt, text="Filtros inventario…", command=self._open_inventory_filters)
         self.btn_inventory_filters.grid(row=0, column=6, sticky="w", padx=8)
 
+        # Filtros adicionales comunes (ventas/compras)
+        ttk.Label(filt, text="Cliente/Proveedor contiene:").grid(row=1, column=0, sticky="e", padx=4, pady=3)
+        self.var_party = tk.StringVar()
+        ttk.Entry(filt, textvariable=self.var_party, width=24).grid(row=1, column=1, sticky="w")
+
+        ttk.Label(filt, text="Producto/SKU contiene:").grid(row=1, column=2, sticky="e", padx=8)
+        self.var_product = tk.StringVar()
+        ttk.Entry(filt, textvariable=self.var_product, width=24).grid(row=1, column=3, sticky="w")
+
+        ttk.Label(filt, text="Total ≥").grid(row=1, column=4, sticky="e", padx=8)
+        self.var_total_min = tk.StringVar()
+        ttk.Entry(filt, textvariable=self.var_total_min, width=10).grid(row=1, column=5, sticky="w")
+        ttk.Label(filt, text="Total ≤").grid(row=1, column=6, sticky="e", padx=8)
+        self.var_total_max = tk.StringVar()
+        ttk.Entry(filt, textvariable=self.var_total_max, width=10).grid(row=1, column=7, sticky="w")
+
         # Ajuste de columnas grid
-        for i in range(7):
+        for i in range(8):
             filt.columnconfigure(i, weight=1)
 
         # --------- Rejilla de resultados ---------
@@ -290,6 +306,15 @@ class ReportCenter(ttk.Frame):
     def _run_sales_report(self, key: str):
         d_from, d_to = self._get_date_filters()
         state = (self.cmb_state.get() or "").strip()
+        party_like = (self.var_party.get() or "").strip()
+        prod_like = (self.var_product.get() or "").strip()
+        def _num(s: str):
+            try:
+                return float((s or "").replace(".", "").replace(",", ".")) if s else None
+            except Exception:
+                return None
+        tmin = _num(self.var_total_min.get())
+        tmax = _num(self.var_total_max.get())
 
         if key == "sales_period":
             # Resumen por venta
@@ -303,6 +328,13 @@ class ReportCenter(ttk.Frame):
                 q = q.filter(Sale.fecha_venta <= d_to)
             if state and state != "(Todos)":
                 q = q.filter(Sale.estado == state)
+            if party_like:
+                like = f"%{party_like}%"
+                q = q.filter((Customer.razon_social.ilike(like)) | (Customer.rut.ilike(like)))
+            if tmin is not None:
+                q = q.filter(Sale.total_venta >= tmin)
+            if tmax is not None:
+                q = q.filter(Sale.total_venta <= tmax)
 
             cols = ["ID", "Fecha", "Cliente", "Estado", "Total"]
             rows = []
@@ -330,6 +362,16 @@ class ReportCenter(ttk.Frame):
                 q = q.filter(Sale.fecha_venta <= d_to)
             if state and state != "(Todos)":
                 q = q.filter(Sale.estado == state)
+            if party_like:
+                like = f"%{party_like}%"
+                q = q.filter((Customer.razon_social.ilike(like)) | (Customer.rut.ilike(like)))
+            if prod_like:
+                likep = f"%{prod_like}%"
+                q = q.filter((Product.nombre.ilike(likep)) | (Product.sku.ilike(likep)))
+            if tmin is not None:
+                q = q.filter(Sale.total_venta >= tmin)
+            if tmax is not None:
+                q = q.filter(Sale.total_venta <= tmax)
 
             cols = ["Venta ID", "Fecha", "Cliente", "ID Prod", "Producto", "Cant.", "Precio", "Subtotal"]
             rows = []
@@ -365,6 +407,9 @@ class ReportCenter(ttk.Frame):
                 q = q.filter(Sale.fecha_venta <= d_to)
             if state and state != "(Todos)":
                 q = q.filter(Sale.estado == state)
+            if prod_like:
+                likep = f"%{prod_like}%"
+                q = q.filter((Product.nombre.ilike(likep)) | (Product.sku.ilike(likep)))
 
             q = q.order_by(-q.c.qty)  # desc por cantidad
             cols = ["ID Prod", "Producto", "Unidades vendidas", "Total"]
@@ -377,6 +422,15 @@ class ReportCenter(ttk.Frame):
     def _run_purchases_report(self, key: str):
         d_from, d_to = self._get_date_filters()
         state = (self.cmb_state.get() or "").strip()
+        party_like = (self.var_party.get() or "").strip()
+        prod_like = (self.var_product.get() or "").strip()
+        def _num(s: str):
+            try:
+                return float((s or "").replace(".", "").replace(",", ".")) if s else None
+            except Exception:
+                return None
+        tmin = _num(self.var_total_min.get())
+        tmax = _num(self.var_total_max.get())
 
         if key == "purchases_period":
             q = (
@@ -389,6 +443,13 @@ class ReportCenter(ttk.Frame):
                 q = q.filter(Purchase.fecha_compra <= d_to)
             if state and state != "(Todos)":
                 q = q.filter(Purchase.estado == state)
+            if party_like:
+                like = f"%{party_like}%"
+                q = q.filter((Supplier.razon_social.ilike(like)) | (Supplier.rut.ilike(like)))
+            if tmin is not None:
+                q = q.filter(Purchase.total_compra >= tmin)
+            if tmax is not None:
+                q = q.filter(Purchase.total_compra <= tmax)
 
             cols = ["ID", "Fecha", "Proveedor", "Estado", "Total"]
             rows = []
@@ -415,6 +476,12 @@ class ReportCenter(ttk.Frame):
                 q = q.filter(Purchase.fecha_compra <= d_to)
             if state and state != "(Todos)":
                 q = q.filter(Purchase.estado == state)
+            if party_like:
+                like = f"%{party_like}%"
+                q = q.filter((Supplier.razon_social.ilike(like)) | (Supplier.rut.ilike(like)))
+            if prod_like:
+                likep = f"%{prod_like}%"
+                q = q.filter((Product.nombre.ilike(likep)) | (Product.sku.ilike(likep)))
 
             cols = ["Compra ID", "Fecha", "Proveedor", "ID Prod", "Producto", "Cant.", "Precio", "Subtotal"]
             rows = []

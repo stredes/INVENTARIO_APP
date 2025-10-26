@@ -11,9 +11,7 @@ from src.data.models import Product
 from src.data.repository import ProductRepository
 from src.utils.helpers import (
     get_inventory_limits,
-    set_inventory_limits,
     get_inventory_refresh_ms,
-    set_inventory_refresh_ms,
 )
 
 # ==== Reportes / filtros ====
@@ -111,21 +109,7 @@ class InventoryView(ttk.Frame):
         self._legend.grid(row=0, column=5, sticky="e", padx=6)
         self._build_legend()
 
-        # --- Panel Configuración ---
-        # Panel de valores por defecto (oculto por solicitud)
-        cfg = ttk.Labelframe(self, text="Configuración de límites críticos y refresco (valores por defecto)", padding=10)
-        # No mostramos este bloque: evitamos pack()
-
-        ttk.Label(cfg, text="Mínimo crítico:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
-        ttk.Spinbox(cfg, from_=0, to=999999, textvariable=self._crit_min, width=10).grid(row=0, column=1, sticky="w", padx=4, pady=4)
-
-        ttk.Label(cfg, text="Máximo crítico:").grid(row=0, column=2, sticky="e", padx=4, pady=4)
-        ttk.Spinbox(cfg, from_=0, to=999999, textvariable=self._crit_max, width=10).grid(row=0, column=3, sticky="w", padx=4, pady=4)
-
-        ttk.Label(cfg, text="Refresco (ms):").grid(row=0, column=4, sticky="e", padx=4, pady=4)
-        ttk.Spinbox(cfg, from_=500, to=60000, increment=500, textvariable=self._refresh_ms, width=10).grid(row=0, column=5, sticky="w", padx=4, pady=4)
-
-        # Límites por producto seleccionado
+        # --- Límites por producto seleccionado ---
         prod_cfg = ttk.Labelframe(self, text="Límites críticos del producto seleccionado", padding=10)
         prod_cfg.pack(fill="x", expand=False, pady=(6, 10))
         self._sel_min = tk.IntVar(value=0)
@@ -135,10 +119,6 @@ class InventoryView(ttk.Frame):
         ttk.Label(prod_cfg, text="Máximo:").grid(row=0, column=2, sticky="e", padx=4, pady=4)
         ttk.Spinbox(prod_cfg, from_=0, to=999999, textvariable=self._sel_max, width=10).grid(row=0, column=3, sticky="w", padx=4, pady=4)
         ttk.Button(prod_cfg, text="Guardar límites del producto", command=self._on_save_selected_limits).grid(row=0, column=4, padx=8)
-
-        ttk.Button(cfg, text="Guardar", command=self._on_save_config).grid(row=0, column=6, padx=8)
-        for i in range(7):
-            cfg.columnconfigure(i, weight=1)
 
         # Primera carga + auto
         self.refresh_table()
@@ -326,21 +306,7 @@ class InventoryView(ttk.Frame):
         _set_prod_limits(pid, mn, mx)
         self.refresh_table()
 
-    def _on_save_config(self):
-        """Persiste límites y ms de refresco, reprograma el auto y refresca la tabla."""
-        try:
-            min_v = int(self._crit_min.get())
-            max_v = int(self._crit_max.get())
-            ms = int(self._refresh_ms.get())
-            set_inventory_limits(min_v, max_v)
-            set_inventory_refresh_ms(ms)
-            self._cancel_auto()
-            self._schedule_auto()
-            # Nota: no refrescamos tabla para no aplicar inmediatamente
-            # los nuevos valores por defecto sobre productos ya listados.
-            messagebox.showinfo("OK", "Configuración guardada (valores por defecto).\nNo afecta productos con límites personalizados.")
-        except Exception as e:
-            messagebox.showerror("Error", f"No se pudo guardar configuración:\n{e}")
+    # (El bloque de configuración por defecto se eliminó por solicitud)
 
     def _on_toggle_auto(self):
         if self._auto_enabled.get():

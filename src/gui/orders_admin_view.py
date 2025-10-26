@@ -84,6 +84,11 @@ class OrdersAdminView(ttk.Frame):
             for i, c in enumerate(cols):
                 tv.heading(c, text=str(c), anchor="center")
                 tv.column(c, width=widths[i] if i < len(widths) else 120, anchor="center")
+            try:
+                from src.gui.treeview_utils import enable_treeview_sort
+                enable_treeview_sort(tv)
+            except Exception:
+                pass
 
     def _set_table_data(self, table: GridTable, cols: List[str], widths: List[int], rows: List[List]) -> None:
         table.set_data(cols, rows)

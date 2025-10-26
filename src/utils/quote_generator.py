@@ -20,7 +20,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import ParagraphStyle
 
 from src.utils.helpers import get_company_info, get_downloads_dir, get_po_payment_method
-from src.utils.money import D, q2
+from src.utils.money import D, q2, vat_breakdown
 
 
 def _downloads_dir() -> Path:
@@ -121,15 +121,8 @@ def _items_table(items: List[Dict[str, object]], currency: str) -> Table:
 
 
 def _totals_block(company: Dict[str, Any], items: List[Dict[str, object]], currency: str):
-    total = D(0)
-    for it in items:
-        try:
-            total += D(it.get("subtotal", 0))
-        except Exception:
-            pass
-    iva_rate = D("0.19")
-    neto = q2(total / (D(1) + iva_rate))
-    iva = q2(total - neto)
+    # Unificar cálculo con OC/OV para evitar discrepancias
+    neto, iva, total = vat_breakdown(items, currency=currency, iva_rate=D("0.19"))
     p = ParagraphStyle(name="p", fontName="Helvetica", fontSize=10, leading=13)
     tot_tbl = Table([
         [Paragraph("<b>Neto :</b>", p), Paragraph(_fmt_moneda(neto, currency), p)],

@@ -60,7 +60,7 @@ class PurchasesView(ttk.Frame):
 
         # Estado + forma de pago (acordeón = combobox)
         ttk.Label(head, text="Estado:").grid(row=0, column=3, sticky="e", padx=4)
-        self.ESTADOS = ("Completada", "Pendiente", "Cancelada")
+        self.ESTADOS = ("Completada", "Pendiente", )
         self.cmb_estado = ttk.Combobox(head, state="readonly", width=14, values=self.ESTADOS)
         self.cmb_estado.set("Completada")
         self.cmb_estado.grid(row=0, column=4, sticky="w", padx=4)
@@ -110,6 +110,12 @@ class PurchasesView(ttk.Frame):
             self.tree.heading(cid, text=text, anchor="center")
             self.tree.column(cid, width=w, anchor="center")
         self.tree.pack(fill="both", expand=True, pady=(10, 0))
+        # Ordenar por click en encabezados
+        try:
+            from src.gui.treeview_utils import enable_treeview_sort
+            enable_treeview_sort(self.tree)
+        except Exception:
+            pass
 
         # ---------- Total + Acciones ----------
         bottom = ttk.Frame(self)

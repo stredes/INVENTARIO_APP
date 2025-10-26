@@ -101,6 +101,54 @@ python -m src.main
 python run_app.py
 ```
 
+## 🌐 Modo multiusuario (PostgreSQL)
+
+Para que varios empleados usen la app simultáneamente, configura un servidor PostgreSQL y define la URL en cada cliente.
+
+1) Levanta PostgreSQL (por ejemplo con Docker Compose):
+
+```
+version: "3.9"
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: inventario
+      POSTGRES_USER: inventario_app
+      POSTGRES_PASSWORD: CambiaEstaClaveFuerte
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:
+```
+
+2) En cada PC cliente, define `DATABASE_URL`:
+
+- Windows (PowerShell):
+```
+setx DATABASE_URL "postgresql+psycopg2://inventario_app:CambiaEstaClaveFuerte@IP_SERVIDOR:5432/inventario?sslmode=prefer"
+```
+
+- Linux/macOS:
+```
+export DATABASE_URL='postgresql+psycopg2://inventario_app:CambiaEstaClaveFuerte@IP_SERVIDOR:5432/inventario?sslmode=prefer'
+```
+
+3) Instala el driver en cada cliente:
+```
+pip install psycopg2-binary
+```
+
+4) Inicializa la base (una sola vez):
+```
+python -m scripts.init_db_postgres
+```
+
+Si `DATABASE_URL` no está definida, la app usará SQLite local en `app_data/` como modo standalone.
+
 🧭 Uso rápido por módulo
 Compras
 Selecciona Proveedor → agrega productos (cantidad; precio unitario con IVA calculado desde el precio de compra).

@@ -183,6 +183,11 @@ class ProductsView(ttk.Frame):
             for i, name in enumerate(self.COLS):
                 tv.heading(name, text=name, anchor="center")
                 tv.column(name, width=self.COL_WIDTHS[i], anchor="center")
+            try:
+                from src.gui.treeview_utils import enable_treeview_sort
+                enable_treeview_sort(tv)
+            except Exception:
+                pass
 
     def _set_table_data(self, rows: List[List[str]]) -> None:
         self.table.set_data(self.COLS, rows)
