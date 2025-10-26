@@ -82,7 +82,8 @@ class OrdersAdminView(ttk.Frame):
         if tv is not None:
             cols = list(tv["columns"]) if tv["columns"] else []
             for i, c in enumerate(cols):
-                tv.column(c, width=widths[i] if i < len(widths) else 120, anchor=("center" if i == 0 else "w"))
+                tv.heading(c, text=str(c), anchor="center")
+                tv.column(c, width=widths[i] if i < len(widths) else 120, anchor="center")
 
     def _set_table_data(self, table: GridTable, cols: List[str], widths: List[int], rows: List[List]) -> None:
         table.set_data(cols, rows)
@@ -131,6 +132,14 @@ class OrdersAdminView(ttk.Frame):
         ttk.Button(top_c, text="Cancelar (reversa si completada)", command=self._purchase_cancel).pack(side="left", padx=4)
         ttk.Button(top_c, text="Eliminar (reversa si completada)", command=self._purchase_delete).pack(side="left", padx=4)
 
+        # Editor de estado (más directo)
+        editor = ttk.Frame(parent); editor.pack(fill="x", pady=(6, 0))
+        ttk.Label(editor, text="Estado:").pack(side="left")
+        self.PUR_STATES = ("Pendiente", "Completada", "Cancelada")
+        self.pur_state_cb = ttk.Combobox(editor, state="readonly", width=14, values=self.PUR_STATES)
+        self.pur_state_cb.pack(side="left", padx=4)
+        ttk.Button(editor, text="Aplicar estado", command=self._purchase_apply_state).pack(side="left", padx=4)
+
         # Listado de compras
         self.tbl_pur = GridTable(parent, height=10)
         self.tbl_pur.pack(fill="both", expand=True, pady=(6, 4))
@@ -160,6 +169,14 @@ class OrdersAdminView(ttk.Frame):
         ttk.Button(top_v, text="Marcar CONFIRMADA (descontar stock)", command=self._sale_mark_confirmed).pack(side="left", padx=4)
         ttk.Button(top_v, text="Cancelar (reversa si confirmada)", command=self._sale_cancel).pack(side="left", padx=4)
         ttk.Button(top_v, text="Eliminar (reversa si confirmada)", command=self._sale_delete).pack(side="left", padx=4)
+
+        # Editor de estado
+        editor = ttk.Frame(parent); editor.pack(fill="x", pady=(6, 0))
+        ttk.Label(editor, text="Estado:").pack(side="left")
+        self.SALE_STATES = ("Reservada", "Confirmada", "Cancelada", "Eliminada")
+        self.sale_state_cb = ttk.Combobox(editor, state="readonly", width=14, values=self.SALE_STATES)
+        self.sale_state_cb.pack(side="left", padx=4)
+        ttk.Button(editor, text="Aplicar estado", command=self._sale_apply_state).pack(side="left", padx=4)
 
         # Listado de ventas
         self.tbl_sale = GridTable(parent, height=10)
@@ -205,6 +222,13 @@ class OrdersAdminView(ttk.Frame):
         pid = self._get_selected_purchase_id()
         if pid is not None:
             self._load_purchase_details(pid)
+            # Sincroniza editor de estado
+            pur = self.session.get(Purchase, pid)
+            if pur is not None:
+                try:
+                    self.pur_state_cb.set(str(pur.estado))
+                except Exception:
+                    pass
 
     def _get_selected_purchase_id(self) -> Optional[int]:
         idx = self._selected_row_index(self.tbl_pur)
@@ -310,6 +334,79 @@ class OrdersAdminView(ttk.Frame):
         sid = self._get_selected_sale_id()
         if sid is not None:
             self._load_sale_details(sid)
+            sale = self.session.get(Sale, sid)
+            if sale is not None:
+                try:
+                    self.sale_state_cb.set(str(sale.estado))
+                except Exception:
+                    pass
+
+    # ======================= Aplicar estado (editores) ======================= #
+    def _purchase_apply_state(self):
+        pid = self._get_selected_purchase_id()
+        if pid is None:
+            messagebox.showwarning("Compras", "Seleccione una compra.")
+            return
+        target = (self.pur_state_cb.get() or "").strip() or None
+        if not target:
+            return
+        pur = self.session.get(Purchase, pid)
+        if not pur:
+            return
+        cur_state = str(pur.estado).strip()
+        if target.lower() == cur_state.lower():
+            return
+
+        if target == "Completada":
+            self._purchase_mark_completed()
+        elif target == "Cancelada":
+            self._purchase_cancel()
+        elif target == "Pendiente":
+            # Si estaba completada, revertimos stock
+            if cur_state.lower() == "completada":
+                def action():
+                    for det in pur.details:
+                        self.inventory.register_exit(product_id=det.id_producto, cantidad=det.cantidad, motivo=f"Reversa compra {pur.id}")
+                    pur.estado = "Pendiente"
+                self._handle_db_action(action, f"Compra {pur.id} marcada como PENDIENTE y stock revertido.", self._load_purchases)
+            else:
+                def action2():
+                    pur.estado = "Pendiente"
+                self._handle_db_action(action2, f"Compra {pur.id} marcada como PENDIENTE.", self._load_purchases)
+
+    def _sale_apply_state(self):
+        sid = self._get_selected_sale_id()
+        if sid is None:
+            messagebox.showwarning("Ventas", "Seleccione una venta.")
+            return
+        target = (self.sale_state_cb.get() or "").strip() or None
+        if not target:
+            return
+        sale = self.session.get(Sale, sid)
+        if not sale:
+            return
+        cur_state = str(sale.estado).strip()
+        if target.lower() == cur_state.lower():
+            return
+
+        if target == "Confirmada":
+            self._sale_mark_confirmed()
+        elif target == "Cancelada":
+            self._sale_cancel()
+        elif target == "Eliminada":
+            self._sale_delete()
+        elif target == "Reservada":
+            # Si estaba confirmada, devolver stock
+            if cur_state.lower() == "confirmada":
+                def action():
+                    for det in sale.details:
+                        self.inventory.register_entry(product_id=det.id_producto, cantidad=det.cantidad, motivo=f"Reversa venta {sale.id}")
+                    sale.estado = "Reservada"
+                self._handle_db_action(action, f"Venta {sale.id} marcada como RESERVADA y stock revertido.", self._load_sales)
+            else:
+                def action2():
+                    sale.estado = "Reservada"
+                self._handle_db_action(action2, f"Venta {sale.id} marcada como RESERVADA.", self._load_sales)
 
     def _get_selected_sale_id(self) -> Optional[int]:
         idx = self._selected_row_index(self.tbl_sale)

@@ -64,28 +64,26 @@ def vat_breakdown(items: List[Dict[str, Any]], *, currency: str = "CLP", iva_rat
     """
     Compute Neto, IVA and Total from a list of items.
     - Each item dict may have 'subtotal' or ('cantidad' and 'precio').
-    - For CLP, applies 0-decimal rounding per line (common Chile practice):
-        net_line = round(subtotal_line / (1+iva), 0)
-        iva_line = subtotal_line - net_line
-      Then sums lines to get totals, avoiding discrepancies.
-    - For other currencies, uses 2-decimal rounding.
+    - Sums line subtotals first, then derives neto/iva from the GRAND TOTAL.
+      This matches the common expectation that: neto = round(total/(1+iva)),
+      iva = total - neto; with 0 decimals for CLP and 2 decimals otherwise.
     Returns (neto, iva, total) as Decimals.
     """
     rate = D(iva_rate)
     total = Decimal(0)
-    neto_sum = Decimal(0)
-    iva_sum = Decimal(0)
     for it in items:
         sub = D(it.get("subtotal", D(it.get("cantidad", 0)) * D(it.get("precio", 0))))
         if currency.upper() == "CLP":
             sub = q0(sub)
-            net_line = q0(sub / (Decimal(1) + rate))
-            iva_line = sub - net_line
         else:
             sub = q2(sub)
-            net_line = q2(sub / (Decimal(1) + rate))
-            iva_line = q2(sub - net_line)
         total += sub
-        neto_sum += net_line
-        iva_sum += iva_line
-    return neto_sum, iva_sum, total
+
+    if currency.upper() == "CLP":
+        neto = q0(total / (Decimal(1) + rate))
+        iva = total - neto
+    else:
+        neto = q2(total / (Decimal(1) + rate))
+        iva = q2(total - neto)
+
+    return neto, iva, total

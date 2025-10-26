@@ -17,6 +17,17 @@ try:
 except Exception:
     ThemeManager = None  # type: ignore
 
+# Estilo/centrado global para Treeviews
+try:
+    from src.gui.treeview_utils import (
+        apply_default_treeview_styles,
+        enable_auto_center_for_new_treeviews,
+        center_treeview,
+    )
+except Exception:
+    def center_treeview(*_a, **_k):  # type: ignore
+        pass
+
 
 class GridTable(ttk.Frame):
     """
@@ -53,6 +64,13 @@ class GridTable(ttk.Frame):
             self._apply_theme_to_sheet()
         else:
             # Fallback: Treeview + scrollbars + zebrado
+            # Asegura estilos ya con root creado (evita crear root implícito)
+            try:
+                apply_default_treeview_styles()
+                enable_auto_center_for_new_treeviews()
+            except Exception:
+                pass
+
             tv = self._fallback = ttk.Treeview(self, show="headings", height=height)
             vs = ttk.Scrollbar(self, orient="vertical", command=tv.yview)
             hs = ttk.Scrollbar(self, orient="horizontal", command=tv.xview)
@@ -62,6 +80,10 @@ class GridTable(ttk.Frame):
             hs.grid(row=1, column=0, sticky="we")
             self.rowconfigure(0, weight=1)
             self.columnconfigure(0, weight=1)
+            try:
+                center_treeview(tv)
+            except Exception:
+                pass
 
             # Tags para zebrado (nunca pisarán filas "state_*")
             base_bg = self._pal("panel", "#FFFFFF")
@@ -143,8 +165,8 @@ class GridTable(ttk.Frame):
             return
         tv["columns"] = list(columns)
         for c in columns:
-            tv.heading(c, text=str(c))
-            tv.column(c, width=120, stretch=True, anchor="w")
+            tv.heading(c, text=str(c), anchor="center")
+            tv.column(c, width=120, stretch=True, anchor="center")
         for iid in tv.get_children(""):
             tv.delete(iid)
         rows_list = list(rows) if not isinstance(rows, list) else rows

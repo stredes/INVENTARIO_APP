@@ -24,6 +24,7 @@ from src.reports.inventory_reports import (
     print_inventory_report,
 )
 from src.gui.inventory_filters_dialog import InventoryFiltersDialog
+from src.utils.inventory_thresholds import get_thresholds as _get_prod_limits, set_thresholds as _set_prod_limits
 from src.gui.printer_select_dialog import PrinterSelectDialog
 
 # Rejilla real (tksheet) o fallback Treeview
@@ -105,9 +106,15 @@ class InventoryView(ttk.Frame):
         self._lbl_total_venta = ttk.Label(footer, text="$ 0.00", font=("", 10, "bold"))
         self._lbl_total_venta.grid(row=0, column=4, sticky="w")
 
+        # Leyenda (colorímetro) en la esquina inferior derecha
+        self._legend = ttk.Frame(footer)
+        self._legend.grid(row=0, column=5, sticky="e", padx=6)
+        self._build_legend()
+
         # --- Panel Configuración ---
-        cfg = ttk.Labelframe(self, text="Configuración de límites críticos y refresco", padding=10)
-        cfg.pack(fill="x", expand=False)
+        # Panel de valores por defecto (oculto por solicitud)
+        cfg = ttk.Labelframe(self, text="Configuración de límites críticos y refresco (valores por defecto)", padding=10)
+        # No mostramos este bloque: evitamos pack()
 
         ttk.Label(cfg, text="Mínimo crítico:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
         ttk.Spinbox(cfg, from_=0, to=999999, textvariable=self._crit_min, width=10).grid(row=0, column=1, sticky="w", padx=4, pady=4)
@@ -117,6 +124,17 @@ class InventoryView(ttk.Frame):
 
         ttk.Label(cfg, text="Refresco (ms):").grid(row=0, column=4, sticky="e", padx=4, pady=4)
         ttk.Spinbox(cfg, from_=500, to=60000, increment=500, textvariable=self._refresh_ms, width=10).grid(row=0, column=5, sticky="w", padx=4, pady=4)
+
+        # Límites por producto seleccionado
+        prod_cfg = ttk.Labelframe(self, text="Límites críticos del producto seleccionado", padding=10)
+        prod_cfg.pack(fill="x", expand=False, pady=(6, 10))
+        self._sel_min = tk.IntVar(value=0)
+        self._sel_max = tk.IntVar(value=0)
+        ttk.Label(prod_cfg, text="Mínimo:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
+        ttk.Spinbox(prod_cfg, from_=0, to=999999, textvariable=self._sel_min, width=10).grid(row=0, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(prod_cfg, text="Máximo:").grid(row=0, column=2, sticky="e", padx=4, pady=4)
+        ttk.Spinbox(prod_cfg, from_=0, to=999999, textvariable=self._sel_max, width=10).grid(row=0, column=3, sticky="w", padx=4, pady=4)
+        ttk.Button(prod_cfg, text="Guardar límites del producto", command=self._on_save_selected_limits).grid(row=0, column=4, padx=8)
 
         ttk.Button(cfg, text="Guardar", command=self._on_save_config).grid(row=0, column=6, padx=8)
         for i in range(7):
@@ -139,20 +157,29 @@ class InventoryView(ttk.Frame):
         """
         Devuelve (rows, colors, ids)
           rows  : lista de listas con valores para la tabla
-          colors: color de fondo por fila (None / "#ffdddd" / "#fff6cc")
+          colors: color de fondo por fila (None / rango por color)
           ids   : IDs de producto para mapear selección
         """
         rows, colors, ids = [], [], []
-        min_v = int(self._crit_min.get())
-        max_v = int(self._crit_max.get())
+        min_def = int(self._crit_min.get())
+        max_def = int(self._crit_max.get())
 
         for p in products:
             stock = int(p.stock_actual or 0)
+            # lee límites por producto si existen; si no, usa defaults
+            min_v, max_v = _get_prod_limits(int(p.id), min_def, max_def)
+            # Colores por rango respecto a límites
+            very_low_thr = max(0, int(min_v * 0.5))
+            very_high_thr = int(max_v * 1.25)
             color = None
-            if stock < min_v:
-                color = "#ffdddd"    # bajo
+            if stock <= very_low_thr:
+                color = "#ffb3b3"    # muy bajo (rojo fuerte)
+            elif stock < min_v:
+                color = "#ffdddd"    # bajo (rojo claro)
+            elif stock > very_high_thr:
+                color = "#ffe08a"    # muy alto (amarillo/naranja)
             elif stock > max_v:
-                color = "#fff6cc"    # alto
+                color = "#fff6cc"    # alto (amarillo claro)
 
             base = [p.id, p.nombre, p.sku, p.unidad_medida or "", stock]
             if report_type == "venta":
@@ -234,6 +261,70 @@ class InventoryView(ttk.Frame):
 
         # 4) Actualizar totales del footer
         self._update_footer_totals(products)
+        # 5) Enlazar selección → actualizar panel límites
+        try:
+            if hasattr(self.table, "sheet"):
+                self.table.sheet.extra_bindings([("cell_select", lambda e: self._update_selected_limits_panel())])
+            tv = getattr(self.table, "_fallback", None)
+            if tv is not None:
+                tv.bind("<<TreeviewSelect>>", lambda _e: self._update_selected_limits_panel())
+        except Exception:
+            pass
+
+    # ----------------------- Leyenda de colores ----------------------- #
+    def _build_legend(self):
+        def _tag(color: str, text: str):
+            box = tk.Label(self._legend, width=2, background=color, relief="solid", bd=1)
+            lbl = ttk.Label(self._legend, text=text)
+            return box, lbl
+
+        for c in self._legend.winfo_children():
+            c.destroy()
+
+        items = [
+            ("#ffb3b3", "Muy bajo"),
+            ("#ffdddd", "Bajo"),
+            ("#fff6cc", "Alto"),
+            ("#ffe08a", "Muy alto"),
+        ]
+        col = 0
+        for color, name in items:
+            b, l = _tag(color, name)
+            b.grid(row=0, column=col, padx=(2, 3)); col += 1
+            l.grid(row=0, column=col, padx=(0, 6)); col += 1
+
+    # ---------------- Límites por producto (panel) ---------------- #
+    def _update_selected_limits_panel(self) -> None:
+        ids = self._selected_ids()
+        if not ids:
+            return
+        pid = int(ids[0])
+        mn_def = int(self._crit_min.get()); mx_def = int(self._crit_max.get())
+        mn, mx = _get_prod_limits(pid, mn_def, mx_def)
+        try:
+            self._sel_min.set(int(mn)); self._sel_max.set(int(mx))
+        except Exception:
+            pass
+
+    def _on_save_selected_limits(self) -> None:
+        ids = self._selected_ids()
+        if not ids:
+            messagebox.showwarning("Inventario", "Seleccione un producto en la tabla.")
+            return
+        pid = int(ids[0])
+        try:
+            mn = int(self._sel_min.get()); mx = int(self._sel_max.get())
+        except Exception:
+            messagebox.showwarning("Inventario", "Valores inválidos para mínimo/máximo.")
+            return
+        if mn < 0 or mx < 0:
+            messagebox.showwarning("Inventario", "Los límites deben ser ≥ 0.")
+            return
+        if mx and mn and mx < mn:
+            messagebox.showwarning("Inventario", "Máximo no puede ser menor que Mínimo.")
+            return
+        _set_prod_limits(pid, mn, mx)
+        self.refresh_table()
 
     def _on_save_config(self):
         """Persiste límites y ms de refresco, reprograma el auto y refresca la tabla."""
@@ -245,8 +336,9 @@ class InventoryView(ttk.Frame):
             set_inventory_refresh_ms(ms)
             self._cancel_auto()
             self._schedule_auto()
-            self.refresh_table()
-            messagebox.showinfo("OK", "Configuración guardada.")
+            # Nota: no refrescamos tabla para no aplicar inmediatamente
+            # los nuevos valores por defecto sobre productos ya listados.
+            messagebox.showinfo("OK", "Configuración guardada (valores por defecto).\nNo afecta productos con límites personalizados.")
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo guardar configuración:\n{e}")
 

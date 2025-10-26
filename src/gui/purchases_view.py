@@ -13,6 +13,7 @@ from src.utils.quote_generator import generate_quote_to_downloads as generate_qu
 from src.utils.helpers import get_po_payment_method
 from src.gui.widgets.autocomplete_combobox import AutoCompleteCombobox
 from src.utils.money import D, q2, fmt_2, mul
+from src.gui.treeview_utils import apply_default_treeview_styles, enable_auto_center_for_new_treeviews
 
 IVA_RATE = Decimal("0.19")  # 19% IVA por defecto
 
@@ -31,6 +32,11 @@ class PurchasesView(ttk.Frame):
 
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
+        try:
+            apply_default_treeview_styles()
+            enable_auto_center_for_new_treeviews()
+        except Exception:
+            pass
 
         self.session = get_session()
         self.pm = PurchaseManager(self.session)
@@ -94,15 +100,15 @@ class PurchasesView(ttk.Frame):
             show="headings",
             height=12,
         )
-        for cid, text, w, anchor in [
-            ("prod_id", "ID", 60, "center"),
-            ("producto", "Producto", 300, "w"),
-            ("cant", "Cant.", 80, "e"),
-            ("precio", "Precio (c/IVA)", 120, "e"),
-            ("subtotal", "Subtotal", 120, "e"),
+        for cid, text, w in [
+            ("prod_id", "ID", 60),
+            ("producto", "Producto", 300),
+            ("cant", "Cant.", 80),
+            ("precio", "Precio (c/IVA)", 120),
+            ("subtotal", "Subtotal", 120),
         ]:
-            self.tree.heading(cid, text=text)
-            self.tree.column(cid, width=w, anchor=anchor)
+            self.tree.heading(cid, text=text, anchor="center")
+            self.tree.column(cid, width=w, anchor="center")
         self.tree.pack(fill="both", expand=True, pady=(10, 0))
 
         # ---------- Total + Acciones ----------

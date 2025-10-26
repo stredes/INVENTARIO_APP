@@ -65,3 +65,10 @@ dist/
 .DS_Store
 Thumbs.db
 *.tmp
+
+# ==========================
+# Datos de la aplicación
+# ==========================
+# Usa siempre / en .gitignore (independiente de Windows/Linux)
+app_data/media/products/
+app_data/inventory_thresholds.json

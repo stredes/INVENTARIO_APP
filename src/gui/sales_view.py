@@ -13,6 +13,7 @@ from src.gui.widgets.autocomplete_combobox import AutoCompleteCombobox
 from src.reports.sales_report_pdf import generate_sales_report_to_downloads
 from sqlalchemy import and_
 from src.utils.money import D, q2, fmt_2
+from src.gui.treeview_utils import apply_default_treeview_styles, enable_auto_center_for_new_treeviews
 
 class SalesView(ttk.Frame):
     """
@@ -27,6 +28,11 @@ class SalesView(ttk.Frame):
 
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
+        try:
+            apply_default_treeview_styles()
+            enable_auto_center_for_new_treeviews()
+        except Exception:
+            pass
 
         self.session = get_session()
         self.sm = SalesManager(self.session)
@@ -47,6 +53,18 @@ class SalesView(ttk.Frame):
         self.var_apply = tk.BooleanVar(value=True)
         ttk.Checkbutton(top, text="Descontar stock (Confirmada/Pagada)", variable=self.var_apply)\
             .grid(row=0, column=2, padx=10)
+
+        # Estado y forma de pago en el encabezado (igual que Compras)
+        ttk.Label(top, text="Estado:").grid(row=0, column=3, sticky="e", padx=4)
+        self.cmb_estado = ttk.Combobox(top, state="readonly", width=14, values=self.ESTADOS)
+        self.cmb_estado.current(0)
+        self.cmb_estado.grid(row=0, column=4, sticky="w", padx=4)
+
+        ttk.Label(top, text="Pago:").grid(row=0, column=5, sticky="e", padx=4)
+        self.PAGOS = ("Contado", "Débito", "Transferencia", "Crédito 30 días")
+        self.cmb_pago = ttk.Combobox(top, state="readonly", width=18, values=self.PAGOS)
+        self.cmb_pago.set("Contado")
+        self.cmb_pago.grid(row=0, column=6, sticky="w", padx=4)
 
         # ---------- Detalle ----------
         det = ttk.Labelframe(self, text="Detalle de venta", padding=10)
@@ -77,15 +95,15 @@ class SalesView(ttk.Frame):
             show="headings",
             height=10,
         )
-        for cid, text, w, anchor in [
-            ("prod_id", "ID", 60, "center"),
-            ("producto", "Producto", 300, "w"),
-            ("cant", "Cant.", 80, "e"),
-            ("precio", "Precio", 100, "e"),
-            ("subtotal", "Subtotal", 120, "e"),
+        for cid, text, w in [
+            ("prod_id", "ID", 60),
+            ("producto", "Producto", 300),
+            ("cant", "Cant.", 80),
+            ("precio", "Precio", 100),
+            ("subtotal", "Subtotal", 120),
         ]:
-            self.tree.heading(cid, text=text)
-            self.tree.column(cid, width=w, anchor=anchor)
+            self.tree.heading(cid, text=text, anchor="center")
+            self.tree.column(cid, width=w, anchor="center")
         self.tree.pack(fill="both", expand=True, pady=(10, 0))
 
         # ---------- Total + Acciones ----------
@@ -94,10 +112,7 @@ class SalesView(ttk.Frame):
         self.lbl_total = ttk.Label(bottom, text="Total: 0.00", font=("", 11, "bold"))
         self.lbl_total.pack(side="left")
 
-        ttk.Label(bottom, text="Estado:").pack(side="right", padx=(6, 2))
-        self.cmb_estado = ttk.Combobox(bottom, state="readonly", width=12, values=self.ESTADOS)
-        self.cmb_estado.current(0)
-        self.cmb_estado.pack(side="right")
+        # Estado ya está en el encabezado; no lo repetimos en el footer
 
         ttk.Button(bottom, text="Eliminar ítem", command=self._on_delete_item)\
             .pack(side="right", padx=6)
@@ -389,6 +404,10 @@ class SalesView(ttk.Frame):
                 self._warn("Agregue al menos un ítem.")
                 return
             cust = self._get_selected_customer_dict()
+            try:
+                cust["pago"] = self.cmb_pago.get()
+            except Exception:
+                pass
             so_number = f"OV-{cust['id']}-{self._stamp()}"
             out = generate_so_to_downloads(
                 so_number=so_number,

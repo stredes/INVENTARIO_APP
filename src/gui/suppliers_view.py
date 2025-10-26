@@ -105,8 +105,8 @@ class SuppliersView(ttk.Frame):
         if tv is not None:
             tv["columns"] = list(self.COLS)
             for i, name in enumerate(self.COLS):
-                tv.heading(name, text=name)
-                tv.column(name, width=self.COL_WIDTHS[i], anchor=("center" if i == 0 else "w"))
+                tv.heading(name, text=name, anchor="center")
+                tv.column(name, width=self.COL_WIDTHS[i], anchor="center")
 
     def _normalize_rut(self, rut: str) -> str:
         """Normaliza espacios y mayúsculas."""

@@ -2,6 +2,8 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
+import subprocess
+import sys
 from typing import List, Dict, Any, Optional
 import os
 import json
@@ -68,7 +70,10 @@ def _header(company: Dict[str, Any], po_number: str):
     comp_html = "<br/>".join([x for x in comp_lines if x])
     right = Paragraph(f"<b>ORDEN DE COMPRA</b><br/>Nº {po_number}", h1)
     header_table = Table([[logo_cell, Paragraph(comp_html, p), right]], colWidths=[45 * mm, 90 * mm, 45 * mm])
-    header_table.setStyle(TableStyle([["VALIGN", (0, 0), (-1, -1), "TOP"), ("ALIGN", (2, 0), (2, 0), "RIGHT")]))
+    header_table.setStyle(TableStyle([
+("VALIGN", (0, 0), (-1, -1), "TOP"),
+("ALIGN", (2, 0), (2, -1), "RIGHT"),
+]))
     return header_table
 
 
@@ -239,14 +244,20 @@ def generate_po_pdf(
 
 
 def open_file(path: str) -> None:
+    """Abre un archivo con el visor del sistema de forma segura.
+
+    Evita shells y comillas construidas manualmente para reducir superficie
+    de inyección de comandos. En Windows mantiene `os.startfile`.
+    """
     try:
         if os.name == "nt":
             os.startfile(path)  # type: ignore[attr-defined]
-        elif hasattr(os, "uname") and os.uname().sysname == "Darwin":
-            os.system(f"open '{path}'")
+        elif sys.platform == "darwin":
+            subprocess.run(["open", path], check=False)
         else:
-            os.system(f"xdg-open '{path}'")
+            subprocess.run(["xdg-open", path], check=False)
     except Exception:
+        # Silencioso por UX, pero se podría loggear a futuro
         pass
 
 

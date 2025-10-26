@@ -181,8 +181,8 @@ class ProductsView(ttk.Frame):
         if tv is not None:
             tv["columns"] = list(self.COLS)
             for i, name in enumerate(self.COLS):
-                tv.heading(name, text=name)
-                tv.column(name, width=self.COL_WIDTHS[i], anchor=("center" if name in ("ID", "Unidad") else ("e" if name in ("P. Compra", "IVA %", "Monto IVA", "P. + IVA", "Margen %", "P. Venta") else "w")))
+                tv.heading(name, text=name, anchor="center")
+                tv.column(name, width=self.COL_WIDTHS[i], anchor="center")
 
     def _set_table_data(self, rows: List[List[str]]) -> None:
         self.table.set_data(self.COLS, rows)

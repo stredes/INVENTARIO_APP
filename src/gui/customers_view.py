@@ -95,8 +95,8 @@ class CustomersView(ttk.Frame):
         if tv is not None:
             for i, name in enumerate(self.COLS):
                 # En fallback los ids de columna son exactamente los títulos
-                tv.heading(name, text=name)
-                tv.column(name, width=self.COL_WIDTHS[i], anchor=("center" if i == 0 else "w"))
+                tv.heading(name, text=name, anchor="center")
+                tv.column(name, width=self.COL_WIDTHS[i], anchor="center")
 
     def _read_form(self) -> dict | None:
         razon = self.var_razon.get().strip()
