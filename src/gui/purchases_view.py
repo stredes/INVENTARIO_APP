@@ -93,6 +93,12 @@ class PurchasesView(ttk.Frame):
 
         ttk.Button(det, text="Agregar ítem", command=self._on_add_item).grid(row=0, column=6, padx=8)
 
+        # Escaneo por código de barras para ingreso rápido
+        ttk.Label(det, text="Escanear:").grid(row=1, column=0, sticky="e", padx=4, pady=4)
+        self.ent_scan = ttk.Entry(det, width=45)
+        self.ent_scan.grid(row=1, column=1, sticky="w", padx=4, pady=4)
+        self.ent_scan.bind("<Return>", self._on_scan_add_item)
+
         # ---------- Tabla ----------
         self.tree = ttk.Treeview(
             self,
@@ -432,3 +438,55 @@ class PurchasesView(ttk.Frame):
 
     def _info(self, msg: str):
         messagebox.showinfo("OK", msg)
+
+    def _on_scan_add_item(self, _evt=None):
+        """Agrega/incrementa un ítem a partir de un código escaneado.
+        Valida proveedor y usa precio con IVA.
+        """
+        try:
+            sup = self._selected_supplier()
+            if not sup:
+                self._warn("Seleccione un proveedor antes de escanear.")
+                return
+            code = (self.ent_scan.get() or "").strip()
+            if not code:
+                return
+            p = self.repo_prod.get_by_barcode(code) or self.repo_prod.get_by_sku(code)
+            if not p:
+                self._warn(f"Código no encontrado: {code}")
+                self.ent_scan.delete(0, "end")
+                return
+            if getattr(p, "id_proveedor", None) != sup.id:
+                self._error("El producto escaneado no corresponde al proveedor seleccionado.")
+                self.ent_scan.delete(0, "end")
+                return
+
+            price = self._price_with_iva(p)
+            if price <= 0:
+                self._warn("El producto no tiene precio de compra válido.")
+                self.ent_scan.delete(0, "end")
+                return
+
+            # Si ya está en la tabla, incrementa cantidad
+            for iid in self.tree.get_children():
+                vals = list(self.tree.item(iid, "values"))
+                if str(vals[0]) == str(p.id):
+                    try:
+                        qty = float(vals[2]) + 1
+                    except Exception:
+                        qty = 1.0
+                    subtotal = qty * float(price)
+                    vals[2] = f"{qty:.2f}"
+                    vals[4] = f"{subtotal:.2f}"
+                    self.tree.item(iid, values=tuple(vals))
+                    self._update_total()
+                    self.ent_scan.delete(0, "end")
+                    return
+
+            # No estaba: agregar con cantidad 1
+            subtotal = 1 * float(price)
+            self.tree.insert("", "end", values=(p.id, p.nombre, 1, fmt_2(price), f"{subtotal:.2f}"))
+            self._update_total()
+            self.ent_scan.delete(0, "end")
+        except Exception as e:
+            self._error(f"No se pudo agregar por escaneo:\n{e}")

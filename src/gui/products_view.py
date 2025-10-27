@@ -9,6 +9,8 @@ from src.data.database import get_session
 from src.data.models import Product, Supplier
 from src.data.repository import ProductRepository, SupplierRepository
 from src.gui.widgets.product_image_box import ProductImageBox  # <-- recuadro imagen
+from src.gui.barcode_label_editor import BarcodeLabelEditor
+from src.reports.barcode_label import generate_barcode_png, generate_label_pdf
 
 # Grilla tipo hoja (tksheet si está, o fallback Treeview)
 from src.gui.widgets.grid_table import GridTable
@@ -32,8 +34,8 @@ class ProductsView(ttk.Frame):
     - Proveedor (obligatorio) vía Combobox
     """
 
-    COLS = ["ID", "Nombre", "Código", "P. Compra", "IVA %", "Monto IVA", "P. + IVA", "Margen %", "P. Venta", "Unidad"]
-    COL_WIDTHS = [50, 220, 120, 90, 70, 90, 90, 90, 90, 90]
+    COLS = ["ID", "Nombre", "Código", "Barcode", "P. Compra", "IVA %", "Monto IVA", "P. + IVA", "Margen %", "P. Venta", "Unidad"]
+    COL_WIDTHS = [50, 220, 120, 140, 90, 70, 90, 90, 90, 90, 90]
 
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
@@ -59,6 +61,16 @@ class ProductsView(ttk.Frame):
         self.var_iva_monto = tk.DoubleVar(value=0.0)
         self.var_pmasiva = tk.DoubleVar(value=0.0)
         self.var_pventa = tk.DoubleVar(value=0.0)
+        # Barcode preview/config
+        self.var_has_barcode = tk.BooleanVar(value=True)  # habilita/deshabilita barcode para el producto
+        self.var_bc_show_text = tk.BooleanVar(value=True)
+        self.var_bc_copies = tk.IntVar(value=1)
+        self.BC_SIZES = {
+            "50 x 30 mm": (50, 30),
+            "60 x 35 mm": (60, 35),
+            "80 x 50 mm": (80, 50),
+        }
+        self.var_bc_size = tk.StringVar(value="50 x 30 mm")
 
         # ---------- Formulario ----------
         frm = ttk.Labelframe(self, text="Producto", padding=10)
@@ -66,7 +78,12 @@ class ProductsView(ttk.Frame):
 
         # Panel izquierda: IMAGEN
         left = ttk.Frame(frm)
-        left.grid(row=0, column=0, rowspan=7, sticky="nw", padx=(0, 12))
+        left.grid(row=0, column=0, rowspan=9, sticky="nw", padx=(0, 12))
+        try:
+            frm.columnconfigure(1, weight=1)
+            frm.columnconfigure(2, weight=1)
+        except Exception:
+            pass
         self.img_box = ProductImageBox(left, width=180, height=180)
         self.img_box.grid(row=0, column=0, sticky="nw")
 
@@ -81,7 +98,8 @@ class ProductsView(ttk.Frame):
         self.ent_nombre = ent_nombre  # para foco
 
         ttk.Label(right, text="Código:").grid(row=0, column=2, sticky="e", padx=4, pady=4)
-        ttk.Entry(right, textvariable=self.var_codigo, width=20).grid(row=0, column=3, sticky="w", padx=4, pady=4)
+        self.ent_codigo = ttk.Entry(right, textvariable=self.var_codigo, width=20)
+        self.ent_codigo.grid(row=0, column=3, sticky="w", padx=4, pady=4)
 
         # Fila 1: Precio Compra / IVA %
         ttk.Label(right, text="Precio Compra (neto):").grid(row=1, column=0, sticky="e", padx=4, pady=4)
@@ -124,9 +142,60 @@ class ProductsView(ttk.Frame):
         self.cmb_supplier = ttk.Combobox(right, state="readonly", width=35)
         self.cmb_supplier.grid(row=5, column=1, columnspan=3, sticky="we", padx=4, pady=4)
 
+        # Panel Código de barras (a la derecha del formulario)
+        bc = ttk.Labelframe(frm, text="Código de barras", padding=8)
+        bc.grid(row=0, column=2, rowspan=9, sticky="nsew", padx=(8, 0), pady=(0, 0))
+        # Dos columnas: 0 = controles, 1 = preview
+        bc.columnconfigure(0, weight=0)
+        bc.columnconfigure(1, weight=1)
+
+        # Controles (izquierda)
+        ctl = ttk.Frame(bc)
+        ctl.grid(row=0, column=0, sticky="nw", padx=(0, 8))
+        ttk.Checkbutton(ctl, text="Con código de barras", variable=self.var_has_barcode,
+                        command=self._on_toggle_has_barcode).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
+        ttk.Checkbutton(ctl, text="Mostrar texto (nombre)", variable=self.var_bc_show_text).grid(row=1, column=0, columnspan=2, sticky="w")
+        ttk.Label(ctl, text="Copias:").grid(row=2, column=0, sticky="e", padx=(0, 4))
+        ttk.Spinbox(ctl, from_=1, to=999, textvariable=self.var_bc_copies, width=6).grid(row=2, column=1, sticky="w")
+        ttk.Label(ctl, text="Tamaño:").grid(row=3, column=0, sticky="e", padx=(0, 4))
+        ttk.Combobox(ctl, textvariable=self.var_bc_size, values=list(self.BC_SIZES.keys()), state="readonly", width=12).grid(row=3, column=1, sticky="w")
+
+        btns_bc = ttk.Frame(ctl)
+        btns_bc.grid(row=4, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        ttk.Button(btns_bc, text="Imprimir", command=self._on_print_quick).pack(side="left", padx=(0, 6))
+        ttk.Button(btns_bc, text="Editor impresión", command=self._on_print_label).pack(side="left")
+
+        # Acordeón de impresoras
+        self._printers_open = False
+        self._printers_frame = ttk.Frame(ctl)
+        def _toggle_printers():
+            self._printers_open = not self._printers_open
+            if self._printers_open:
+                self._printers_frame.grid(row=5, column=0, columnspan=2, sticky="we", pady=(8, 0))
+                btn_toggle.configure(text="Impresoras ▾")
+            else:
+                self._printers_frame.grid_remove()
+                btn_toggle.configure(text="Impresoras ▸")
+        btn_toggle = ttk.Button(ctl, text="Impresoras ▸", command=_toggle_printers)
+        btn_toggle.grid(row=6, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        ttk.Label(self._printers_frame, text="Impresora:").grid(row=0, column=0, sticky="e")
+        self.cmb_printer = ttk.Combobox(self._printers_frame, state="readonly", width=28)
+        self.cmb_printer.grid(row=0, column=1, sticky="w", padx=4)
+        self.cmb_printer["values"] = self._list_printers()
+        if self.cmb_printer["values"]:
+            self.cmb_printer.current(0)
+
+        # Preview (derecha)
+        prev = ttk.Frame(bc)
+        prev.grid(row=0, column=1, sticky="nsew")
+        prev.rowconfigure(0, weight=1)
+        prev.columnconfigure(0, weight=1)
+        self.lbl_bc_preview = ttk.Label(prev, text="(Sin código)", anchor="center")
+        self.lbl_bc_preview.grid(row=0, column=0, sticky="nsew")
+
         # Botones
         btns = ttk.Frame(right)
-        btns.grid(row=6, column=0, columnspan=4, pady=8, sticky="w")
+        btns.grid(row=7, column=0, columnspan=4, pady=8, sticky="w")
 
         self.btn_save = ttk.Button(btns, text="Agregar", command=self._on_add)
         self.btn_update = ttk.Button(btns, text="Guardar cambios", command=self._on_update, state="disabled")
@@ -167,6 +236,14 @@ class ProductsView(ttk.Frame):
         self._load_table()
         self._recalc_prices()
         self.ent_nombre.focus_set()
+        # Barcode preview bindings
+        try:
+            ent_nombre.bind("<KeyRelease>", self._refresh_barcode_preview)
+            self.ent_codigo.bind("<KeyRelease>", self._refresh_barcode_preview)
+            self.var_bc_show_text.trace_add('write', lambda *a: self._refresh_barcode_preview())
+        except Exception:
+            pass
+        self.after(100, self._refresh_barcode_preview)
 
     # ----------------- Utilidades de grilla ----------------- #
     def _apply_column_widths(self) -> None:
@@ -193,27 +270,43 @@ class ProductsView(ttk.Frame):
         self.table.set_data(self.COLS, rows)
         self._apply_column_widths()
 
-    def _selected_row_index(self) -> Optional[int]:
-        """Índice de fila seleccionada (o None)."""
+    def _selected_row_values(self) -> Optional[List[str]]:
+        """Obtiene los valores de la fila seleccionada directamente desde el widget.
+        No depende del índice en caché para evitar desalineaciones al ordenar.
+        """
+        # tksheet
         if hasattr(self.table, "sheet"):
             try:
                 rows = list(self.table.sheet.get_selected_rows())
+                if not rows:
+                    cells = self.table.sheet.get_selected_cells()
+                    if cells:
+                        rows = [sorted({r for r, _ in cells})[0]]
                 if rows:
-                    return sorted(rows)[0]
-                cells = self.table.sheet.get_selected_cells()
-                if cells:
-                    return sorted({r for r, _ in cells})[0]
+                    r = sorted(rows)[0]
+                    # Algunas implementaciones exponen get_row_data
+                    if hasattr(self.table.sheet, "get_row_data"):
+                        return list(map(str, self.table.sheet.get_row_data(r)))
+                    # Fallback: leer celda a celda
+                    vals: List[str] = []
+                    for c in range(len(self.COLS)):
+                        try:
+                            vals.append(str(self.table.sheet.get_cell_data(r, c)))
+                        except Exception:
+                            vals.append("")
+                    return vals
             except Exception:
                 return None
             return None
+        # Fallback Treeview
         tv = getattr(self.table, "_fallback", None)
         if tv is None:
             return None
-        sel = tv.selection()
-        if not sel:
-            return None
         try:
-            return tv.index(sel[0])
+            sel = tv.selection()
+            if not sel:
+                return None
+            return list(tv.item(sel[0], "values"))
         except Exception:
             return None
 
@@ -288,30 +381,46 @@ class ProductsView(ttk.Frame):
             messagebox.showerror("Error", f"No se pudo eliminar:\n{e}")
 
     def _on_row_dblclick(self, _event=None):
-        """Carga la fila seleccionada al formulario."""
-        idx = self._selected_row_index()
-        if idx is None or idx < 0 or idx >= len(self._rows_cache):
+        """Carga la fila seleccionada al formulario usando el ID de producto leído de la grilla."""
+        vals = self._selected_row_values()
+        if not vals:
             return
-        vals = self._rows_cache[idx]
-        # 0 id, 1 nombre, 2 código, 3 pcompra, 4 iva, 5 iva_monto, 6 pmasiva, 7 margen, 8 pventa, 9 unidad
-        self._editing_id = int(vals[0])
-        self._current_product = self.repo.get(self._editing_id)
-        self.var_nombre.set(vals[1])
-        self.var_codigo.set(vals[2])
-        try: self.var_pc.set(float(vals[3] or 0))
+        try:
+            prod_id = int(str(vals[0]).strip())
+        except Exception:
+            # Fallback: intenta por SKU (columna 2)
+            prod_id = -1
+        p: Optional[Product] = None
+        if prod_id > 0:
+            p = self.repo.get(prod_id)
+        if p is None:
+            try:
+                sku = str(vals[2]).strip()
+                if sku:
+                    p = self.repo.get_by_sku(sku)  # type: ignore[attr-defined]
+            except Exception:
+                p = None
+        if not p:
+            return
+
+        self._editing_id = int(p.id)
+        self._current_product = p
+        # Poblamos desde el modelo para evitar inconsistencias por ordenación/formateo de la grilla
+        self.var_nombre.set(p.nombre or "")
+        self.var_codigo.set(p.sku or "")
+        try: self.var_pc.set(float(p.precio_compra or 0))
         except Exception: self.var_pc.set(0.0)
-        try: self.var_iva.set(float(vals[4] or 19.0))
-        except Exception: self.var_iva.set(19.0)
-        try: self.var_iva_monto.set(float(vals[5] or 0))
-        except Exception: self.var_iva_monto.set(0.0)
-        try: self.var_pmasiva.set(float(vals[6] or 0))
-        except Exception: self.var_pmasiva.set(0.0)
-        try: self.var_margen.set(float(vals[7] or 30.0))
-        except Exception: self.var_margen.set(30.0)
-        try: self.var_pventa.set(float(vals[8] or 0))
+        # IVA de referencia se mantiene (no está en modelo); recalculamos derivados
+        self._recalc_prices()
+        try: self.var_pventa.set(float(p.precio_venta or 0))
         except Exception: self.var_pventa.set(0.0)
-        try: self.var_unidad.set(vals[9] or "unidad")
+        try: self.var_unidad.set(p.unidad_medida or "unidad")
         except Exception: self.var_unidad.set("unidad")
+        try:
+            self.var_has_barcode.set(bool(getattr(p, "barcode", None)))
+        except Exception:
+            self.var_has_barcode.set(False)
+        self._refresh_barcode_preview()
 
         if self._current_product and self._current_product.id:
             self.img_box.set_product(self._current_product.id, on_image_changed=self._on_image_changed)
@@ -361,6 +470,7 @@ class ProductsView(ttk.Frame):
             return dict(
                 nombre=nombre,
                 sku=codigo,
+                barcode=(codigo if self.var_has_barcode.get() else None),
                 precio_compra=pc,
                 precio_venta=pventa,
                 unidad_medida=unidad,
@@ -382,6 +492,7 @@ class ProductsView(ttk.Frame):
         self.var_iva_monto.set(0.0)
         self.var_pmasiva.set(0.0)
         self.var_pventa.set(0.0)
+        self.var_has_barcode.set(False)
         self.img_box.set_product(None)
         self.btn_save.config(state="normal")
         self.btn_update.config(state="disabled")
@@ -423,6 +534,7 @@ class ProductsView(ttk.Frame):
                 p.id,
                 p.nombre or "",
                 p.sku or "",
+                ("✔" if getattr(p, "barcode", None) else ""),
                 f"{pc:.0f}",
                 f"{iva_ref:.1f}",
                 f"{iva_monto:.0f}",
@@ -477,3 +589,78 @@ class ProductsView(ttk.Frame):
         if region == "heading":
             tv.selection_remove(tv.selection())
             self._clear_form()
+
+    # ---------- Acciones de código de barras ----------
+    def _on_print_label(self):
+        if not self.var_has_barcode.get():
+            messagebox.showwarning("Validación", "Este producto no tiene código de barras habilitado.")
+            return
+        code = (self.var_codigo.get() or "").strip()
+        if not code:
+            messagebox.showwarning("Validación", "Ingrese un código de barras o SKU.")
+            return
+        text = (self.var_nombre.get() or "").strip()
+        try:
+            BarcodeLabelEditor(self, initial_code=code, initial_text=text)
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo abrir la impresión de etiqueta:\n{e}")
+
+    def _on_print_quick(self):
+        if not self.var_has_barcode.get():
+            messagebox.showwarning("Validación", "Este producto no tiene código de barras habilitado.")
+            return
+        code = (self.var_codigo.get() or "").strip()
+        if not code:
+            messagebox.showwarning("Validación", "Ingrese el Código/SKU del producto para imprimir.")
+            return
+        text = ((self.var_nombre.get() or "").strip() if self.var_bc_show_text.get() else None)
+        w_mm, h_mm = self.BC_SIZES.get(self.var_bc_size.get(), (50, 30))
+        try:
+            generate_label_pdf(
+                code,
+                text=text,
+                symbology=("ean13" if code.isdigit() and len(code) in (12, 13) else "code128"),
+                label_w_mm=w_mm,
+                label_h_mm=h_mm,
+                copies=max(1, int(self.var_bc_copies.get() or 1)),
+                auto_open=True,
+            )
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo generar la etiqueta:\n{e}")
+
+    def _refresh_barcode_preview(self, _evt=None):
+        try:
+            if not self.var_has_barcode.get():
+                self.lbl_bc_preview.configure(text="(Sin código)", image="")
+                return
+            code = (self.var_codigo.get() or "").strip()
+            if not code:
+                self.lbl_bc_preview.configure(text="(Sin código)", image="")
+                return
+            png = generate_barcode_png(code, text=((self.var_nombre.get() or "").strip() if self.var_bc_show_text.get() else None))
+            try:
+                import PIL.Image, PIL.ImageTk  # type: ignore
+                im = PIL.Image.open(png)
+                maxw = 420
+                if im.width > maxw:
+                    ratio = maxw / float(im.width)
+                    im = im.resize((int(im.width*ratio), int(im.height*ratio)))
+                self._bc_img = PIL.ImageTk.PhotoImage(im)
+                self.lbl_bc_preview.configure(image=self._bc_img, text="")
+            except Exception:
+                self.lbl_bc_preview.configure(text=str(png), image="")
+        except Exception as e:
+            self.lbl_bc_preview.configure(text=f"Error preview: {e}", image="")
+
+    def _list_printers(self) -> List[str]:
+        try:
+            import win32print  # type: ignore
+            flags = 2  # PRINTER_ENUM_LOCAL
+            printers = [p[2] for p in win32print.EnumPrinters(flags)]
+            return printers or ["Predeterminada del sistema"]
+        except Exception:
+            return ["Predeterminada del sistema"]
+
+    def _on_toggle_has_barcode(self):
+        # Al desactivar, limpiamos la preview; al activar, la regeneramos
+        self._refresh_barcode_preview()
