@@ -115,3 +115,8 @@ class InventoryManager:
         p.stock_actual = new
         self.session.flush()
         return MovementResult(product_id=p.id, old_stock=old, new_stock=new, qty=int(cantidad), movement="exit")
+
+    def get_stock(self, product_id: int) -> int:
+        """Devuelve el stock actual del producto (0 si no existe)."""
+        p = self.products.get(product_id)
+        return int(getattr(p, "stock_actual", 0) or 0) if p else 0

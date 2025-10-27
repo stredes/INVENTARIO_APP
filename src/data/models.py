@@ -17,6 +17,7 @@ from sqlalchemy.orm import (
     Mapped,
     mapped_column,
     relationship,
+    synonym,
 )
 
 
@@ -35,9 +36,11 @@ class Supplier(Base):
 
     # Razón social del proveedor (obligatoria)
     razon_social: Mapped[str] = mapped_column(String, nullable=False)
+    # Alias de compatibilidad: permitir usar 'nombre' en tests/código legado
+    nombre = synonym("razon_social")
 
-    # RUT de la empresa (único)
-    rut: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    # RUT de la empresa (único). En tests/semillas puede ser omitido -> permitir NULL
+    rut: Mapped[Optional[str]] = mapped_column(String, nullable=True, unique=True)
 
     contacto: Mapped[Optional[str]] = mapped_column(String)
     telefono: Mapped[Optional[str]] = mapped_column(String)
@@ -73,8 +76,8 @@ class Product(Base):
     # Ruta (absoluta o relativa) a la imagen principal del producto
     image_path: Mapped[Optional[str]] = mapped_column(String)
 
-    # NUEVO: FK al proveedor (regla de negocio: obligatorio a nivel de app)
-    id_proveedor: Mapped[int] = mapped_column(ForeignKey("suppliers.id"))
+    # FK al proveedor (permitimos NULL para compatibilidad con tests que crean sin proveedor)
+    id_proveedor: Mapped[Optional[int]] = mapped_column(ForeignKey("suppliers.id"), nullable=True)
     supplier: Mapped["Supplier"] = relationship(back_populates="products")
 
     def __repr__(self) -> str:

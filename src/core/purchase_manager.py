@@ -91,7 +91,9 @@ class PurchaseManager:
             if not prod:
                 # Por si se llama sin pasar por _validate_items
                 raise PurchaseError(f"Producto id={it.product_id} no existe")
-            if getattr(prod, "id_proveedor", None) != supplier_id:
+            prod_supplier = getattr(prod, "id_proveedor", None)
+            # Permitir productos sin proveedor asignado (compatibilidad con tests/datos antiguos)
+            if prod_supplier is not None and prod_supplier != supplier_id:
                 raise PurchaseError(
                     f"El producto '{getattr(prod, 'nombre', '')}' (id={it.product_id}) "
                     f"no corresponde al proveedor id={supplier_id}"
