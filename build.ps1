@@ -71,8 +71,14 @@ if ($LASTEXITCODE -ne 0) {
 $exePath = Join-Path $PSScriptRoot "dist\$Name.exe"
 if (Test-Path $exePath) {
   Write-Ok "Build OK: $exePath"
+  # Copiar config como carpeta externa editable en dist
+  $distConfig = Join-Path $PSScriptRoot "dist\config"
+  if (Test-Path (Join-Path $PSScriptRoot "config")) {
+    New-Item -ItemType Directory -Path $distConfig -Force | Out-Null
+    Copy-Item -Recurse -Force (Join-Path $PSScriptRoot "config\*") $distConfig
+    Write-Ok "Config copiado a dist/config (editable)"
+  }
 } else {
   Write-Err "No se encontró el ejecutable en dist/"
   exit 1
 }
-

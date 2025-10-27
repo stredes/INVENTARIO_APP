@@ -9,7 +9,6 @@ from src.data.models import Product, Customer
 from src.data.repository import ProductRepository, CustomerRepository
 from src.core import SalesManager, SaleItem
 from src.utils.so_generator import generate_so_to_downloads
-from src.utils.quote_generator import generate_quote_to_downloads
 from src.gui.widgets.autocomplete_combobox import AutoCompleteCombobox
 from src.reports.sales_report_pdf import generate_sales_report_to_downloads
 from sqlalchemy import and_
@@ -25,7 +24,7 @@ class SalesView(ttk.Frame):
     Informe de Ventas con filtros + exportación CSV/PDF a Descargas.
     """
 
-    ESTADOS = ["Confirmada", "Pendiente", "Cancelada", "Eliminada"]
+    ESTADOS = ["Pagada", "Reservada", "Cancelada"]
 
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
@@ -137,11 +136,9 @@ class SalesView(ttk.Frame):
             .pack(side="right", padx=6)
         ttk.Button(bottom, text="Limpiar tabla", command=self._on_clear_table)\
             .pack(side="right", padx=6)
-        ttk.Button(bottom, text="Generar Cotización (PDF)", command=self._on_generate_sales_quote)\
-            .pack(side="right", padx=6)
         ttk.Button(bottom, text="Generar OV (PDF en Descargas)", command=self._on_generate_so_downloads)\
             .pack(side="right", padx=6)
-        ttk.Button(bottom, text="Guardar venta", command=self._on_confirm_sale)\
+        ttk.Button(bottom, text="Confirmar venta", command=self._on_confirm_sale)\
             .pack(side="right", padx=6)
 
         # ---------- Admin CRUD Venta ----------
@@ -178,7 +175,7 @@ class SalesView(ttk.Frame):
         ttk.Label(rep, text="Estado:").grid(row=2, column=0, sticky="e", padx=4, pady=4)
         self.flt_estado = ttk.Combobox(
             rep, state="readonly", width=18,
-            values=("", "Confirmada", "Pendiente", "Cancelada", "Eliminada")
+            values=("", "Pagada", "Reservada", "Cancelada")
         )
         self.flt_estado.grid(row=2, column=1, sticky="w", padx=4, pady=4)
         self.flt_estado.set("")
@@ -418,9 +415,8 @@ class SalesView(ttk.Frame):
                 for it in items
             ]
 
-            estado = (self.cmb_estado.get() or "Confirmada").strip()
-            # Descontar stock solo si está Confirmada o Pagada (compatibilidad)
-            apply_to_stock = self.var_apply.get() and (estado in ("Confirmada", "Pagada"))
+            estado = (self.cmb_estado.get() or "Pagada").strip()
+            apply_to_stock = self.var_apply.get() and (estado == "Pagada")
 
             create_fn = self._resolve_create_sale()
             create_fn(
@@ -458,31 +454,6 @@ class SalesView(ttk.Frame):
             self._info(f"Orden de Venta creada en Descargas:\n{out}")
         except Exception as e:
             self._error(f"No se pudo generar la OV:\n{e}")
-
-    def _on_generate_sales_quote(self):
-        try:
-            items = self._collect_items()
-            if not items:
-                self._warn("Agregue al menos un ��tem.")
-                return
-            cust = self._get_selected_customer_dict()
-            cust.setdefault("nombre", cust.get("razon_social") or "")
-            try:
-                cust["pago"] = self.cmb_pago.get()
-            except Exception:
-                pass
-            quote_number = f"COTV-{cust.get('id','')}-{self._stamp()}"
-            out = generate_quote_to_downloads(
-                quote_number=quote_number,
-                supplier=cust,
-                items=items,
-                currency="CLP",
-                notes=None,
-                auto_open=True,
-            )
-            self._info(f"Cotización de venta creada en Descargas:\n{out}")
-        except Exception as e:
-            self._error(f"No se pudo generar la cotización:\n{e}")
 
     def _on_cancel_sale(self):
         try:

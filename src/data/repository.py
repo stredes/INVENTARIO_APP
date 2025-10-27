@@ -16,6 +16,7 @@ from .models import (
     Customer,
     Sale,
     SaleDetail,
+    Location,
 )
 
 T = TypeVar("T", bound=Base)
@@ -177,3 +178,11 @@ class SaleRepository(BaseRepository[Sale]):
 class SaleDetailRepository(BaseRepository[SaleDetail]):
     def __init__(self, session: Session) -> None:
         super().__init__(session, SaleDetail)
+
+
+# ---------------------------
+# Locations
+# ---------------------------
+class LocationRepository(BaseRepository[Location]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(session, Location)

@@ -6,8 +6,8 @@ from typing import List, Optional
 from pathlib import Path
 
 from src.data.database import get_session
-from src.data.models import Product, Supplier
-from src.data.repository import ProductRepository, SupplierRepository
+from src.data.models import Product, Supplier, Location
+from src.data.repository import ProductRepository, SupplierRepository, LocationRepository
 from src.gui.widgets.product_image_box import ProductImageBox  # <-- recuadro imagen
 
 # Grilla tipo hoja (tksheet si está, o fallback Treeview)
@@ -40,10 +40,12 @@ class ProductsView(ttk.Frame):
         self.session = get_session()
         self.repo = ProductRepository(self.session)
         self.repo_sup = SupplierRepository(self.session)
+        self.repo_loc = LocationRepository(self.session)
 
         self._editing_id: Optional[int] = None
         self._current_product: Optional[Product] = None
         self._suppliers: List[Supplier] = []
+        self._locations: List[Location] = []
 
         # cache tabla (para doble click en tksheet / tree)
         self._rows_cache: List[List[str]] = []
@@ -124,9 +126,15 @@ class ProductsView(ttk.Frame):
         self.cmb_supplier = ttk.Combobox(right, state="readonly", width=35)
         self.cmb_supplier.grid(row=5, column=1, columnspan=3, sticky="we", padx=4, pady=4)
 
+        # Fila 6: Ubicación
+        ttk.Label(right, text="Ubicación:").grid(row=6, column=0, sticky="e", padx=4, pady=4)
+        self.cmb_location = ttk.Combobox(right, state="readonly", width=28)
+        self.cmb_location.grid(row=6, column=1, sticky="w", padx=4, pady=4)
+        ttk.Button(right, text="Admin. ubicaciones...", command=self._open_locations_manager).grid(row=6, column=2, columnspan=2, sticky="w", padx=4, pady=4)
+
         # Botones
         btns = ttk.Frame(right)
-        btns.grid(row=6, column=0, columnspan=4, pady=8, sticky="w")
+        btns.grid(row=7, column=0, columnspan=4, pady=8, sticky="w")
 
         self.btn_save = ttk.Button(btns, text="Agregar", command=self._on_add)
         self.btn_update = ttk.Button(btns, text="Guardar cambios", command=self._on_update, state="disabled")
@@ -358,6 +366,14 @@ class ProductsView(ttk.Frame):
                 messagebox.showwarning("Validación", "Seleccione un proveedor.")
                 return None
             proveedor = self._suppliers[idx]
+            # Ubicación (opcional)
+            location_id = None
+            try:
+                li = self.cmb_location.current()
+                if li is not None and li >= 0 and li < len(self._locations):
+                    location_id = self._locations[li].id
+            except Exception:
+                location_id = None
             return dict(
                 nombre=nombre,
                 sku=codigo,
@@ -365,6 +381,7 @@ class ProductsView(ttk.Frame):
                 precio_venta=pventa,
                 unidad_medida=unidad,
                 id_proveedor=proveedor.id,
+                id_ubicacion=location_id,
             )
         except ValueError:
             messagebox.showwarning("Validación", "Revisa números (PC/IVA/Margen/Precios).")
@@ -437,8 +454,9 @@ class ProductsView(ttk.Frame):
         self._set_table_data(self._rows_cache)
 
     def refresh_lookups(self):
-        """Carga proveedores al combobox."""
+        """Carga proveedores y ubicaciones a los combobox."""
         self._suppliers = self.session.query(Supplier).order_by(Supplier.razon_social.asc()).all()
+        self._locations = self.session.query(Location).order_by(Location.nombre.asc()).all()
 
         def _disp(s: Supplier) -> str:
             rut = (s.rut or "").strip()
@@ -449,9 +467,15 @@ class ProductsView(ttk.Frame):
         # Selecciona automáticamente si solo hay un proveedor
         if len(self._suppliers) == 1:
             self.cmb_supplier.current(0)
+        # Ubicaciones
+        if hasattr(self, 'cmb_location'):
+            try:
+                self.cmb_location["values"] = [(l.nombre or "").strip() for l in self._locations]
+            except Exception:
+                pass
 
     def _select_supplier_for_current_product(self):
-        """Selecciona en el combo el proveedor del producto cargado (si existe)."""
+        """Selecciona en los combos proveedor y ubicación del producto cargado (si existe)."""
         try:
             if not self._current_product:
                 self.cmb_supplier.set("")
@@ -467,6 +491,34 @@ class ProductsView(ttk.Frame):
                 self.cmb_supplier.set("")
         except Exception:
             self.cmb_supplier.set("")
+        # Ubicación
+        try:
+            if not self._current_product:
+                self.cmb_location.set("")
+            else:
+                lid = getattr(self._current_product, "id_ubicacion", None)
+                idx = next((i for i, l in enumerate(self._locations) if l.id == lid), -1)
+                if idx >= 0:
+                    self.cmb_location.current(idx)
+                else:
+                    self.cmb_location.set("")
+        except Exception:
+            try:
+                self.cmb_location.set("")
+            except Exception:
+                pass
+
+    def _open_locations_manager(self):
+        try:
+            from src.gui.locations_manager import LocationsManager
+        except Exception:
+            messagebox.showerror("Ubicaciones", "No se pudo cargar el administrador de ubicaciones.")
+            return
+        dlg = LocationsManager(self.session, parent=self)
+        self.wait_window(dlg)
+        # Refrescar lista tras cerrar
+        self.refresh_lookups()
+        self._select_supplier_for_current_product()
 
     # ---------- Solo fallback: limpiar selección al click de encabezado ----------
     def _on_tree_click(self, event):

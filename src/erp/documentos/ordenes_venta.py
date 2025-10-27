@@ -41,6 +41,7 @@ def generar_pdf(conn: sqlite3.Connection, id_documento: int, *, auto_open: bool 
             "cantidad": r["cantidad"],
             "precio": r["precio_unitario"],
             "subtotal": r["subtotal_final"] or r["subtotal"],
+            "descuento_porcentaje": r.get("descuento_porcentaje", 0) if hasattr(r, "get") else r["descuento_porcentaje"],
         }
         for r in rows
     ]

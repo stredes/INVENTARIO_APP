@@ -3,27 +3,60 @@ import configparser
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 import os
+import sys
 
 CONFIG_PATH = Path("config/settings.ini")
+
+
+def _frozen_dir() -> Path | None:
+    try:
+        if getattr(sys, "frozen", False):
+            return Path(sys.executable).parent
+    except Exception:
+        pass
+    return None
+
+
+def _meipass_dir() -> Path | None:
+    try:
+        base = getattr(sys, "_MEIPASS", None)
+        if base:
+            return Path(base)
+    except Exception:
+        pass
+    return None
+
+
+def _external_config_path() -> Path:
+    exedir = _frozen_dir()
+    if exedir is not None:
+        return exedir / CONFIG_PATH
+    return CONFIG_PATH
 
 
 # -----------------------------
 # CONFIG
 # -----------------------------
 def _ensure_config_dir() -> None:
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _external_config_path().parent.mkdir(parents=True, exist_ok=True)
 
 
 def read_config() -> configparser.ConfigParser:
     cfg = configparser.ConfigParser()
-    if CONFIG_PATH.exists():
-        cfg.read(CONFIG_PATH, encoding="utf-8")
+    p = _external_config_path()
+    if p.exists():
+        cfg.read(p, encoding="utf-8")
+    else:
+        mdir = _meipass_dir()
+        if mdir is not None and (mdir / CONFIG_PATH).exists():
+            cfg.read(mdir / CONFIG_PATH, encoding="utf-8")
     return cfg
 
 
 def write_config(cfg: configparser.ConfigParser) -> None:
     _ensure_config_dir()
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+    p = _external_config_path()
+    with open(p, "w", encoding="utf-8") as f:
         cfg.write(f)
 
 

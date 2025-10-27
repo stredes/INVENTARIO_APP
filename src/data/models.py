@@ -75,6 +75,10 @@ class Product(Base):
     id_proveedor: Mapped[int] = mapped_column(ForeignKey("suppliers.id"))
     supplier: Mapped["Supplier"] = relationship(back_populates="products")
 
+    # NUEVO: Ubicación (bodega/estantería) opcional
+    id_ubicacion: Mapped[Optional[int]] = mapped_column(ForeignKey("locations.id"), nullable=True)
+    location: Mapped[Optional["Location"]] = relationship()
+
     def __repr__(self) -> str:
         return f"<Product id={self.id} sku={self.sku} nombre={self.nombre} prov={self.id_proveedor}>"
 
@@ -104,6 +108,20 @@ class SupplierProduct(Base):
 
     def __repr__(self) -> str:
         return f"<SupplierProduct prov={self.id_proveedor} prod={self.id_producto}>"
+
+
+# ====================================================
+# UBICACIONES (Bodegas / Estanterías)
+# ====================================================
+class Location(Base):
+    __tablename__ = "locations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    nombre: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    descripcion: Mapped[Optional[str]] = mapped_column(String)
+
+    def __repr__(self) -> str:
+        return f"<Location id={self.id} nombre={self.nombre}>"
 
 
 # ====================================================
