@@ -44,7 +44,11 @@ from src.data.models import (  # type: ignore
     StockExit,
 )
 
-fake = Faker("es_CL")  # Datos falsos en español de Chile
+# Faker configurado para español (Chile) y semilla reproducible
+FAKER_LOCALE = "es_CL"
+FAKER_SEED = int(str(Path.cwd()).__hash__() & 0xFFFF)
+fake = Faker(FAKER_LOCALE)
+Faker.seed(FAKER_SEED)
 
 
 # =========================================================================
@@ -107,6 +111,35 @@ def seed_products(session: Session, proveedores: List[Supplier], n: int = 20) ->
     if not proveedores:
         raise ValueError("No hay proveedores para asignar a los productos.")
 
+    # Helpers para SKU y EAN13 únicos
+    used_skus: set[str] = set()
+    used_barcodes: set[str] = set()
+
+    def _unique_sku() -> str:
+        while True:
+            sku = f"SKU-{fake.unique.random_int(1000, 9999)}"
+            if sku not in used_skus:
+                used_skus.add(sku)
+                return sku
+
+    def _ean13_check_digit(code12: str) -> str:
+        """Calcula dígito verificador EAN13 para 12 dígitos (string)."""
+        s = [int(c) for c in code12]
+        odd = sum(s[::2])
+        even = sum(s[1::2]) * 3
+        total = odd + even
+        dv = (10 - (total % 10)) % 10
+        return str(dv)
+
+    def _unique_ean13() -> str:
+        # Prefijo 780 (Chile) + 9 dígitos aleatorios
+        while True:
+            base12 = "780" + f"{random.randint(0, 999999999):09d}"
+            code = base12 + _ean13_check_digit(base12)
+            if code not in used_barcodes:
+                used_barcodes.add(code)
+                return code
+
     productos: List[Product] = []
     for _ in range(n):
         pc = round(random.uniform(500, 5000), 2)  # precio compra (neto)
@@ -117,14 +150,26 @@ def seed_products(session: Session, proveedores: List[Supplier], n: int = 20) ->
 
         prov = random.choice(proveedores)
 
+        nombre = fake.word().capitalize()
+        # Mezcla de rubros comunes (agrega variedad y legibilidad)
+        if random.random() < 0.5:
+            cat = random.choice(["Guantes", "Mascarilla", "Turbina", "Resina", "Fresa", "Irrigador", "Compresa", "Jeringa"])  # dominio clínico general
+            nombre = f"{cat} {fake.color_name().split()[0]}"
+
+        sku = _unique_sku()
+        # Decidir si el producto tendrá código de barras (70%)
+        has_barcode = random.random() < 0.7
+        barcode_val = _unique_ean13() if has_barcode else None
+
         prod = Product(
-            nombre=fake.word().capitalize(),
-            sku=f"SKU-{fake.unique.random_int(1000, 9999)}",
+            nombre=nombre,
+            sku=sku,
             precio_compra=pc,
             precio_venta=pv,
             stock_actual=random.randint(0, 200),
             unidad_medida=random.choice(["unidad", "caja", "kg", "lt"]),
             id_proveedor=prov.id,  # vínculo con proveedor
+            barcode=barcode_val,
         )
         session.add(prod)
         productos.append(prod)
