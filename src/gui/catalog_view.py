@@ -147,17 +147,29 @@ class CatalogView(ttk.Frame):
             y1 = y0 + row_h - 8
             draw.rectangle([x0, y0, x1, y1], outline=(180, 180, 180), width=1)
 
-            # imagen
-            _, thumb = get_latest_image_paths(int(p.id))
-            if thumb and thumb.exists():
+            # imagen: usa thumbnail si existe, si no la imagen principal (auto-ajuste en contenedor fijo)
+            main_img, thumb = get_latest_image_paths(int(p.id))
+            use = thumb if (thumb and thumb.exists()) else main_img
+            # Contenedor para la imagen
+            box_w = col_w - 24
+            box_h = int(row_h * 0.5) - 24
+            draw.rectangle([x0 + 12, y0 + 12, x0 + 12 + box_w, y0 + 12 + box_h], outline=(200, 200, 200), width=1)
+
+            if use and use.exists():
                 try:
-                    im_p = Image.open(thumb).convert("RGB")
-                    im_p.thumbnail((col_w - 24, int(row_h * 0.5)))
-                    im.paste(im_p, (x0 + 12, y0 + 12))
+                    im_p = Image.open(use).convert("RGB")
+                    # Escalar manteniendo proporción y centrar en el box
+                    iw, ih = im_p.size
+                    r = min(box_w / max(iw, 1), box_h / max(ih, 1))
+                    new_w, new_h = int(iw * r), int(ih * r)
+                    im_p = im_p.resize((new_w, new_h))
+                    px = x0 + 12 + (box_w - new_w) // 2
+                    py = y0 + 12 + (box_h - new_h) // 2
+                    im.paste(im_p, (px, py))
                 except Exception:
                     pass
             else:
-                draw.text((x0 + 12, y0 + 12), "Sin imagen", fill=(90, 90, 90), font=font_s)
+                draw.text((x0 + 20, y0 + 20), "Sin imagen", fill=(90, 90, 90), font=font_s)
 
             # textos
             name = (p.nombre or "").strip()

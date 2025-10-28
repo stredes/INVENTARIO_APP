@@ -154,13 +154,33 @@ def generate_products_catalog(
 
     for p in products:
         img_path, thumb_path = get_latest_image_paths(int(p.id))
-        img_obj: Optional[Image] = None
+        # Imagen contenida en un contenedor fijo (aspect-ratio friendly)
+        img_box_w = col_w - 8 * mm
+        img_box_h = row_h * 0.5
+        img_cell: Table
+        use_path: Optional[Path] = None
         if thumb_path and thumb_path.exists():
+            use_path = thumb_path
+        elif img_path and img_path.exists():
+            use_path = img_path
+        if use_path is not None:
             try:
-                img_obj = Image(str(thumb_path))
-                img_obj._restrictSize(col_w - 8 * mm, row_h * 0.5)
+                im = Image(str(use_path))
+                # Escalar manteniendo proporción sin exceder el box
+                iw, ih = float(getattr(im, 'imageWidth', 1)), float(getattr(im, 'imageHeight', 1))
+                r = min(img_box_w / max(iw, 1.0), img_box_h / max(ih, 1.0), 1.0)
+                im.drawWidth = iw * r
+                im.drawHeight = ih * r
+                img_cell = Table([[im]], colWidths=[img_box_w], rowHeights=[img_box_h])
             except Exception:
-                img_obj = None
+                img_cell = Table([[Paragraph("Sin imagen", styles["tiny"])]], colWidths=[img_box_w], rowHeights=[img_box_h])
+        else:
+            img_cell = Table([[Paragraph("Sin imagen", styles["tiny"])]], colWidths=[img_box_w], rowHeights=[img_box_h])
+        img_cell.setStyle(TableStyle([
+            ("ALIGN", (0,0), (-1,-1), "CENTER"),
+            ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+            ("BOX", (0,0), (-1,-1), 0.3, colors.lightgrey),
+        ]))
 
         title = f"<b>{(p.nombre or '').strip()}</b>"
         sku = (p.sku or "").strip()
@@ -179,12 +199,8 @@ def generate_products_catalog(
         if show_price_gross:
             lines.append(Paragraph(f"Precio (con IVA): <b>{int(price_raw):,}</b>".replace(",", "."), styles["tiny"]))
 
-        left = img_obj if img_obj is not None else Table([[Paragraph("Sin imagen", styles["tiny"]) ]], colWidths=[(col_w-8*mm)], rowHeights=[row_h*0.5])
-        if isinstance(left, Table):
-            left.setStyle(TableStyle([("BOX", (0,0), (-1,-1), 0.3, colors.gray), ("ALIGN", (0,0), (-1,-1), "CENTER"), ("VALIGN", (0,0), (-1,-1), "MIDDLE")]))
-
         card_tbl = Table([
-            [left],
+            [img_cell],
             [Table([[l] for l in lines], colWidths=[col_w-8*mm])]
         ], colWidths=[col_w-8*mm], rowHeights=[row_h*0.6, row_h*0.4])
         card_tbl.setStyle(TableStyle([
