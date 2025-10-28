@@ -14,7 +14,9 @@ class LocationsManager(tk.Toplevel):
     def __init__(self, session: Session, parent: Optional[tk.Misc] = None):
         super().__init__(parent)
         self.title("Ubicaciones")
-        self.geometry("520x360")
+        # Aumenta tamaño para ver el menú completo de ubicaciones
+        self.geometry("760x520")
+        self.resizable(True, True)
         self.transient(parent)
         self.grab_set()
 
@@ -22,20 +24,37 @@ class LocationsManager(tk.Toplevel):
 
         frm = ttk.Frame(self, padding=10)
         frm.pack(fill="both", expand=True)
+        # Usar grid dentro de frm para distribuir: lista (row=0), formulario (row=1), botones (row=2)
+        frm.rowconfigure(0, weight=1)
+        frm.columnconfigure(0, weight=1)
 
-        # Listado
-        self.tree = ttk.Treeview(frm, columns=("id", "nombre", "descripcion"), show="headings", height=10)
+        # Listado con scrollbars y mayor altura/anchos
+        tree_frame = ttk.Frame(frm)
+        tree_frame.grid(row=0, column=0, sticky="nsew")
+        self.tree = ttk.Treeview(
+            tree_frame,
+            columns=("id", "nombre", "descripcion"),
+            show="headings",
+            height=18,
+        )
         self.tree.heading("id", text="ID")
         self.tree.heading("nombre", text="Nombre")
         self.tree.heading("descripcion", text="Descripción")
-        self.tree.column("id", width=60, anchor="center")
-        self.tree.column("nombre", width=180, anchor="w")
-        self.tree.column("descripcion", width=240, anchor="w")
-        self.tree.pack(fill="both", expand=True)
+        self.tree.column("id", width=70, anchor="center")
+        self.tree.column("nombre", width=240, anchor="w")
+        self.tree.column("descripcion", width=360, anchor="w")
+        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
+        hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.tree.xview)
+        self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="we")
+        tree_frame.rowconfigure(0, weight=1)
+        tree_frame.columnconfigure(0, weight=1)
 
         # Formulario simple
         form = ttk.Frame(frm)
-        form.pack(fill="x", pady=(8, 4))
+        form.grid(row=1, column=0, sticky="we", pady=(8, 4))
         ttk.Label(form, text="Nombre:").grid(row=0, column=0, sticky="e", padx=4, pady=2)
         ttk.Label(form, text="Descripción:").grid(row=1, column=0, sticky="e", padx=4, pady=2)
         self.var_nombre = tk.StringVar()
@@ -45,7 +64,7 @@ class LocationsManager(tk.Toplevel):
 
         # Botones
         btns = ttk.Frame(frm)
-        btns.pack(fill="x", pady=(4, 0))
+        btns.grid(row=2, column=0, sticky="we", pady=(4, 0))
         ttk.Button(btns, text="Nuevo", command=self._on_new).pack(side="left", padx=4)
         ttk.Button(btns, text="Guardar", command=self._on_save).pack(side="left", padx=4)
         ttk.Button(btns, text="Eliminar", command=self._on_delete).pack(side="left", padx=4)

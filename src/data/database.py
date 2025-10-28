@@ -132,22 +132,61 @@ def _safe_sqlite_url(db_url: str, cfg: configparser.ConfigParser) -> str:
     raw_path = db_url[len(prefix):]
     path = Path(raw_path)
     if not path.is_absolute():
-        # Si estamos empaquetados (PyInstaller), colocar DB junto al .exe (dist)
-        exedir = _frozen_dir()
+        # Determinar nombre de archivo y candidatos de carpeta escribibles
         fname = path.name if path.name else "inventario.db"
+        candidates: list[Path] = []
+        exedir = _frozen_dir()
         if exedir is not None:
-            path = exedir / fname
-        else:
-            # Modo no congelado: conserva política previa en LOCALAPPDATA
-            base = os.getenv("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-            app_dir = Path(base) / "InventarioApp"
-            path = app_dir / fname
-    # Crear directorio padre si no existe
+            candidates.append(exedir)  # junto al .exe (preferido)
+        # Carpeta de datos del usuario (si exedir no es escribible)
+        base = os.getenv("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        candidates.append(Path(base) / "InventarioApp")
+        # Documentos del usuario
+        try:
+            documents = Path.home() / "Documents" / "InventarioApp"
+            candidates.append(documents)
+        except Exception:
+            pass
+        # Carpeta pública (suele ser escribible sin admin)
+        try:
+            public_dir = Path(os.environ.get("PUBLIC", r"C:\\Users\\Public")) / "InventarioApp"
+            candidates.append(public_dir)
+        except Exception:
+            pass
+
+        chosen: Path | None = None
+        for folder in candidates:
+            try:
+                folder.mkdir(parents=True, exist_ok=True)
+                test_path = folder / (fname + ".write_test")
+                with open(test_path, "a", encoding="utf-8"):
+                    pass
+                try:
+                    test_path.unlink(missing_ok=True)  # py>=3.8
+                except Exception:
+                    try:
+                        if test_path.exists():
+                            test_path.unlink()
+                    except Exception:
+                        pass
+                chosen = folder / fname
+                break
+            except Exception:
+                continue
+        if chosen is None:
+            # último recurso: ruta relativa en cwd
+            chosen = Path.cwd() / fname
+            try:
+                chosen.parent.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+        path = chosen
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        resolved = Path(path).resolve()
     except Exception:
-        pass
-    return f"sqlite:///{path}"
+        resolved = path
+    # Usar formato POSIX para evitar problemas de barras invertidas en URI
+    return f"sqlite:///{resolved.as_posix()}"
 
 
 def get_engine() -> Engine:

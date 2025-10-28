@@ -14,6 +14,7 @@ from src.gui.sales_view import SalesView
 from src.gui.inventory_view import InventoryView
 from src.gui.orders_admin_view import OrdersAdminView
 from src.reports.report_center import ReportCenter  # ← NUEVO
+from src.gui.catalog_view import CatalogView
 
 from src.gui.theme_manager import ThemeManager
 from src.gui.widgets.status_bar import StatusBar
@@ -44,6 +45,7 @@ class MainWindow(ttk.Frame):
         self.inventory_tab = InventoryView(self.notebook)
         self.orders_admin_tab = OrdersAdminView(self.notebook)
         self.report_center_tab = ReportCenter(self.notebook)  # ← NUEVO
+        self.catalog_tab = CatalogView(self.notebook)
 
         self.notebook.add(self.products_tab, text="Productos")
         self.notebook.add(self.suppliers_tab, text="Proveedores")
@@ -53,6 +55,7 @@ class MainWindow(ttk.Frame):
         self.notebook.add(self.inventory_tab, text="Inventario")
         self.notebook.add(self.orders_admin_tab, text="Órdenes")
         self.notebook.add(self.report_center_tab, text="Informes")  # ← NUEVO
+        self.notebook.add(self.catalog_tab, text="Catálogo")
 
         self.notebook.pack(fill="both", expand=True)
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_change)
@@ -74,6 +77,23 @@ class MainWindow(ttk.Frame):
         # Toast de ayuda
         Toast.show(self.app_root, "Ctrl+K: Paleta de comandos", kind="info", ms=1800)
 
+    def _generate_catalog(self) -> None:
+        """Genera catálogo PDF de productos (imagen, stock y precio sin IVA)."""
+        try:
+            from src.reports.catalog_generator import generate_products_catalog
+            out = generate_products_catalog(self.products_tab.session, auto_open=True)
+            Toast.show(self.app_root, f"Catálogo generado: {out}", kind="success")
+        except Exception as ex:
+            Toast.show(self.app_root, f"Error al generar catálogo: {ex}", kind="danger", position="tr")
+
+    def _open_db_connection_dialog(self) -> None:
+        try:
+            from src.gui.db_connection_dialog import DBConnectionDialog
+        except Exception as ex:
+            Toast.show(self.app_root, f"No se pudo cargar el diálogo de DB: {ex}", kind="danger")
+            return
+        DBConnectionDialog(self)
+
     def _build_menu(self) -> None:
         menubar = Menu(self.app_root)
         self.app_root.config(menu=menubar)
@@ -90,6 +110,10 @@ class MainWindow(ttk.Frame):
         m_tools.add_command(label="Nuevo (Ctrl+N)", command=self._new_current)
         m_tools.add_command(label="Guardar (Ctrl+S)", command=self._save_current)
         m_tools.add_command(label="Imprimir (Ctrl+P)", command=self._print_current)
+        m_tools.add_separator()
+        m_tools.add_command(label="Generador de catálogos", command=self._generate_catalog)
+        m_tools.add_separator()
+        m_tools.add_command(label="Conexión a BD…", command=self._open_db_connection_dialog)
         menubar.add_cascade(label="Herramientas", menu=m_tools)
 
         m_view = Menu(menubar, tearoff=False)
@@ -118,6 +142,7 @@ class MainWindow(ttk.Frame):
             CommandAction("go_inventory", "Ir a Inventario", callback=self.show_inventory, keywords=["kardex", "bodega"]),
             CommandAction("go_orders", "Ir a Órdenes", callback=self.show_orders_admin, keywords=["admin", "oc", "ov"]),
             CommandAction("go_reports", "Ir a Informes", callback=self.show_report_center, keywords=["reportes", "informes"]),  # ← NUEVO
+            CommandAction("go_catalog", "Ir a Catálogo", callback=self.show_catalog, keywords=["catalogo", "pdf"]),
             CommandAction("act_new", "Nuevo registro", callback=self._new_current, category="Acción", shortcut="Ctrl+N"),
             CommandAction("act_save", "Guardar cambios", callback=self._save_current, category="Acción", shortcut="Ctrl+S"),
             CommandAction("act_print", "Imprimir vista", callback=self._print_current, category="Acción", shortcut="Ctrl+P"),
@@ -145,6 +170,7 @@ class MainWindow(ttk.Frame):
     def show_inventory(self) -> None: self._select_tab_by_widget(self.inventory_tab)
     def show_orders_admin(self) -> None: self._select_tab_by_widget(self.orders_admin_tab)
     def show_report_center(self) -> None: self._select_tab_by_widget(self.report_center_tab)  # ← NUEVO
+    def show_catalog(self) -> None: self._select_tab_by_widget(self.catalog_tab)
 
     def _new_current(self) -> None:
         view = self._current_view()
