@@ -126,12 +126,13 @@ class InventoryView(ttk.Frame):
 
     # ====================== columnas y filas ====================== #
     def _columns_for(self, report_type: str) -> List[str]:
-        """Define las columnas visibles según el tipo de reporte."""
+        """Define columnas del Treeview. Incluye todos los datos relevantes del producto."""
+        comunes = ["ID", "Producto", "SKU", "Unidad", "Stock"]
         if report_type == "venta":
-            return ["ID", "Producto", "SKU", "Unidad", "Stock", "P. Venta"]
+            return comunes + ["P. Venta", "Proveedor", "Ubicación"]
         if report_type == "compra":
-            return ["ID", "Producto", "SKU", "Unidad", "Stock", "P. Compra"]
-        return ["ID", "Producto", "SKU", "Unidad", "Stock", "P. Compra", "P. Venta"]
+            return comunes + ["P. Compra", "Proveedor", "Ubicación"]
+        return comunes + ["P. Compra", "P. Venta", "Proveedor", "Ubicación"]
 
     def _rows_from_products(self, products: List[Product], report_type: str):
         """
@@ -161,13 +162,36 @@ class InventoryView(ttk.Frame):
             elif stock > max_v:
                 color = "#fff6cc"    # alto (amarillo claro)
 
-            base = [p.id, p.nombre, p.sku, p.unidad_medida or "", stock]
+            # Construir fila base sin código de barras
+            row = [
+                int(p.id),
+                (p.nombre or ""),
+                (p.sku or ""),
+                (p.unidad_medida or ""),
+                stock,
+            ]
+
+            # Agregar columnas de precio según tipo de reporte (sin barcode)
             if report_type == "venta":
-                row = base + [self._fmt_money(p.precio_venta)]
+                row += [f"{float(p.precio_venta or 0):.0f}"]
             elif report_type == "compra":
-                row = base + [self._fmt_money(p.precio_compra)]
+                row += [f"{float(p.precio_compra or 0):.0f}"]
             else:
-                row = base + [self._fmt_money(p.precio_compra), self._fmt_money(p.precio_venta)]
+                row += [f"{float(p.precio_compra or 0):.0f}", f"{float(p.precio_venta or 0):.0f}"]
+
+            # Proveedor y Ubicación
+            try:
+                prov = getattr(getattr(p, "supplier", None), "razon_social", "") or ""
+            except Exception:
+                prov = ""
+            try:
+                ubic = getattr(getattr(p, "location", None), "nombre", "") or ""
+            except Exception:
+                ubic = ""
+            # Anexar proveedor/ubicación al final según columnas
+            cols_for_type = self._columns_for(report_type)
+            if "Proveedor" in cols_for_type and "Ubicación" in cols_for_type:
+                row = row + [prov, ubic]
 
             rows.append(row)
             colors.append(color)

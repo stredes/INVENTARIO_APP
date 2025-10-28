@@ -42,6 +42,7 @@ from src.data.models import (  # type: ignore
     SaleDetail,
     StockEntry,
     StockExit,
+    Location,
 )
 
 fake = Faker("es_CL")  # Datos falsos en español de Chile
@@ -98,7 +99,27 @@ def seed_customers(session: Session, n: int = 15) -> List[Customer]:
     return clientes
 
 
-def seed_products(session: Session, proveedores: List[Supplier], n: int = 20) -> List[Product]:
+def seed_locations(session: Session) -> List[Location]:
+    """Crea ubicaciones base de ejemplo y las persiste."""
+    existentes = list(session.query(Location).all())
+    if existentes:
+        return existentes
+    nombres = ["Bodega Central", "Bodega Secundaria", "Mostrador"]
+    locs: List[Location] = []
+    for nombre in nombres:
+        loc = Location(nombre=nombre, descripcion=None)
+        session.add(loc)
+        locs.append(loc)
+    session.commit()
+    return locs
+
+
+def seed_products(
+    session: Session,
+    proveedores: List[Supplier],
+    n: int = 20,
+    ubicaciones: List[Location] | None = None,
+) -> List[Product]:
     """
     Crea n productos y asigna exactamente un proveedor a cada uno.
     Regla de precios:
@@ -106,6 +127,9 @@ def seed_products(session: Session, proveedores: List[Supplier], n: int = 20) ->
     """
     if not proveedores:
         raise ValueError("No hay proveedores para asignar a los productos.")
+
+    if ubicaciones is None:
+        ubicaciones = list(session.query(Location).all())
 
     productos: List[Product] = []
     for _ in range(n):
@@ -116,15 +140,34 @@ def seed_products(session: Session, proveedores: List[Supplier], n: int = 20) ->
         pv = round(precio_con_iva * margen, 2)
 
         prov = random.choice(proveedores)
+        loc = random.choice(ubicaciones) if ubicaciones else None
+
+        # Unidad con variedad (incluye ml con cantidad)
+        base_unidad = random.choice(["unidad", "caja", "bolsa", "kg", "lt", "ml"])
+        if base_unidad == "caja":
+            unidad = f"caja x {random.randint(2, 24)}"
+        elif base_unidad == "bolsa":
+            unidad = f"bolsa x {random.randint(5, 100)}"
+        elif base_unidad == "kg":
+            unidad = f"kg {round(random.uniform(0.25, 25.0), 2)}"
+        elif base_unidad == "lt":
+            unidad = f"lt {round(random.uniform(0.25, 20.0), 2)}"
+        elif base_unidad == "ml":
+            unidad = f"{random.choice([250, 330, 500, 750, 1000])} ml"
+        else:
+            unidad = "unidad"
 
         prod = Product(
             nombre=fake.word().capitalize(),
             sku=f"SKU-{fake.unique.random_int(1000, 9999)}",
+            barcode=fake.ean13(),
             precio_compra=pc,
             precio_venta=pv,
             stock_actual=random.randint(0, 200),
-            unidad_medida=random.choice(["unidad", "caja", "kg", "lt"]),
+            unidad_medida=unidad,
             id_proveedor=prov.id,  # vínculo con proveedor
+            id_ubicacion=(loc.id if loc else None),
+            image_path=None,
         )
         session.add(prod)
         productos.append(prod)
@@ -194,7 +237,8 @@ def seed_sales(session: Session, clientes: List[Customer], productos: List[Produ
     if hasattr(Sale, "customer_id"):
         sale_fk_name = "customer_id"
 
-    estados = ["Confirmada", "Borrador", "Cancelada"]
+    # Estados alineados con la app (Ventas): Confirmada, Pendiente, Cancelada, Eliminada
+    estados = ["Confirmada", "Pendiente", "Cancelada", "Eliminada"]
 
     for _ in range(n):
         cust = random.choice(clientes)
@@ -254,6 +298,7 @@ def clear_all(session: Session) -> None:
     session.query(Product).delete()
     session.query(Supplier).delete()
     session.query(Customer).delete()
+    session.query(Location).delete()
     session.commit()
 
 
@@ -272,7 +317,8 @@ def main() -> None:
         print("Generando datos falsos...")
         proveedores = seed_suppliers(session, 10)
         clientes = seed_customers(session, 15)
-        productos = seed_products(session, proveedores, 20)
+        ubicaciones = seed_locations(session)
+        productos = seed_products(session, proveedores, 20, ubicaciones)
 
         seed_purchases(session, proveedores, productos, 10)
         seed_sales(session, clientes, productos, 25)

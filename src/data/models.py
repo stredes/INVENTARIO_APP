@@ -70,6 +70,8 @@ class Product(Base):
 
     # Ruta (absoluta o relativa) a la imagen principal del producto
     image_path: Mapped[Optional[str]] = mapped_column(String)
+    # Código de barras opcional
+    barcode: Mapped[Optional[str]] = mapped_column(String)
 
     # NUEVO: FK al proveedor (regla de negocio: obligatorio a nivel de app)
     id_proveedor: Mapped[int] = mapped_column(ForeignKey("suppliers.id"))

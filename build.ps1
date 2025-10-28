@@ -1,4 +1,4 @@
-<#
+﻿<#
 build.ps1
 Empaqueta la app con PyInstaller en Windows.
 
@@ -31,7 +31,7 @@ Set-Location -Path $PSScriptRoot
 Write-Info "Verificando PyInstaller..."
 $pyi = (Get-Command pyinstaller -ErrorAction SilentlyContinue)
 if (-not $pyi) {
-  Write-Err "PyInstaller no está instalado. Instálalo con: pip install pyinstaller"
+  Write-Err "PyInstaller no estÃ¡ instalado. InstÃ¡lalo con: pip install pyinstaller"
   exit 1
 }
 
@@ -100,6 +100,7 @@ if (Test-Path $exePath) {
     Write-Ok "app_data copiado a dist/app_data"
   }
 } else {
-  Write-Err "No se encontró el ejecutable en dist/"
+  Write-Err "No se encontrÃ³ el ejecutable en dist/"
   exit 1
 }
+

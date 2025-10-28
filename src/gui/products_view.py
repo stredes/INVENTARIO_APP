@@ -103,10 +103,14 @@ class ProductsView(ttk.Frame):
         ttk.Label(right, text="Unidad:").grid(row=2, column=2, sticky="e", padx=4, pady=4)
         self.cmb_unidad = ttk.Combobox(
             right, textvariable=self.var_unidad,
-            values=["unidad", "caja", "bolsa", "kg", "lt"],
+            values=["unidad", "caja", "bolsa", "kg", "lt", "ml"],
             width=15, state="readonly"
         )
         self.cmb_unidad.grid(row=2, column=3, sticky="w", padx=4, pady=4)
+        try:
+            self.cmb_unidad.bind('<<ComboboxSelected>>', self._on_unidad_change)
+        except Exception:
+            pass
         try:
             self.cmb_unidad.bind('<<ComboboxSelected>>', self._on_unidad_change)
         except Exception:
@@ -312,6 +316,27 @@ class ProductsView(ttk.Frame):
 
     def _on_auto_calc(self, _evt=None):
         self._recalc_prices()
+
+    def _on_unidad_change(self, _evt=None):
+        try:
+            unidad = (self.var_unidad.get() or "").strip().lower()
+            if unidad == "ml":
+                val = simpledialog.askstring("Mililitros", "¿De cuántos ml es el producto?", parent=self)
+                if val is None or not str(val).strip():
+                    return
+                val = str(val).strip().replace("ml", "").strip()
+                try:
+                    n = float(val)
+                    if n <= 0:
+                        raise ValueError
+                    # Normalizamos como entero si corresponde
+                    n_txt = str(int(n)) if abs(n - int(n)) < 1e-6 else str(n)
+                    self.var_unidad.set(f"{n_txt} ml")
+                except Exception:
+                    # Si no es número, igual lo colocamos como texto ml
+                    self.var_unidad.set(f"{val} ml")
+        except Exception:
+            pass
 
     # ---------- CRUD ----------
     def _on_add(self):

@@ -1,0 +1,29 @@
+pyinstaller @argsList
+if ($LASTEXITCODE -ne 0) {
+  Write-Err "Fallo el empaquetado (exit code $LASTEXITCODE)"
+  exit $LASTEXITCODE
+}
+
+$exePath = Join-Path $PSScriptRoot "dist\$Name.exe"
+if (Test-Path $exePath) {
+  Write-Ok "Build OK: $exePath"
+  # Copiar config como carpeta externa editable en dist
+  $distConfig = Join-Path $PSScriptRoot "dist\config"
+  if (Test-Path (Join-Path $PSScriptRoot "config")) {
+    New-Item -ItemType Directory -Path $distConfig -Force | Out-Null
+    Copy-Item -Recurse -Force (Join-Path $PSScriptRoot "config\*") $distConfig
+    Write-Ok "Config copiado a dist/config (editable)"
+  }
+  # Copiar app_data (si existe) para recursos adicionales
+  $srcAppData = Join-Path $PSScriptRoot "app_data"
+  if (Test-Path $srcAppData) {
+    $dstAppData = Join-Path $PSScriptRoot "dist\app_data"
+    New-Item -ItemType Directory -Path $dstAppData -Force | Out-Null
+    Copy-Item -Recurse -Force (Join-Path $srcAppData "*") $dstAppData
+    Write-Ok "app_data copiado a dist/app_data"
+  }
+} else {
+  Write-Err "No se encontró el ejecutable en dist/"
+  exit 1
+}
+

@@ -175,10 +175,13 @@ class GridTable(ttk.Frame):
         rows_list = list(rows) if not isinstance(rows, list) else rows
         if rows_list and isinstance(rows_list[0], dict):
             for r in rows_list:
-                tv.insert("", "end", values=[r.get(c, "") for c in columns])
+                vals = [self._fmt_cell(c, r.get(c, "")) for c in columns]
+                tv.insert("", "end", values=vals)
         else:
             for r in rows_list:
-                tv.insert("", "end", values=list(r))
+                seq = list(r)
+                vals = [self._fmt_cell(columns[i] if i < len(columns) else str(i), v) for i, v in enumerate(seq)]
+                tv.insert("", "end", values=vals)
         self._retag_zebra()
         try:
             enable_treeview_sort(tv)
@@ -226,6 +229,37 @@ class GridTable(ttk.Frame):
             tv.item(iid, tags=tuple(tags))
         # Reaplica zebra solo en filas SIN estado
         self._retag_zebra()
+
+    # ------------------------------ FORMAT ------------------------------ #
+    @staticmethod
+    def _is_money_header(name: str) -> bool:
+        n = (str(name) or "").lower()
+        # Heurística: columnas que contienen precio/total/subtotal
+        return (
+            "precio" in n or
+            n.startswith("p. ") or
+            "p. + iva" in n or
+            n.strip() in {"total", "subtotal"} or
+            n.startswith("total ") or
+            n.startswith("subtotal ")
+        )
+
+    @classmethod
+    def _fmt_cell(cls, col_name: str, value):
+        try:
+            if not cls._is_money_header(col_name):
+                return value
+            s = str(value)
+            if s.startswith("$"):
+                return s
+            # Para valores numéricos, formatear como CLP sin decimales
+            try:
+                num = float(str(value).replace(".", "").replace(",", "."))
+                return "$" + (f"{num:,.0f}".replace(",", "."))
+            except Exception:
+                return "$" + s
+        except Exception:
+            return value
 
     # ------------------------------ ZEBRA ------------------------------- #
     def _retag_zebra(self) -> None:
