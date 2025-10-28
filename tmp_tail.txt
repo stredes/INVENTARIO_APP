@@ -1,9 +1,4 @@
-<#
-build.ps1
-Empaqueta la app con PyInstaller en Windows.
-
-Uso:
-  powershell -ExecutionPolicy Bypass -File .\build.ps1 [-Name "InventarioApp"] [-Console]
+ll -ExecutionPolicy Bypass -File .\build.ps1 [-Name "InventarioApp"] [-Console]
 
 Opciones por defecto:
   - onefile, noconsole, clean
@@ -14,10 +9,7 @@ Opciones por defecto:
 
 param(
   [string]$Name = "InventarioApp",
-  [switch]$Console,
-  [string]$Icon,
-  [switch]$OneDir,
-  [switch]$NoClean
+  [switch]$Console
 )
 
 function Write-Info($msg) { Write-Host "[INFO] $msg" -ForegroundColor Cyan }
@@ -49,11 +41,9 @@ if (-not (Test-Path $entry)) {
 $argsList = @()
 $argsList += @($entry)
 $argsList += @("--name", $Name)
-if (-not $OneDir) { $argsList += @("--onefile") }
-if (-not $NoClean) { $argsList += @("--clean") }
-$argsList += @("--noconfirm")
+$argsList += @("--onefile")
+$argsList += @("--clean")
 if ($Console) { $argsList += @("--console") } else { $argsList += @("--noconsole") }
-if ($Icon -and (Test-Path $Icon)) { $argsList += @("--icon", $Icon) }
 
 # Hidden imports necesarios en runtime
 $argsList += @("--hidden-import=sqlite3")
@@ -62,7 +52,7 @@ $argsList += @("--hidden-import=win32com.client")
  $argsList += @("--hidden-import=reportlab")
 
 # Recolectar paquetes (si PyInstaller moderno)
-$argsList += @("--collect-all", "reportlab")
+try { $argsList += @("--collect-all", "reportlab") } catch { }
 
 # Datos adicionales: settings.ini y otros dentro de config/
 if (Test-Path (Join-Path $PSScriptRoot "config")) {
@@ -103,3 +93,4 @@ if (Test-Path $exePath) {
   Write-Err "No se encontró el ejecutable en dist/"
   exit 1
 }
+
