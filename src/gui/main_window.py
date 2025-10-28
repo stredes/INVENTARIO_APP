@@ -86,6 +86,14 @@ class MainWindow(ttk.Frame):
         except Exception as ex:
             Toast.show(self.app_root, f"Error al generar catálogo: {ex}", kind="danger", position="tr")
 
+    def _open_db_connection_dialog(self) -> None:
+        try:
+            from src.gui.db_connection_dialog import DBConnectionDialog
+        except Exception as ex:
+            Toast.show(self.app_root, f"No se pudo cargar el diálogo de DB: {ex}", kind="danger")
+            return
+        DBConnectionDialog(self)
+
     def _build_menu(self) -> None:
         menubar = Menu(self.app_root)
         self.app_root.config(menu=menubar)
@@ -104,6 +112,8 @@ class MainWindow(ttk.Frame):
         m_tools.add_command(label="Imprimir (Ctrl+P)", command=self._print_current)
         m_tools.add_separator()
         m_tools.add_command(label="Generador de catálogos", command=self._generate_catalog)
+        m_tools.add_separator()
+        m_tools.add_command(label="Conexión a BD…", command=self._open_db_connection_dialog)
         menubar.add_cascade(label="Herramientas", menu=m_tools)
 
         m_view = Menu(menubar, tearoff=False)

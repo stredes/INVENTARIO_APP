@@ -86,15 +86,20 @@ class SalesView(ttk.Frame):
         self.ent_price.insert(0, "0")
         self.ent_price.grid(row=0, column=5, sticky="w", padx=4, pady=4)
 
+        ttk.Label(det, text="Dcto (%):").grid(row=0, column=6, sticky="e", padx=4, pady=4)
+        self.ent_disc = ttk.Entry(det, width=6)
+        self.ent_disc.insert(0, "0")
+        self.ent_disc.grid(row=0, column=7, sticky="w", padx=4, pady=4)
+
         ttk.Button(det, text="Agregar ítem", command=self._on_add_item)\
-            .grid(row=0, column=6, padx=8)
+            .grid(row=0, column=8, padx=8)
 
         # ---------- Tabla + Scrollbar ----------
         tree_frame = ttk.Frame(self)
         tree_frame.pack(fill="both", expand=True, pady=(10, 0))
         self.tree = ttk.Treeview(
             tree_frame,
-            columns=("prod_id", "producto", "cant", "precio", "subtotal"),
+            columns=("prod_id", "producto", "cant", "precio", "dcto", "subtotal"),
             show="headings",
             height=8,
         )
@@ -103,6 +108,7 @@ class SalesView(ttk.Frame):
             ("producto", "Producto", 300),
             ("cant", "Cant.", 80),
             ("precio", "Precio", 100),
+            ("dcto", "Dcto %", 70),
             ("subtotal", "Subtotal", 120),
         ]:
             self.tree.heading(cid, text=text, anchor="center")
@@ -314,19 +320,28 @@ class SalesView(ttk.Frame):
                 self._warn("Ingrese un precio válido (> 0).")
                 return
 
+            # Descuento %
+            try:
+                disc = float(self.ent_disc.get() or 0)
+            except Exception:
+                disc = 0.0
+            disc = max(0.0, min(100.0, disc))
+
             # Evita duplicados
             for iid in self.tree.get_children():
                 if str(p.id) == str(self.tree.item(iid, "values")[0]):
                     self._warn("Este producto ya está en la tabla.")
                     return
 
-            subtotal = q2(D(qty) * D(price))
+            eff_price = q2(D(price) * D(1 - disc/100))
+            subtotal = q2(D(qty) * eff_price)
             self.tree.insert("", "end",
-                             values=(p.id, p.nombre, qty, fmt_2(price), fmt_2(subtotal)))
+                             values=(p.id, p.nombre, qty, fmt_2(price), f"{disc:.1f}", fmt_2(subtotal)))
             self._update_total()
 
             self.ent_qty.delete(0, "end"); self.ent_qty.insert(0, "1")
             self._fill_price_from_selected_product()
+            self.ent_disc.delete(0, "end"); self.ent_disc.insert(0, "0")
             self.cmb_product.set("")
             self.cmb_product.focus_set()
 
@@ -347,7 +362,7 @@ class SalesView(ttk.Frame):
         total = D(0)
         for iid in self.tree.get_children():
             try:
-                total += D(self.tree.item(iid, "values")[4])
+                total += D(self.tree.item(iid, "values")[5])
             except Exception:
                 pass
         self.lbl_total.config(text=f"Total: {fmt_2(total)}")
@@ -371,12 +386,14 @@ class SalesView(ttk.Frame):
     def _collect_items(self) -> List[dict]:
         items: List[dict] = []
         for iid in self.tree.get_children():
-            prod_id, name, qty, price, sub = self.tree.item(iid, "values")
+            prod_id, name, qty, price, disc, sub = self.tree.item(iid, "values")
             items.append({
                 "id": int(prod_id),
                 "nombre": str(name),
                 "cantidad": int(float(qty)),
-                "precio": D(price),
+                # precio efectivo con descuento
+                "precio": q2(D(price)),
+                "descuento_porcentaje": float(disc or 0),
                 "subtotal": D(sub),
             })
         return items

@@ -88,8 +88,9 @@ class GridTable(ttk.Frame):
 
             # Tags para zebrado (nunca pisarán filas "state_*")
             base_bg = self._pal("panel", "#FFFFFF")
-            tv.tag_configure("grid_odd", background=self._tint(base_bg, 1.00))
-            tv.tag_configure("grid_even", background=self._tint(base_bg, 0.97))
+            base_fg = self._pal("fg", "#111111")
+            tv.tag_configure("grid_odd", background=self._tint(base_bg, 1.00), foreground=base_fg)
+            tv.tag_configure("grid_even", background=self._tint(base_bg, 0.97), foreground=base_fg)
             # Tags de estado (críticos)
             tv.tag_configure("state_low", background="#ffdddd")
             tv.tag_configure("state_high", background="#fff6cc")
@@ -103,8 +104,9 @@ class GridTable(ttk.Frame):
             if self._fallback is None:
                 return
             base_bg = self._pal("panel", "#FFFFFF")
-            self._fallback.tag_configure("grid_odd", background=self._tint(base_bg, 1.00))
-            self._fallback.tag_configure("grid_even", background=self._tint(base_bg, 0.97))
+            base_fg = self._pal("fg", "#111111")
+            self._fallback.tag_configure("grid_odd", background=self._tint(base_bg, 1.00), foreground=base_fg)
+            self._fallback.tag_configure("grid_even", background=self._tint(base_bg, 0.97), foreground=base_fg)
             self._retag_zebra()
 
     def _apply_theme_to_sheet(self) -> None:

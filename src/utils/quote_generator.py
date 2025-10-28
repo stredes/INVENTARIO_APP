@@ -110,8 +110,9 @@ def _items_table_net(items: List[Dict[str, object]], currency: str) -> Table:
     for idx, it in enumerate(items, start=1):
         cant = D(it.get("cantidad", 0) or 0)
         precio_bruto = D(it.get("precio", 0) or 0)
+        dcto = D(it.get("descuento_porcentaje", it.get("dcto", 0)) or 0)
         precio_neto = precio_bruto / (D(1) + iva_rate)
-        sub_neto = cant * precio_neto
+        sub_neto = cant * precio_neto * (D(1) - dcto / D(100))
         data.append([
             str(idx),
             str(it.get("id", "")),
@@ -119,7 +120,7 @@ def _items_table_net(items: List[Dict[str, object]], currency: str) -> Table:
             str(it.get("unidad", "U") or "U"),
             f"{int(cant) if cant == cant.to_integral_value() else cant}",
             _fmt_moneda(precio_neto, currency),
-            _fmt_moneda(0, currency),
+            Paragraph(f"{dcto} %", cell),
             _fmt_moneda(sub_neto, currency),
         ])
     tbl = Table(

@@ -2,6 +2,7 @@
 from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk, messagebox
+from tkinter import simpledialog
 from typing import List, Optional
 from pathlib import Path
 
@@ -106,6 +107,10 @@ class ProductsView(ttk.Frame):
             width=15, state="readonly"
         )
         self.cmb_unidad.grid(row=2, column=3, sticky="w", padx=4, pady=4)
+        try:
+            self.cmb_unidad.bind('<<ComboboxSelected>>', self._on_unidad_change)
+        except Exception:
+            pass
 
         # Fila 3: Monto IVA / Precio + IVA
         ttk.Label(right, text="Monto IVA:").grid(row=3, column=0, sticky="e", padx=4, pady=4)
@@ -175,6 +180,72 @@ class ProductsView(ttk.Frame):
         self._load_table()
         self._recalc_prices()
         self.ent_nombre.focus_set()
+
+    # ----------------- Unidad/Empaque prompts ----------------- #
+    def _on_unidad_change(self, _evt=None):
+        """Cuando el usuario selecciona la unidad, pedir detalle si aplica.
+
+        - caja  -> preguntar "¿Cajas de cuántas unidades?" (entero > 0) => "caja x N"
+        - bolsa -> preguntar "¿Bolsas de cuántas unidades?" (entero > 0) => "bolsa x N"
+        - kg    -> preguntar "¿De cuántos kg?" (decimal > 0)                => "kg N"
+        - lt    -> preguntar "¿De cuántos litros?" (decimal > 0)            => "lt N"
+        - unidad -> queda como "unidad" sin prompt
+        """
+        try:
+            base = (self.var_unidad.get() or "unidad").strip().lower()
+            if base == "unidad":
+                self.var_unidad.set("unidad")
+                return
+            if base == "caja":
+                n = simpledialog.askinteger("Caja", "¿Cajas de cuántas unidades?", minvalue=1, parent=self)
+                if n and int(n) > 0:
+                    value = f"caja x {int(n)}"
+                    self._ensure_unidad_value(value)
+                    self.var_unidad.set(value)
+                else:
+                    # Revertir a unidad base si cancelan / inválido
+                    self.var_unidad.set("caja")
+                return
+            if base == "bolsa":
+                n = simpledialog.askinteger("Bolsa", "¿Bolsas de cuántas unidades?", minvalue=1, parent=self)
+                if n and int(n) > 0:
+                    value = f"bolsa x {int(n)}"
+                    self._ensure_unidad_value(value)
+                    self.var_unidad.set(value)
+                else:
+                    self.var_unidad.set("bolsa")
+                return
+            if base == "kg":
+                val = simpledialog.askfloat("Kilogramos", "¿De cuántos kg?", minvalue=0.001, parent=self)
+                if val and float(val) > 0:
+                    # Normaliza a 3 decimales máx.
+                    value = f"kg {float(val):g}"
+                    self._ensure_unidad_value(value)
+                    self.var_unidad.set(value)
+                else:
+                    self.var_unidad.set("kg")
+                return
+            if base == "lt":
+                val = simpledialog.askfloat("Litros", "¿De cuántos litros?", minvalue=0.001, parent=self)
+                if val and float(val) > 0:
+                    value = f"lt {float(val):g}"
+                    self._ensure_unidad_value(value)
+                    self.var_unidad.set(value)
+                else:
+                    self.var_unidad.set("lt")
+                return
+        except Exception:
+            # No bloquear flujo si hay algún error con el diálogo
+            pass
+
+    def _ensure_unidad_value(self, value: str) -> None:
+        """Si el valor no está en el combobox (state=readonly), lo agrega temporalmente."""
+        try:
+            vals = list(self.cmb_unidad["values"] or [])
+            if value not in vals:
+                self.cmb_unidad["values"] = vals + [value]
+        except Exception:
+            pass
 
     # ----------------- Utilidades de grilla ----------------- #
     def _apply_column_widths(self) -> None:
@@ -318,7 +389,10 @@ class ProductsView(ttk.Frame):
         except Exception: self.var_margen.set(30.0)
         try: self.var_pventa.set(float(vals[8] or 0))
         except Exception: self.var_pventa.set(0.0)
-        try: self.var_unidad.set(vals[9] or "unidad")
+        try:
+            unidad_val = vals[9] or "unidad"
+            self._ensure_unidad_value(unidad_val)
+            self.var_unidad.set(unidad_val)
         except Exception: self.var_unidad.set("unidad")
 
         if self._current_product and self._current_product.id:

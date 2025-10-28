@@ -9,6 +9,7 @@ import tkinter.font as tkfont
 from typing import Dict, Any
 
 CONFIG_PATH = Path("config/settings.ini")
+UI_STATE_PATH = Path("config/ui_state.ini")
 
 
 def _frozen_dir() -> Path | None:
@@ -30,11 +31,12 @@ def _meipass_dir() -> Path | None:
     return None
 
 
-def _external_config_path() -> Path:
+def _external_ui_state_path() -> Path:
+    """Devuelve la ruta preferida para persistir estado de UI (ui_state.ini)."""
     exedir = _frozen_dir()
     if exedir is not None:
-        return exedir / CONFIG_PATH
-    return CONFIG_PATH
+        return exedir / UI_STATE_PATH
+    return UI_STATE_PATH
 
 
 class ThemeManager:
@@ -242,17 +244,23 @@ class ThemeManager:
 
         # Cargar configuración previa
         cfg = configparser.ConfigParser()
-        cfg_path = _external_config_path()
-        if cfg_path.exists():
-            cfg.read(cfg_path, encoding="utf-8")
+        # 1) ui_state.ini (preferido)
+        ui_path = _external_ui_state_path()
+        if ui_path.exists():
+            cfg.read(ui_path, encoding="utf-8")
         else:
-            mdir = _meipass_dir()
-            if mdir is not None and (mdir / CONFIG_PATH).exists():
-                cfg.read(mdir / CONFIG_PATH, encoding="utf-8")
-            cls._current = cfg.get("ui", "theme", fallback=cls._current)
-            cls._density = cfg.get("ui", "density", fallback=cls._density)
-            cls._font_size = cfg.get("ui", "font_size", fallback=cls._font_size)
-            cls._scaling = cfg.getfloat("ui", "scaling", fallback=cls._scaling)
+            # 2) fallback legacy: settings.ini (solo lectura de [ui])
+            ex_cfg = CONFIG_PATH if _frozen_dir() is None else (_frozen_dir() / CONFIG_PATH)
+            try:
+                if ex_cfg and Path(ex_cfg).exists():
+                    cfg.read(ex_cfg, encoding="utf-8")
+            except Exception:
+                pass
+        # Aplicar valores cargados (si existen)
+        cls._current = cfg.get("ui", "theme", fallback=cls._current)
+        cls._density = cfg.get("ui", "density", fallback=cls._density)
+        cls._font_size = cfg.get("ui", "font_size", fallback=cls._font_size)
+        cls._scaling = cfg.getfloat("ui", "scaling", fallback=cls._scaling)
 
         if cls._current not in cls.THEMES:
             cls._current = "Light"
@@ -341,11 +349,15 @@ class ThemeManager:
             bordercolor=pal["border"], focusthickness=1, focuscolor=pal["accent"],
             padding=(base_padx, base_pady)
         )
+        # Asegura contraste adecuado en estado "pressed"
+        pressed_fg = pal.get("accent_fg")
+        if cls._contrast_ratio(pal["accent"], pressed_fg or "#000000") < 4.5:
+            pressed_fg = cls._best_text_color(pal["accent"])
         s.map(
             "TButton",
             background=[("active", pal["tab_bg"]), ("pressed", pal["accent"])],
-            foreground=[("pressed", pal["accent_fg"])],
-            bordercolor=[("focus", pal["accent"])]
+            foreground=[("pressed", pressed_fg)],
+            bordercolor=[("focus", pal["accent"]), ("active", pal["border"])]
         )
 
         # Botones semánticos (rellenos)
@@ -385,8 +397,12 @@ class ThemeManager:
         s.configure("TNotebook", background=pal["bg"], bordercolor=pal["border"])
         s.configure("TNotebook.Tab", background=pal["tab_bg"], foreground=pal["fg"],
                     lightcolor=pal["border"], bordercolor=pal["border"], padding=(10, 6))
+        sel_fg = pal["fg"]
+        if cls._contrast_ratio(pal["tab_sel_bg"], sel_fg) < 4.5:
+            sel_fg = cls._best_text_color(pal["tab_sel_bg"])
         s.map("TNotebook.Tab",
-              background=[("selected", pal["tab_sel_bg"]), ("active", pal["tab_bg"])])
+              background=[("selected", pal["tab_sel_bg"]), ("active", pal["tab_bg"])],
+              foreground=[("selected", sel_fg)])
 
         # Treeview
         row_height = cls.DENSITY[cls._density]["row_height"]
@@ -394,9 +410,13 @@ class ThemeManager:
                     background=pal["panel"], fieldbackground=pal["panel"],
                     foreground=pal["fg"], bordercolor=pal["border"],
                     rowheight=row_height)
+        # Selección de Treeview con alto contraste
+        t_sel_fg = pal["select_fg"]
+        if cls._contrast_ratio(pal["select_bg"], t_sel_fg) < 4.5:
+            t_sel_fg = cls._best_text_color(pal["select_bg"])
         s.map("Treeview",
               background=[("selected", pal["select_bg"])],
-              foreground=[("selected", pal["select_fg"])])
+              foreground=[("selected", t_sel_fg)])
 
         # Encabezados de Treeview
         s.configure("Treeview.Heading",
@@ -513,10 +533,16 @@ class ThemeManager:
         out = {**pal}
         for k, v in cls.DEFAULT_SEMANTIC.items():
             out.setdefault(k, v)
-        # Derivados útiles
+        # Derivados útiles + corrección de contraste
         out.setdefault("panel_fg_on_success", "#FFFFFF")
-        out.setdefault("select_bg", out["select_bg"])
-        out.setdefault("select_fg", out["select_fg"])
+        # Asegura colores de selección razonables
+        if "select_bg" not in out or not out.get("select_bg"):
+            out["select_bg"] = out.get("accent", "#3B82F6")
+        if cls._contrast_ratio(out["select_bg"], out.get("select_fg", "#FFFFFF")) < 4.5:
+            out["select_fg"] = cls._best_text_color(out["select_bg"])
+        # Asegura que accent_fg tenga contraste suficiente
+        if cls._contrast_ratio(out.get("accent", "#3B82F6"), out.get("accent_fg", "#FFFFFF")) < 4.5:
+            out["accent_fg"] = cls._best_text_color(out.get("accent", "#3B82F6"))
         return out
 
     @classmethod
@@ -553,8 +579,11 @@ class ThemeManager:
         try:
             mb = cls._root.nametowidget(cls._root["menu"]) if cls._root else None
             if isinstance(mb, Menu):
+                active_fg = pal.get("accent_fg")
+                if cls._contrast_ratio(pal["accent"], active_fg or "#000000") < 4.5:
+                    active_fg = cls._best_text_color(pal["accent"])
                 mb.configure(bg=pal["panel"], fg=pal["fg"],
-                             activebackground=pal["accent"], activeforeground=pal["accent_fg"],
+                             activebackground=pal["accent"], activeforeground=active_fg,
                              bd=0)
         except Exception:
             pass
@@ -584,6 +613,13 @@ class ThemeManager:
                         w.configure(bg=pal["panel"])
                     except Exception:
                         pass
+                    # Si el widget expone una API de refresco de tema, invócala
+                    try:
+                        refresh = getattr(w, "theme_refresh", None)
+                        if callable(refresh):
+                            refresh()
+                    except Exception:
+                        pass
                 _recurse(w)
         if cls._root:
             _recurse(cls._root)
@@ -606,7 +642,7 @@ class ThemeManager:
     @classmethod
     def _persist(cls) -> None:
         cfg = configparser.ConfigParser()
-        cfg_path = _external_config_path()
+        cfg_path = _external_ui_state_path()
         if cfg_path.exists():
             cfg.read(cfg_path, encoding="utf-8")
         if "ui" not in cfg:
@@ -618,3 +654,34 @@ class ThemeManager:
         cfg_path.parent.mkdir(parents=True, exist_ok=True)
         with cfg_path.open("w", encoding="utf-8") as f:
             cfg.write(f)
+
+    # --------------------------------------------------------------------- #
+    # Contraste y utilitarios de color
+    # --------------------------------------------------------------------- #
+    @staticmethod
+    def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+        hc = (hex_color or "#000000").lstrip("#")
+        return int(hc[0:2], 16), int(hc[2:4], 16), int(hc[4:6], 16)
+
+    @classmethod
+    def _relative_luminance(cls, hex_color: str) -> float:
+        r, g, b = cls._hex_to_rgb(hex_color)
+        def _lin(c: float) -> float:
+            c = c / 255.0
+            return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+        R, G, B = _lin(r), _lin(g), _lin(b)
+        return 0.2126 * R + 0.7152 * G + 0.0722 * B
+
+    @classmethod
+    def _contrast_ratio(cls, bg: str, fg: str) -> float:
+        if not fg:
+            return 0.0
+        L1 = cls._relative_luminance(bg)
+        L2 = cls._relative_luminance(fg)
+        lighter, darker = (L1, L2) if L1 >= L2 else (L2, L1)
+        return (lighter + 0.05) / (darker + 0.05)
+
+    @classmethod
+    def _best_text_color(cls, bg: str) -> str:
+        # Elige negro o blanco según mejor contraste con el fondo
+        return "#000000" if cls._contrast_ratio(bg, "#000000") >= cls._contrast_ratio(bg, "#FFFFFF") else "#FFFFFF"

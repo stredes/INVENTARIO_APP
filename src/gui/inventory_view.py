@@ -227,15 +227,13 @@ class InventoryView(ttk.Frame):
         # 1) Cargar datos en la grilla (tksheet o fallback Treeview)
         self.table.set_data(cols, rows)
 
-        # 2) Aplicar colores críticos por fila (si el backend lo soporta)
-        try:
-            self.table.set_row_backgrounds(colors)
-        except Exception:
-            pass
-
-        # 3) Re-aplicar paleta si el tema cambió en caliente
+        # 2) Refrescar tema (si cambió) y luego aplicar colores críticos por fila
         try:
             self.table.theme_refresh()
+        except Exception:
+            pass
+        try:
+            self.table.set_row_backgrounds(colors)
         except Exception:
             pass
 
@@ -253,13 +251,12 @@ class InventoryView(ttk.Frame):
 
     # ----------------------- Leyenda de colores ----------------------- #
     def _build_legend(self):
-        def _tag(color: str, text: str):
-            box = tk.Label(self._legend, width=2, background=color, relief="solid", bd=1)
-            lbl = ttk.Label(self._legend, text=text)
-            return box, lbl
-
+        """Leyenda robusta al cambio de tema: usa Canvas para los parches de color."""
         for c in self._legend.winfo_children():
             c.destroy()
+
+        canvas = tk.Canvas(self._legend, height=16, highlightthickness=0, bd=0)
+        canvas.pack(side="left")
 
         items = [
             ("#ffb3b3", "Muy bajo"),
@@ -267,11 +264,14 @@ class InventoryView(ttk.Frame):
             ("#fff6cc", "Alto"),
             ("#ffe08a", "Muy alto"),
         ]
-        col = 0
-        for color, name in items:
-            b, l = _tag(color, name)
-            b.grid(row=0, column=col, padx=(2, 3)); col += 1
-            l.grid(row=0, column=col, padx=(0, 6)); col += 1
+        x = 0
+        for color, label in items:
+            canvas.create_rectangle(x, 2, x + 18, 14, fill=color, outline="#808080")
+            x += 22
+            t = ttk.Label(self._legend, text=label)
+            t.pack(side="left", padx=(2, 8))
+        # Ajustar ancho del canvas a los parches dibujados
+        canvas.config(width=x)
 
     # ---------------- Límites por producto (panel) ---------------- #
     def _update_selected_limits_panel(self) -> None:
