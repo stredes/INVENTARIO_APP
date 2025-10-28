@@ -9,7 +9,6 @@ from src.data.models import Product, Customer
 from src.data.repository import ProductRepository, CustomerRepository
 from src.core import SalesManager, SaleItem
 from src.utils.so_generator import generate_so_to_downloads
-from src.utils.quote_generator import generate_quote_to_downloads
 from src.gui.widgets.autocomplete_combobox import AutoCompleteCombobox
 from src.reports.sales_report_pdf import generate_sales_report_to_downloads
 from sqlalchemy import and_
@@ -25,7 +24,7 @@ class SalesView(ttk.Frame):
     Informe de Ventas con filtros + exportación CSV/PDF a Descargas.
     """
 
-    ESTADOS = ["Confirmada", "Pendiente", "Cancelada", "Eliminada"]
+    ESTADOS = ["Pagada", "Reservada", "Cancelada"]
 
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
@@ -89,12 +88,6 @@ class SalesView(ttk.Frame):
         ttk.Button(det, text="Agregar ítem", command=self._on_add_item)\
             .grid(row=0, column=6, padx=8)
 
-        # Escaneo por código de barras (lector como teclado)
-        ttk.Label(det, text="Escanear:").grid(row=1, column=0, sticky="e", padx=4, pady=4)
-        self.ent_scan = ttk.Entry(det, width=45)
-        self.ent_scan.grid(row=1, column=1, sticky="w", padx=4, pady=4)
-        self.ent_scan.bind("<Return>", self._on_scan_add_item)
-
         # ---------- Tabla + Scrollbar ----------
         tree_frame = ttk.Frame(self)
         tree_frame.pack(fill="both", expand=True, pady=(10, 0))
@@ -143,11 +136,9 @@ class SalesView(ttk.Frame):
             .pack(side="right", padx=6)
         ttk.Button(bottom, text="Limpiar tabla", command=self._on_clear_table)\
             .pack(side="right", padx=6)
-        ttk.Button(bottom, text="Generar Cotización (PDF)", command=self._on_generate_sales_quote)\
-            .pack(side="right", padx=6)
         ttk.Button(bottom, text="Generar OV (PDF en Descargas)", command=self._on_generate_so_downloads)\
             .pack(side="right", padx=6)
-        ttk.Button(bottom, text="Guardar venta", command=self._on_confirm_sale)\
+        ttk.Button(bottom, text="Confirmar venta", command=self._on_confirm_sale)\
             .pack(side="right", padx=6)
 
         # ---------- Admin CRUD Venta ----------
@@ -184,7 +175,7 @@ class SalesView(ttk.Frame):
         ttk.Label(rep, text="Estado:").grid(row=2, column=0, sticky="e", padx=4, pady=4)
         self.flt_estado = ttk.Combobox(
             rep, state="readonly", width=18,
-            values=("", "Confirmada", "Pendiente", "Cancelada", "Eliminada")
+            values=("", "Pagada", "Reservada", "Cancelada")
         )
         self.flt_estado.grid(row=2, column=1, sticky="w", padx=4, pady=4)
         self.flt_estado.set("")
@@ -289,51 +280,6 @@ class SalesView(ttk.Frame):
                 self.ent_price.insert(0, fmt_2(pv))
         except Exception:
             pass
-
-    def _on_scan_add_item(self, _evt=None):
-        """Agrega/incrementa un ítem a partir de un código escaneado.
-        Busca por barcode y, si no existe, por SKU.
-        """
-        try:
-            code = (self.ent_scan.get() or "").strip()
-            if not code:
-                return
-            p = self.repo_prod.get_by_barcode(code) or self.repo_prod.get_by_sku(code)
-            if not p:
-                self._warn(f"Código no encontrado: {code}")
-                self.ent_scan.delete(0, "end")
-                return
-
-            try:
-                price = float(p.precio_venta or 0)
-            except Exception:
-                price = 0.0
-            if price <= 0:
-                self._warn("El producto no tiene precio de venta válido.")
-                self.ent_scan.delete(0, "end")
-                return
-
-            for iid in self.tree.get_children():
-                vals = list(self.tree.item(iid, "values"))
-                if str(vals[0]) == str(p.id):
-                    try:
-                        qty = float(vals[2]) + 1
-                    except Exception:
-                        qty = 1.0
-                    subtotal = qty * price
-                    vals[2] = f"{qty:.2f}"
-                    vals[4] = f"{subtotal:.2f}"
-                    self.tree.item(iid, values=tuple(vals))
-                    self._update_total()
-                    self.ent_scan.delete(0, "end")
-                    return
-
-            subtotal = 1 * price
-            self.tree.insert("", "end", values=(p.id, p.nombre, 1, f"{price:.2f}", f"{subtotal:.2f}"))
-            self._update_total()
-            self.ent_scan.delete(0, "end")
-        except Exception as e:
-            self._error(f"No se pudo agregar por escaneo:\n{e}")
 
     # -------------------- Ítems --------------------
     def _on_add_item(self):
@@ -469,9 +415,8 @@ class SalesView(ttk.Frame):
                 for it in items
             ]
 
-            estado = (self.cmb_estado.get() or "Confirmada").strip()
-            # Descontar stock solo si está Confirmada o Pagada (compatibilidad)
-            apply_to_stock = self.var_apply.get() and (estado in ("Confirmada", "Pagada"))
+            estado = (self.cmb_estado.get() or "Pagada").strip()
+            apply_to_stock = self.var_apply.get() and (estado == "Pagada")
 
             create_fn = self._resolve_create_sale()
             create_fn(
@@ -509,31 +454,6 @@ class SalesView(ttk.Frame):
             self._info(f"Orden de Venta creada en Descargas:\n{out}")
         except Exception as e:
             self._error(f"No se pudo generar la OV:\n{e}")
-
-    def _on_generate_sales_quote(self):
-        try:
-            items = self._collect_items()
-            if not items:
-                self._warn("Agregue al menos un ��tem.")
-                return
-            cust = self._get_selected_customer_dict()
-            cust.setdefault("nombre", cust.get("razon_social") or "")
-            try:
-                cust["pago"] = self.cmb_pago.get()
-            except Exception:
-                pass
-            quote_number = f"COTV-{cust.get('id','')}-{self._stamp()}"
-            out = generate_quote_to_downloads(
-                quote_number=quote_number,
-                supplier=cust,
-                items=items,
-                currency="CLP",
-                notes=None,
-                auto_open=True,
-            )
-            self._info(f"Cotización de venta creada en Descargas:\n{out}")
-        except Exception as e:
-            self._error(f"No se pudo generar la cotización:\n{e}")
 
     def _on_cancel_sale(self):
         try:

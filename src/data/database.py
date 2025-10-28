@@ -9,6 +9,7 @@ Gestión de la base de datos (SQLAlchemy):
 from __future__ import annotations
 import configparser
 from pathlib import Path
+import sys
 from typing import Optional
 
 from sqlalchemy import create_engine, event, text
@@ -23,13 +24,55 @@ _engine: Optional[Engine] = None
 SessionLocal: Optional[scoped_session] = None
 
 
+def _frozen_dir() -> Path | None:
+    try:
+        if getattr(sys, "frozen", False):
+            return Path(sys.executable).parent
+    except Exception:
+        pass
+    return None
+
+
+def _meipass_dir() -> Path | None:
+    try:
+        base = getattr(sys, "_MEIPASS", None)
+        if base:
+            return Path(base)
+    except Exception:
+        pass
+    return None
+
+
 def _read_config() -> configparser.ConfigParser:
     cfg = configparser.ConfigParser()
-    if CONFIG_PATH.exists():
+    # Prioridad de lectura:
+    # 1) config/settings.ini junto al ejecutable (dist/..)
+    # 2) config/settings.ini relativo al cwd (modo dev)
+    # 3) config/settings.ini embebido (PyInstaller, _MEIPASS)
+    # 4) valores por defecto
+    tried = False
+    try:
+        exedir = _frozen_dir()
+        if exedir is not None:
+            p = exedir / CONFIG_PATH
+            if p.exists():
+                cfg.read(p, encoding="utf-8")
+                tried = True
+    except Exception:
+        pass
+    if not tried and CONFIG_PATH.exists():
         cfg.read(CONFIG_PATH, encoding="utf-8")
-    else:
+        tried = True
+    if not tried:
+        mdir = _meipass_dir()
+        if mdir is not None:
+            p = mdir / CONFIG_PATH
+            if p.exists():
+                cfg.read(p, encoding="utf-8")
+                tried = True
+    if not tried:
         # Valor por defecto si no existe settings.ini
-        cfg["database"] = {"url": "sqlite:///./src/data/inventory.db"}
+        cfg["database"] = {"url": "sqlite:///./inventario.db"}
     return cfg
 
 
@@ -89,11 +132,17 @@ def _safe_sqlite_url(db_url: str, cfg: configparser.ConfigParser) -> str:
     raw_path = db_url[len(prefix):]
     path = Path(raw_path)
     if not path.is_absolute():
-        # Carpeta de datos del usuario para fallback portable
-        base = os.getenv("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-        app_dir = Path(base) / "InventarioApp"
-        fname = path.name if path.name else "inventory.db"
-        path = app_dir / fname
+        # Si estamos empaquetados (PyInstaller), colocar DB junto al .exe (dist)
+        exedir = _frozen_dir()
+        fname = path.name if path.name else "inventario.db"
+        if exedir is not None:
+            path = exedir / fname
+        else:
+            # Modo no congelado: conserva política previa en LOCALAPPDATA
+            base = os.getenv("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+            app_dir = Path(base) / "InventarioApp"
+            path = app_dir / fname
+    # Crear directorio padre si no existe
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
     except Exception:
@@ -116,10 +165,8 @@ def get_engine() -> Engine:
         db_url = env_url
     else:
         cfg = _read_config()
-        db_url = cfg.get("database", "url", fallback="sqlite:///./src/data/inventory.db")
-    # Ajuste seguro para SQLite (considerando archivo en settings/env)
-    cfg = _read_config()
-    db_url = _safe_sqlite_url(db_url, cfg)
+        db_url = cfg.get("database", "url", fallback="sqlite:///./inventario.db")
+    db_url = _safe_sqlite_url(db_url)
 
     # 2) Engine con pool razonable si es servidor (PostgreSQL)
     kw = {"future": True, "pool_pre_ping": True}
@@ -300,6 +347,14 @@ def _ensure_schema(engine: Engine) -> None:
             type_sql='INTEGER REFERENCES suppliers(id)'
         )
 
+        # Asegurar columna de ubicación en productos (FK a locations)
+        _add_column_if_missing(
+            engine,
+            table="products",
+            column="id_ubicacion",
+            type_sql='INTEGER REFERENCES locations(id)'
+        )
+
         # Índice para consultas por proveedor (opcional pero útil)
         _create_index_if_missing(
             engine,
@@ -307,12 +362,11 @@ def _ensure_schema(engine: Engine) -> None:
             index_name='idx_products_id_proveedor',
         )
 
-        # Asegurar columna de código de barras y UNIQUE INDEX (nullable)
-        _add_column_if_missing(engine, table="products", column="barcode", type_sql="TEXT")
+        # Índice para ubicación (opcional)
         _create_index_if_missing(
             engine,
-            index_sql='CREATE UNIQUE INDEX IF NOT EXISTS uq_products_barcode ON products(barcode) WHERE barcode IS NOT NULL;',
-            index_name='uq_products_barcode',
+            index_sql='CREATE INDEX IF NOT EXISTS idx_products_id_ubicacion ON products(id_ubicacion);',
+            index_name='idx_products_id_ubicacion',
         )
 
     except Exception:

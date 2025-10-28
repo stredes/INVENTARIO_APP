@@ -1,10 +1,8 @@
 """
-Generador de Cotización con estilo unificado:
-- Encabezado con logo y datos de empresa desde config/settings.ini
-- Aviso "Documento sujeto a modificación (Provisorio)"
-- Banda "Detalles generales" (datos del destinatario)
-- Tabla de ítems
-- Bloque de Facturación (Neto/IVA/Total) con datos de la empresa
+Generador de Cotización con estilo y métricas correctas.
+- Corrige acentos en etiquetas.
+- Encabezados largos en dos líneas (evita recortes).
+- Descripción envuelta; columnas numéricas alineadas a la derecha.
 """
 
 from __future__ import annotations
@@ -88,25 +86,45 @@ def _header(company: Dict[str, Any], quote_number: str):
     return header_tbl
 
 
-def _items_table(items: List[Dict[str, object]], currency: str) -> Table:
-    data = [["Item", "Código", "Descripción", "Unidad", "Cantidad", "Precio Unit.", "Dcto", "Total"]]
+def _items_table_net(items: List[Dict[str, object]], currency: str) -> Table:
+    """Tabla de ítems mostrando precio unitario y total SIN IVA.
+    Encabezado en 2 líneas para evitar recortes.
+    """
+    hdr = ParagraphStyle(name="hdr", fontName="Helvetica-Bold", fontSize=8, leading=9, alignment=1)
+    cell = ParagraphStyle(name="cell", fontName="Helvetica", fontSize=9, leading=11)
+    # Columnas deben sumar 182 mm (A4 con márgenes 14+14)
+    col_widths = [8, 16, 70, 12, 16, 28, 10, 22]
+    assert sum(col_widths) == 182
+    headers = [
+        Paragraph("Ítem", hdr),
+        Paragraph("Código", hdr),
+        Paragraph("Descripción", hdr),
+        Paragraph("Unidad", hdr),
+        Paragraph("Cantidad", hdr),
+        Paragraph("Precio Unit.<br/>(sin IVA)", hdr),
+        Paragraph("Dcto", hdr),
+        Paragraph("Total<br/>(sin IVA)", hdr),
+    ]
+    data = [headers]
+    iva_rate = D("0.19")
     for idx, it in enumerate(items, start=1):
         cant = D(it.get("cantidad", 0) or 0)
-        precio = D(it.get("precio", 0) or 0)
-        sub = q2(it.get("subtotal", cant * precio) or 0)
+        precio_bruto = D(it.get("precio", 0) or 0)
+        precio_neto = precio_bruto / (D(1) + iva_rate)
+        sub_neto = cant * precio_neto
         data.append([
             str(idx),
             str(it.get("id", "")),
-            str(it.get("nombre", "")),
+            Paragraph(str(it.get("nombre", "")), cell),
             str(it.get("unidad", "U") or "U"),
             f"{int(cant) if cant == cant.to_integral_value() else cant}",
-            _fmt_moneda(precio, currency),
+            _fmt_moneda(precio_neto, currency),
             _fmt_moneda(0, currency),
-            _fmt_moneda(sub, currency),
+            _fmt_moneda(sub_neto, currency),
         ])
     tbl = Table(
         data,
-        colWidths=[8 * mm, 16 * mm, 72 * mm, 12 * mm, 16 * mm, 24 * mm, 10 * mm, 24 * mm],
+        colWidths=[w * mm for w in col_widths],
         repeatRows=1,
     )
     tbl.setStyle(TableStyle([
@@ -114,14 +132,14 @@ def _items_table(items: List[Dict[str, object]], currency: str) -> Table:
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E6EFF7")),
         ("ALIGN", (4, 1), (-1, -1), "RIGHT"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("FONTSIZE", (0, 0), (-1, 0), 8),  # header más pequeño
+        ("FONTSIZE", (0, 1), (-1, -1), 9),
         ("LEADING", (0, 0), (-1, -1), 11),
     ]))
     return tbl
 
 
 def _totals_block(company: Dict[str, Any], items: List[Dict[str, object]], currency: str):
-    # Unificar cálculo con OC/OV para evitar discrepancias
     neto, iva, total = vat_breakdown(items, currency=currency, iva_rate=D("0.19"))
     p = ParagraphStyle(name="p", fontName="Helvetica", fontSize=10, leading=13)
     tot_tbl = Table([
@@ -197,7 +215,7 @@ def generate_quote_to_downloads(
     story.append(Spacer(1, 4))
 
     # Ítems + totales
-    story.append(_items_table(items, currency))
+    story.append(_items_table_net(items, currency))
     story.append(Spacer(1, 4))
     story += _totals_block(company, items, currency)
 
@@ -223,3 +241,4 @@ def generate_quote_to_downloads(
         except Exception:
             pass
     return str(out_path)
+

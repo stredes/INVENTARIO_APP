@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
@@ -11,7 +11,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 
 from src.utils.helpers import get_company_info, get_po_terms, get_downloads_dir, unique_path
 from src.utils.po_generator import open_file  # reutilizamos open_file
-from src.utils.money import D, q2, vat_breakdown
+from src.utils.money import D, q2
 
 
 def _fmt_money(value, currency: str) -> str:
@@ -67,6 +67,37 @@ def _header(company: Dict[str, Any], so_number: str):
     return header_table
 
 
+def generate_so_to_downloads(
+    *,
+    so_number: str,
+    customer: Dict[str, Optional[str]],
+    items: List[Dict[str, Any]],
+    currency: str = "CLP",
+    notes: Optional[str] = None,
+    auto_open: bool = True,
+) -> str:
+    """Guarda la OV en Descargas con nombre Ãºnico y la abre si se pide."""
+    safe_customer = (customer.get("nombre") or "Cliente").strip().replace("/", "-").replace("\\", "-")
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    filename = f"{so_number}_{safe_customer}_{ts}.pdf"
+    out_dir = get_downloads_dir()
+    out_path = unique_path(out_dir, filename)
+
+    generate_so_pdf(
+        output_path=str(out_path),
+        so_number=so_number,
+        customer=customer,
+        items=items,
+        currency=currency,
+        notes=notes,
+    )
+    if auto_open:
+        open_file(str(out_path))
+    return str(out_path)
+
+
+
+
 def generate_so_pdf(
     output_path: str,
     *,
@@ -87,7 +118,7 @@ def generate_so_pdf(
     )
     story: List[Any] = []
 
-    # Encabezado idéntico al de OC, cambiando el título
+    # Encabezado
     story.append(_header(comp, so_number))
     story.append(Spacer(1, 4 * mm))
 
@@ -119,28 +150,32 @@ def generate_so_pdf(
     story.append(details)
     story.append(Spacer(1, 4 * mm))
 
-    # Ítems (mismo formato que OC)
-    data = [["Item", "Código", "Descripción", "Unidad", "Cantidad", "Precio Unit.", "Dcto", "Total"]]
-    total = D(0)
+    # Ítems: precio unitario sin IVA + descuento + total sin IVA
+    hdr = ParagraphStyle(name="hdr", fontName="Helvetica-Bold", fontSize=8, leading=9, alignment=1)
+    cell = ParagraphStyle(name="cell", fontName="Helvetica", fontSize=9, leading=11)
+    headers = [
+        Paragraph("Ítem", hdr), Paragraph("Código", hdr), Paragraph("Descripción", hdr), Paragraph("Unidad", hdr),
+        Paragraph("Cantidad", hdr), Paragraph("Precio Unit.<br/>(sin IVA)", hdr), Paragraph("Dcto (%)", hdr), Paragraph("Total<br/>(sin IVA)", hdr)
+    ]
+    data = [headers]
+    suma_neto = D(0)
+    iva_rate = D("0.19")
     for idx, it in enumerate(items, start=1):
         cantidad = D(it.get("cantidad", 0) or 0)
-        precio = D(it.get("precio", 0) or 0)
-        subtotal = q2(it.get("subtotal", cantidad * precio) or 0)
+        precio_bruto = D(it.get("precio", 0) or 0)
+        dcto = D(it.get("descuento_porcentaje", 0) or 0)
+        precio_neto = precio_bruto / (D(1) + iva_rate)
+        total_linea_neto = cantidad * precio_neto * (D(1) - dcto / D(100))
+        suma_neto += q2(total_linea_neto)
         data.append([
-            str(idx),
-            str(it.get("id", "") or ""),
-            it.get("nombre", "") or "",
-            it.get("unidad", "U") or "U",
+            str(idx), str(it.get("id", "") or ""), Paragraph(it.get("nombre", "") or "", cell), it.get("unidad", "U") or "U",
             f"{int(cantidad) if cantidad == cantidad.to_integral_value() else cantidad}",
-            _fmt_money(precio, currency),
-            _fmt_money(0, currency),
-            _fmt_money(subtotal, currency),
+            _fmt_money(precio_neto, currency), f"{dcto} %", _fmt_money(total_linea_neto, currency),
         ])
-        total += D(subtotal)
 
     items_table = Table(
         data,
-        colWidths=[8 * mm, 16 * mm, 72 * mm, 12 * mm, 16 * mm, 24 * mm, 10 * mm, 24 * mm],
+        colWidths=[8 * mm, 16 * mm, 70 * mm, 12 * mm, 16 * mm, 28 * mm, 12 * mm, 20 * mm],
         repeatRows=1,
     )
     items_table.setStyle(TableStyle([
@@ -152,15 +187,18 @@ def generate_so_pdf(
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("TOPPADDING", (0, 0), (-1, -1), 3),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("FONTSIZE", (0, 0), (-1, 0), 8),
+        ("FONTSIZE", (0, 1), (-1, -1), 9),
     ]))
     story.append(items_table)
     story.append(Spacer(1, 4 * mm))
 
-    # Resumen (Neto/IVA/Total) como en OC
+    # Totales: Neto / IVA / Total
     story.append(_band("Facturación"))
     story.append(Spacer(1, 2 * mm))
-    iva_rate = D("0.19")
-    neto, iva, total_v = vat_breakdown(items, currency=currency, iva_rate=iva_rate)
+    neto = q2(suma_neto)
+    iva = q2(neto * iva_rate)
+    total_v = q2(neto + iva)
     p2 = ParagraphStyle(name="p2", fontName="Helvetica", fontSize=10, leading=13)
     tot_tbl = Table([
         [Paragraph("<b>Neto :</b>", p2), Paragraph(_fmt_money(neto, currency), p2)],
@@ -199,32 +237,4 @@ def generate_so_pdf(
     doc.build(story)
     return str(output_path)
 
-
-def generate_so_to_downloads(
-    *,
-    so_number: str,
-    customer: Dict[str, Optional[str]],
-    items: List[Dict[str, Any]],
-    currency: str = "CLP",
-    notes: Optional[str] = None,
-    auto_open: bool = True,
-) -> str:
-    """Guarda la OV en Descargas con nombre único y la abre si se pide."""
-    safe_customer = (customer.get("nombre") or "Cliente").strip().replace("/", "-").replace("\\", "-")
-    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    filename = f"{so_number}_{safe_customer}_{ts}.pdf"
-    out_dir = get_downloads_dir()
-    out_path = unique_path(out_dir, filename)
-
-    generate_so_pdf(
-        output_path=str(out_path),
-        so_number=so_number,
-        customer=customer,
-        items=items,
-        currency=currency,
-        notes=notes,
-    )
-    if auto_open:
-        open_file(str(out_path))
-    return str(out_path)
 

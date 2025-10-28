@@ -201,13 +201,63 @@ class MainWindow(ttk.Frame):
             cfg.read(UI_STATE_PATH, encoding="utf-8")
         geom = cfg.get("mainwindow", "geometry", fallback="")
         if geom:
+            # Restaura la geometría, pero asegúrate de que quede visible
             try:
                 self.app_root.geometry(geom)
             except Exception:
                 pass
+            self._ensure_on_screen()
+        else:
+            # Si no hay geometría guardada, centra dentro de la pantalla actual
+            self._center_on_screen()
         last_idx = cfg.getint("mainwindow", "last_tab_index", fallback=0)
         try:
             self.notebook.select(last_idx)
+        except Exception:
+            pass
+
+    def _ensure_on_screen(self) -> None:
+        """Garantiza que la ventana esté dentro de los límites visibles.
+        Si la geometría previa estaba en un monitor secundario ausente,
+        reubica/clampa la ventana para que sea visible.
+        """
+        root = self.app_root
+        try:
+            root.update_idletasks()
+            # Tamaños actuales (si aún no se calculan, usa requeridos)
+            w = root.winfo_width() or root.winfo_reqwidth()
+            h = root.winfo_height() or root.winfo_reqheight()
+            # Posición actual
+            x = root.winfo_x()
+            y = root.winfo_y()
+            # Tamaño de escritorio virtual (múltiples monitores)
+            v_w = max(getattr(root, 'winfo_vrootwidth', lambda: 0)() or 0, root.winfo_screenwidth())
+            v_h = max(getattr(root, 'winfo_vrootheight', lambda: 0)() or 0, root.winfo_screenheight())
+
+            # Clamps seguros
+            w = min(w, v_w)
+            h = min(h, v_h)
+            new_x = min(max(x, 0), max(v_w - w, 0))
+            new_y = min(max(y, 0), max(v_h - h, 0))
+
+            if new_x != x or new_y != y:
+                root.geometry(f"{w}x{h}+{new_x}+{new_y}")
+        except Exception:
+            # Ante cualquier error, como último recurso centra
+            self._center_on_screen()
+
+    def _center_on_screen(self) -> None:
+        """Centra la ventana en la pantalla principal actual."""
+        root = self.app_root
+        try:
+            root.update_idletasks()
+            w = root.winfo_width() or root.winfo_reqwidth()
+            h = root.winfo_height() or root.winfo_reqheight()
+            sw = root.winfo_screenwidth()
+            sh = root.winfo_screenheight()
+            x = max(0, int((sw - w) / 2))
+            y = max(0, int((sh - h) / 2))
+            root.geometry(f"{w}x{h}+{x}+{y}")
         except Exception:
             pass
 

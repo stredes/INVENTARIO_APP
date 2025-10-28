@@ -6,8 +6,8 @@ from typing import List, Optional
 from pathlib import Path
 
 from src.data.database import get_session
-from src.data.models import Product, Supplier
-from src.data.repository import ProductRepository, SupplierRepository
+from src.data.models import Product, Supplier, Location
+from src.data.repository import ProductRepository, SupplierRepository, LocationRepository
 from src.gui.widgets.product_image_box import ProductImageBox  # <-- recuadro imagen
 from src.gui.barcode_label_editor import BarcodeLabelEditor
 from src.reports.barcode_label import generate_barcode_png, generate_label_pdf
@@ -42,10 +42,12 @@ class ProductsView(ttk.Frame):
         self.session = get_session()
         self.repo = ProductRepository(self.session)
         self.repo_sup = SupplierRepository(self.session)
+        self.repo_loc = LocationRepository(self.session)
 
         self._editing_id: Optional[int] = None
         self._current_product: Optional[Product] = None
         self._suppliers: List[Supplier] = []
+        self._locations: List[Location] = []
 
         # cache tabla (para doble click en tksheet / tree)
         self._rows_cache: List[List[str]] = []
@@ -142,56 +144,11 @@ class ProductsView(ttk.Frame):
         self.cmb_supplier = ttk.Combobox(right, state="readonly", width=35)
         self.cmb_supplier.grid(row=5, column=1, columnspan=3, sticky="we", padx=4, pady=4)
 
-        # Panel Código de barras (a la derecha del formulario)
-        bc = ttk.Labelframe(frm, text="Código de barras", padding=8)
-        bc.grid(row=0, column=2, rowspan=9, sticky="nsew", padx=(8, 0), pady=(0, 0))
-        # Dos columnas: 0 = controles, 1 = preview
-        bc.columnconfigure(0, weight=0)
-        bc.columnconfigure(1, weight=1)
-
-        # Controles (izquierda)
-        ctl = ttk.Frame(bc)
-        ctl.grid(row=0, column=0, sticky="nw", padx=(0, 8))
-        ttk.Checkbutton(ctl, text="Con código de barras", variable=self.var_has_barcode,
-                        command=self._on_toggle_has_barcode).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
-        ttk.Checkbutton(ctl, text="Mostrar texto (nombre)", variable=self.var_bc_show_text).grid(row=1, column=0, columnspan=2, sticky="w")
-        ttk.Label(ctl, text="Copias:").grid(row=2, column=0, sticky="e", padx=(0, 4))
-        ttk.Spinbox(ctl, from_=1, to=999, textvariable=self.var_bc_copies, width=6).grid(row=2, column=1, sticky="w")
-        ttk.Label(ctl, text="Tamaño:").grid(row=3, column=0, sticky="e", padx=(0, 4))
-        ttk.Combobox(ctl, textvariable=self.var_bc_size, values=list(self.BC_SIZES.keys()), state="readonly", width=12).grid(row=3, column=1, sticky="w")
-
-        btns_bc = ttk.Frame(ctl)
-        btns_bc.grid(row=4, column=0, columnspan=2, sticky="w", pady=(8, 0))
-        ttk.Button(btns_bc, text="Imprimir", command=self._on_print_quick).pack(side="left", padx=(0, 6))
-        ttk.Button(btns_bc, text="Editor impresión", command=self._on_print_label).pack(side="left")
-
-        # Acordeón de impresoras
-        self._printers_open = False
-        self._printers_frame = ttk.Frame(ctl)
-        def _toggle_printers():
-            self._printers_open = not self._printers_open
-            if self._printers_open:
-                self._printers_frame.grid(row=5, column=0, columnspan=2, sticky="we", pady=(8, 0))
-                btn_toggle.configure(text="Impresoras ▾")
-            else:
-                self._printers_frame.grid_remove()
-                btn_toggle.configure(text="Impresoras ▸")
-        btn_toggle = ttk.Button(ctl, text="Impresoras ▸", command=_toggle_printers)
-        btn_toggle.grid(row=6, column=0, columnspan=2, sticky="w", pady=(6, 0))
-        ttk.Label(self._printers_frame, text="Impresora:").grid(row=0, column=0, sticky="e")
-        self.cmb_printer = ttk.Combobox(self._printers_frame, state="readonly", width=28)
-        self.cmb_printer.grid(row=0, column=1, sticky="w", padx=4)
-        self.cmb_printer["values"] = self._list_printers()
-        if self.cmb_printer["values"]:
-            self.cmb_printer.current(0)
-
-        # Preview (derecha)
-        prev = ttk.Frame(bc)
-        prev.grid(row=0, column=1, sticky="nsew")
-        prev.rowconfigure(0, weight=1)
-        prev.columnconfigure(0, weight=1)
-        self.lbl_bc_preview = ttk.Label(prev, text="(Sin código)", anchor="center")
-        self.lbl_bc_preview.grid(row=0, column=0, sticky="nsew")
+        # Fila 6: Ubicación
+        ttk.Label(right, text="Ubicación:").grid(row=6, column=0, sticky="e", padx=4, pady=4)
+        self.cmb_location = ttk.Combobox(right, state="readonly", width=28)
+        self.cmb_location.grid(row=6, column=1, sticky="w", padx=4, pady=4)
+        ttk.Button(right, text="Admin. ubicaciones...", command=self._open_locations_manager).grid(row=6, column=2, columnspan=2, sticky="w", padx=4, pady=4)
 
         # Botones
         btns = ttk.Frame(right)
@@ -467,6 +424,14 @@ class ProductsView(ttk.Frame):
                 messagebox.showwarning("Validación", "Seleccione un proveedor.")
                 return None
             proveedor = self._suppliers[idx]
+            # Ubicación (opcional)
+            location_id = None
+            try:
+                li = self.cmb_location.current()
+                if li is not None and li >= 0 and li < len(self._locations):
+                    location_id = self._locations[li].id
+            except Exception:
+                location_id = None
             return dict(
                 nombre=nombre,
                 sku=codigo,
@@ -475,6 +440,7 @@ class ProductsView(ttk.Frame):
                 precio_venta=pventa,
                 unidad_medida=unidad,
                 id_proveedor=proveedor.id,
+                id_ubicacion=location_id,
             )
         except ValueError:
             messagebox.showwarning("Validación", "Revisa números (PC/IVA/Margen/Precios).")
@@ -549,8 +515,9 @@ class ProductsView(ttk.Frame):
         self._set_table_data(self._rows_cache)
 
     def refresh_lookups(self):
-        """Carga proveedores al combobox."""
+        """Carga proveedores y ubicaciones a los combobox."""
         self._suppliers = self.session.query(Supplier).order_by(Supplier.razon_social.asc()).all()
+        self._locations = self.session.query(Location).order_by(Location.nombre.asc()).all()
 
         def _disp(s: Supplier) -> str:
             rut = (s.rut or "").strip()
@@ -561,9 +528,15 @@ class ProductsView(ttk.Frame):
         # Selecciona automáticamente si solo hay un proveedor
         if len(self._suppliers) == 1:
             self.cmb_supplier.current(0)
+        # Ubicaciones
+        if hasattr(self, 'cmb_location'):
+            try:
+                self.cmb_location["values"] = [(l.nombre or "").strip() for l in self._locations]
+            except Exception:
+                pass
 
     def _select_supplier_for_current_product(self):
-        """Selecciona en el combo el proveedor del producto cargado (si existe)."""
+        """Selecciona en los combos proveedor y ubicación del producto cargado (si existe)."""
         try:
             if not self._current_product:
                 self.cmb_supplier.set("")
@@ -579,6 +552,34 @@ class ProductsView(ttk.Frame):
                 self.cmb_supplier.set("")
         except Exception:
             self.cmb_supplier.set("")
+        # Ubicación
+        try:
+            if not self._current_product:
+                self.cmb_location.set("")
+            else:
+                lid = getattr(self._current_product, "id_ubicacion", None)
+                idx = next((i for i, l in enumerate(self._locations) if l.id == lid), -1)
+                if idx >= 0:
+                    self.cmb_location.current(idx)
+                else:
+                    self.cmb_location.set("")
+        except Exception:
+            try:
+                self.cmb_location.set("")
+            except Exception:
+                pass
+
+    def _open_locations_manager(self):
+        try:
+            from src.gui.locations_manager import LocationsManager
+        except Exception:
+            messagebox.showerror("Ubicaciones", "No se pudo cargar el administrador de ubicaciones.")
+            return
+        dlg = LocationsManager(self.session, parent=self)
+        self.wait_window(dlg)
+        # Refrescar lista tras cerrar
+        self.refresh_lookups()
+        self._select_supplier_for_current_product()
 
     # ---------- Solo fallback: limpiar selección al click de encabezado ----------
     def _on_tree_click(self, event):

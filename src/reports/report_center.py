@@ -390,12 +390,14 @@ class ReportCenter(ttk.Frame):
 
         else:  # sales_top_products
             from sqlalchemy.sql import func
+            qty = func.sum(SaleDetail.cantidad).label("qty")
+            total = func.sum(SaleDetail.subtotal).label("total")
             q = (
                 self.session.query(
                     Product.id.label("pid"),
                     Product.nombre.label("pname"),
-                    func.sum(SaleDetail.cantidad).label("qty"),
-                    func.sum(SaleDetail.subtotal).label("total"),
+                    qty,
+                    total,
                 )
                 .join(SaleDetail, SaleDetail.id_producto == Product.id)
                 .join(Sale, Sale.id == SaleDetail.id_venta)
@@ -411,7 +413,8 @@ class ReportCenter(ttk.Frame):
                 likep = f"%{prod_like}%"
                 q = q.filter((Product.nombre.ilike(likep)) | (Product.sku.ilike(likep)))
 
-            q = q.order_by(-q.c.qty)  # desc por cantidad
+            # Ordenar por cantidad descendente usando la expresión agregada
+            q = q.order_by(qty.desc())
             cols = ["ID Prod", "Producto", "Unidades vendidas", "Total"]
             rows = []
             for pid, pname, qty, total in q:

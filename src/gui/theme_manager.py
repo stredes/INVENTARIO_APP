@@ -2,12 +2,39 @@
 from __future__ import annotations
 import configparser
 from pathlib import Path
+import sys
 from tkinter import Tk, Menu, Text, Canvas
 from tkinter import ttk
 import tkinter.font as tkfont
 from typing import Dict, Any
 
 CONFIG_PATH = Path("config/settings.ini")
+
+
+def _frozen_dir() -> Path | None:
+    try:
+        if getattr(sys, "frozen", False):
+            return Path(sys.executable).parent
+    except Exception:
+        pass
+    return None
+
+
+def _meipass_dir() -> Path | None:
+    try:
+        base = getattr(sys, "_MEIPASS", None)
+        if base:
+            return Path(base)
+    except Exception:
+        pass
+    return None
+
+
+def _external_config_path() -> Path:
+    exedir = _frozen_dir()
+    if exedir is not None:
+        return exedir / CONFIG_PATH
+    return CONFIG_PATH
 
 
 class ThemeManager:
@@ -215,8 +242,13 @@ class ThemeManager:
 
         # Cargar configuración previa
         cfg = configparser.ConfigParser()
-        if CONFIG_PATH.exists():
-            cfg.read(CONFIG_PATH, encoding="utf-8")
+        cfg_path = _external_config_path()
+        if cfg_path.exists():
+            cfg.read(cfg_path, encoding="utf-8")
+        else:
+            mdir = _meipass_dir()
+            if mdir is not None and (mdir / CONFIG_PATH).exists():
+                cfg.read(mdir / CONFIG_PATH, encoding="utf-8")
             cls._current = cfg.get("ui", "theme", fallback=cls._current)
             cls._density = cfg.get("ui", "density", fallback=cls._density)
             cls._font_size = cfg.get("ui", "font_size", fallback=cls._font_size)
@@ -574,14 +606,15 @@ class ThemeManager:
     @classmethod
     def _persist(cls) -> None:
         cfg = configparser.ConfigParser()
-        if CONFIG_PATH.exists():
-            cfg.read(CONFIG_PATH, encoding="utf-8")
+        cfg_path = _external_config_path()
+        if cfg_path.exists():
+            cfg.read(cfg_path, encoding="utf-8")
         if "ui" not in cfg:
             cfg["ui"] = {}
         cfg["ui"]["theme"] = cls._current
         cfg["ui"]["density"] = cls._density
         cfg["ui"]["font_size"] = cls._font_size
         cfg["ui"]["scaling"] = str(cls._scaling)
-        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with CONFIG_PATH.open("w", encoding="utf-8") as f:
+        cfg_path.parent.mkdir(parents=True, exist_ok=True)
+        with cfg_path.open("w", encoding="utf-8") as f:
             cfg.write(f)
