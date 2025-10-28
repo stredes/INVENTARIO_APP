@@ -205,7 +205,7 @@ def get_engine() -> Engine:
     else:
         cfg = _read_config()
         db_url = cfg.get("database", "url", fallback="sqlite:///./inventario.db")
-    db_url = _safe_sqlite_url(db_url)
+    db_url = _safe_sqlite_url(db_url, cfg)
 
     # 2) Engine con pool razonable si es servidor (PostgreSQL)
     kw = {"future": True, "pool_pre_ping": True}
@@ -385,6 +385,9 @@ def _ensure_schema(engine: Engine) -> None:
             column="id_proveedor",
             type_sql='INTEGER REFERENCES suppliers(id)'
         )
+
+        # Asegurar columna de código de barras en productos
+        _add_column_if_missing(engine, table="products", column="barcode", type_sql="TEXT")
 
         # Asegurar columna de ubicación en productos (FK a locations)
         _add_column_if_missing(
