@@ -323,6 +323,23 @@ def _ensure_schema(engine: Engine) -> None:
             index_name='idx_products_id_ubicacion',
         )
 
+        # --------- Compras: campos adicionales opcionales ---------
+        _add_column_if_missing(engine, table="purchases", column="numero_documento", type_sql="TEXT")
+        _add_column_if_missing(engine, table="purchases", column="fecha_documento", type_sql="DATETIME")
+        _add_column_if_missing(engine, table="purchases", column="fecha_contable", type_sql="DATETIME")
+        _add_column_if_missing(engine, table="purchases", column="fecha_vencimiento", type_sql="DATETIME")
+        _add_column_if_missing(engine, table="purchases", column="moneda", type_sql="TEXT")
+        _add_column_if_missing(engine, table="purchases", column="tasa_cambio", type_sql="NUMERIC")
+        _add_column_if_missing(engine, table="purchases", column="unidad_negocio", type_sql="TEXT")
+        _add_column_if_missing(engine, table="purchases", column="proporcionalidad", type_sql="TEXT")
+        _add_column_if_missing(engine, table="purchases", column="atencion", type_sql="TEXT")
+        _add_column_if_missing(engine, table="purchases", column="tipo_descuento", type_sql="TEXT")
+        _add_column_if_missing(engine, table="purchases", column="descuento", type_sql="NUMERIC")
+        _add_column_if_missing(engine, table="purchases", column="ajuste_iva", type_sql="NUMERIC")
+        _add_column_if_missing(engine, table="purchases", column="stock_policy", type_sql="TEXT")
+        _add_column_if_missing(engine, table="purchases", column="referencia", type_sql="TEXT")
+        _add_column_if_missing(engine, table="purchases", column="ajuste_impuesto", type_sql="NUMERIC")
+
     except Exception:
         # Evitar que un fallo de migraciÃ³n bloquee el arranque;
         # si necesitas depurar, eleva la excepciÃ³n.

@@ -61,7 +61,7 @@ class PurchasesView(ttk.Frame):
 
         # Estado + forma de pago (acordeón = combobox)
         ttk.Label(head, text="Estado:").grid(row=0, column=3, sticky="e", padx=4)
-        self.ESTADOS = ("Completada", "Pendiente", "Cancelada", "Eliminada")
+        self.ESTADOS = ("Completada", "Por pagar", "Pendiente", "Cancelada", "Eliminada")
         self.cmb_estado = ttk.Combobox(head, state="readonly", width=14, values=self.ESTADOS)
         self.cmb_estado.set("Pendiente")
         self.cmb_estado.grid(row=0, column=4, sticky="w", padx=4)
@@ -72,6 +72,63 @@ class PurchasesView(ttk.Frame):
         self.cmb_pago = ttk.Combobox(head, state="readonly", width=18, values=self.PAGOS)
         self.cmb_pago.set(get_po_payment_method())
         self.cmb_pago.grid(row=0, column=6, sticky="w", padx=4)
+
+        # ---- Campos adicionales de cabecera ----
+        ttk.Label(head, text="Número doc:").grid(row=1, column=0, sticky="e", padx=4, pady=2)
+        self.var_numdoc = tk.StringVar()
+        ttk.Entry(head, textvariable=self.var_numdoc, width=18).grid(row=1, column=1, sticky="w")
+
+        ttk.Label(head, text="F. documento:").grid(row=1, column=2, sticky="e")
+        self.var_fdoc = tk.StringVar()
+        ttk.Entry(head, textvariable=self.var_fdoc, width=12).grid(row=1, column=3, sticky="w")
+
+        ttk.Label(head, text="F. contable:").grid(row=1, column=4, sticky="e")
+        self.var_fcont = tk.StringVar()
+        ttk.Entry(head, textvariable=self.var_fcont, width=12).grid(row=1, column=5, sticky="w")
+
+        ttk.Label(head, text="F. venc.: ").grid(row=1, column=6, sticky="e")
+        self.var_fvenc = tk.StringVar()
+        ttk.Entry(head, textvariable=self.var_fvenc, width=12).grid(row=1, column=7, sticky="w")
+
+        ttk.Label(head, text="Moneda:").grid(row=2, column=0, sticky="e")
+        self.var_moneda = tk.StringVar(value="PESO CHILENO")
+        ttk.Combobox(head, textvariable=self.var_moneda, values=["PESO CHILENO", "USD", "EUR"], width=18, state="readonly").grid(row=2, column=1, sticky="w")
+
+        ttk.Label(head, text="Tasa cambio:").grid(row=2, column=2, sticky="e")
+        self.var_tc = tk.StringVar(value="1")
+        ttk.Entry(head, textvariable=self.var_tc, width=10).grid(row=2, column=3, sticky="w")
+
+        ttk.Label(head, text="U. negocio:").grid(row=2, column=4, sticky="e")
+        self.var_uneg = tk.StringVar()
+        ttk.Entry(head, textvariable=self.var_uneg, width=16).grid(row=2, column=5, sticky="w")
+
+        ttk.Label(head, text="Proporcionalidad:").grid(row=2, column=6, sticky="e")
+        self.var_prop = tk.StringVar(value="Ventas Afectos")
+        ttk.Combobox(head, textvariable=self.var_prop, values=["Ventas Afectos", "Ventas Exentas", "Mixto"], width=16, state="readonly").grid(row=2, column=7, sticky="w")
+
+        ttk.Label(head, text="Tipo dcto:").grid(row=3, column=0, sticky="e")
+        self.var_tpdcto = tk.StringVar(value="Monto")
+        ttk.Combobox(head, textvariable=self.var_tpdcto, values=["Monto", "Porcentaje"], width=10, state="readonly").grid(row=3, column=1, sticky="w")
+
+        ttk.Label(head, text="Descuento:").grid(row=3, column=2, sticky="e")
+        self.var_dcto = tk.StringVar(value="0")
+        ttk.Entry(head, textvariable=self.var_dcto, width=10).grid(row=3, column=3, sticky="w")
+
+        ttk.Label(head, text="Ajuste IVA:").grid(row=3, column=4, sticky="e")
+        self.var_ajiva = tk.StringVar(value="0")
+        ttk.Entry(head, textvariable=self.var_ajiva, width=10).grid(row=3, column=5, sticky="w")
+
+        ttk.Label(head, text="Stock:").grid(row=3, column=6, sticky="e")
+        self.var_stockpol = tk.StringVar(value="No Mueve")
+        ttk.Combobox(head, textvariable=self.var_stockpol, values=["No Mueve", "Mueve"], width=10, state="readonly").grid(row=3, column=7, sticky="w")
+
+        ttk.Label(head, text="Referencia:").grid(row=4, column=0, sticky="e")
+        self.var_ref = tk.StringVar()
+        ttk.Entry(head, textvariable=self.var_ref, width=40).grid(row=4, column=1, columnspan=3, sticky="we")
+
+        ttk.Label(head, text="Ajuste imp:").grid(row=4, column=4, sticky="e")
+        self.var_ajimp = tk.StringVar(value="0")
+        ttk.Entry(head, textvariable=self.var_ajimp, width=10).grid(row=4, column=5, sticky="w")
 
         # ---------- Detalle ----------
         det = ttk.Labelframe(self, text="Detalle de compra", padding=10)
@@ -87,7 +144,7 @@ class PurchasesView(ttk.Frame):
         self.ent_qty.insert(0, "1")
         self.ent_qty.grid(row=0, column=3, sticky="w", padx=4, pady=4)
 
-        ttk.Label(det, text="Precio Unit. (c/IVA):").grid(row=0, column=4, sticky="e", padx=4, pady=4)
+        ttk.Label(det, text="Precio Unit. (neto):").grid(row=0, column=4, sticky="e", padx=4, pady=4)
         self.var_price = tk.StringVar(value="0.00")
         self.ent_price = ttk.Entry(det, textvariable=self.var_price, width=14, state="readonly")
         self.ent_price.grid(row=0, column=5, sticky="w", padx=4, pady=4)
@@ -110,7 +167,7 @@ class PurchasesView(ttk.Frame):
             ("prod_id", "ID", 60),
             ("producto", "Producto", 300),
             ("cant", "Cant.", 80),
-            ("precio", "Precio (c/IVA)", 120),
+            ("precio", "Precio (neto)", 120),
             ("desc_pct", "Desc. %", 80),
             ("subtotal", "Subtotal", 120),
         ]:
@@ -188,7 +245,7 @@ class PurchasesView(ttk.Frame):
     # ======================== Precio con IVA ========================
     def _price_with_iva(self, p: Product) -> Decimal:
         base = D(getattr(p, "precio_compra", 0) or 0)
-        return q2(base * (Decimal(1) + IVA_RATE))
+        return q2(base)
 
     def _selected_product(self) -> Optional[Product]:
         # Primero intentamos tomar el objeto real desde el autocomplete
@@ -270,7 +327,8 @@ class PurchasesView(ttk.Frame):
 
             # Subtotal con descuento aplicado (descuento sobre el neto antes de IVA)
             # Aquí trabajamos a nivel "precio con IVA", por simplicidad: aplicamos el % directo
-            subtotal = q2(D(qty) * D(price) * (D(1) - disc_rate))
+            price_bruto = q2(D(price) * (D(1) + IVA_RATE))
+            subtotal = q2(D(qty) * price_bruto * (D(1) - disc_rate))
             self.tree.insert("", "end", values=(p.id, p.nombre, qty, fmt_2(price), f"{disc_pct:.1f}", fmt_2(subtotal)))
             self._update_total()
 
@@ -310,7 +368,7 @@ class PurchasesView(ttk.Frame):
             except Exception:
                 disc_pct = D(0)
             disc_rate = disc_pct / D(100)
-            price_eff = q2(D(sprice) * (D(1) - disc_rate))
+            price_eff = q2(D(sprice) * (D(1) + IVA_RATE) * (D(1) - disc_rate))
             items.append(
                 PurchaseItem(
                     product_id=int(prod_id),
@@ -337,7 +395,7 @@ class PurchasesView(ttk.Frame):
                 "id": int(prod_id),
                 "nombre": str(name),
                 "cantidad": int(float(scnt)),
-                "precio": D(sprice),          # con IVA (precio bruto)
+                "precio": q2(D(sprice) * (D(1) + IVA_RATE)),          # con IVA (precio bruto)
                 "subtotal": D(ssub),          # con IVA y descuento ya aplicado
                 "dcto_pct": disc_pct,         # usado por OC
                 "descuento_porcentaje": disc_pct,  # compat para cotizaciÃ³n
@@ -368,14 +426,49 @@ class PurchasesView(ttk.Frame):
                     return
 
             estado = (getattr(self, 'cmb_estado', None).get() if hasattr(self, 'cmb_estado') else "Completada") or "Completada"
-            apply_to_stock = self.var_apply.get() and (estado == "Completada")
+            sp = (self.var_stockpol.get() if hasattr(self, 'var_stockpol') else "No Mueve") or "No Mueve"
+            apply_to_stock = (sp.lower() != "no mueve") and (estado in ("Completada", "Por pagar"))
 
-            self.pm.create_purchase(
+            pur = self.pm.create_purchase(
                 supplier_id=sup.id,
                 items=items,
                 estado=estado,
                 apply_to_stock=apply_to_stock,
             )
+
+            # Guardar cabecera extendida
+            try:
+                from datetime import datetime
+                f = lambda s: datetime.strptime(s.strip(), "%d/%m/%Y") if s and s.strip() else None
+                pur.numero_documento = (getattr(self, 'var_numdoc', tk.StringVar()).get() or "").strip() or None
+                pur.fecha_documento = f(getattr(self, 'var_fdoc', tk.StringVar()).get())
+                pur.fecha_contable = f(getattr(self, 'var_fcont', tk.StringVar()).get())
+                pur.fecha_vencimiento = f(getattr(self, 'var_fvenc', tk.StringVar()).get())
+                pur.moneda = (getattr(self, 'var_moneda', tk.StringVar()).get() or None)
+                try:
+                    pur.tasa_cambio = D(getattr(self, 'var_tc', tk.StringVar(value='1')).get() or '1')
+                except Exception:
+                    pur.tasa_cambio = D(1)
+                pur.unidad_negocio = (getattr(self, 'var_uneg', tk.StringVar()).get() or None)
+                pur.proporcionalidad = (getattr(self, 'var_prop', tk.StringVar()).get() or None)
+                pur.tipo_descuento = (getattr(self, 'var_tpdcto', tk.StringVar()).get() or None)
+                try:
+                    pur.descuento = D(getattr(self, 'var_dcto', tk.StringVar(value='0')).get() or '0')
+                except Exception:
+                    pur.descuento = D(0)
+                try:
+                    pur.ajuste_iva = D(getattr(self, 'var_ajiva', tk.StringVar(value='0')).get() or '0')
+                except Exception:
+                    pur.ajuste_iva = D(0)
+                pur.stock_policy = sp
+                pur.referencia = (getattr(self, 'var_ref', tk.StringVar()).get() or None)
+                try:
+                    pur.ajuste_impuesto = D(getattr(self, 'var_ajimp', tk.StringVar(value='0')).get() or '0')
+                except Exception:
+                    pur.ajuste_impuesto = D(0)
+                self.session.commit()
+            except Exception:
+                self.session.rollback(); self.session.commit()
 
             # limpiar
             self._on_clear_table()
@@ -397,6 +490,34 @@ class PurchasesView(ttk.Frame):
                 return
 
             po_number = f"OC-{sup.id}-{self._stamp()}"
+            # Construir notas con metadatos de cabecera
+            try:
+                notes_lines = []
+                nd = (getattr(self, 'var_numdoc', tk.StringVar()).get() or '').strip()
+                if nd: notes_lines.append(f"N° Doc: {nd}")
+                fd = (getattr(self, 'var_fdoc', tk.StringVar()).get() or '').strip()
+                if fd: notes_lines.append(f"F. Documento: {fd}")
+                fc = (getattr(self, 'var_fcont', tk.StringVar()).get() or '').strip()
+                if fc: notes_lines.append(f"F. Contable: {fc}")
+                fv = (getattr(self, 'var_fvenc', tk.StringVar()).get() or '').strip()
+                if fv: notes_lines.append(f"F. Venc.: {fv}")
+                mon = (getattr(self, 'var_moneda', tk.StringVar(value='PESO CHILENO')).get() or '').strip()
+                if mon: notes_lines.append(f"Moneda: {mon}")
+                tc = (getattr(self, 'var_tc', tk.StringVar(value='1')).get() or '').strip()
+                if tc: notes_lines.append(f"Tasa cambio: {tc}")
+                un = (getattr(self, 'var_uneg', tk.StringVar()).get() or '').strip()
+                if un: notes_lines.append(f"U. negocio: {un}")
+                pr = (getattr(self, 'var_prop', tk.StringVar()).get() or '').strip()
+                if pr: notes_lines.append(f"Proporcionalidad: {pr}")
+                rf = (getattr(self, 'var_ref', tk.StringVar()).get() or '').strip()
+                if rf: notes_lines.append(f"Referencia: {rf}")
+                ajiva = (getattr(self, 'var_ajiva', tk.StringVar(value='0')).get() or '').strip()
+                if ajiva: notes_lines.append(f"Ajuste IVA: {ajiva}")
+                ajimp = (getattr(self, 'var_ajimp', tk.StringVar(value='0')).get() or '').strip()
+                if ajimp: notes_lines.append(f"Ajuste impuesto: {ajimp}")
+                notes = " | ".join(notes_lines) if notes_lines else None
+            except Exception:
+                notes = None
             supplier_dict = {
                 "id": str(sup.id),
                 "nombre": getattr(sup, "razon_social", None) or "",
@@ -406,13 +527,7 @@ class PurchasesView(ttk.Frame):
                 "direccion": getattr(sup, "direccion", ""),
                 "pago": (getattr(self, 'cmb_pago', None).get() if hasattr(self, 'cmb_pago') else get_po_payment_method()),
             }
-            out = generate_po_to_downloads(
-                po_number=po_number,
-                supplier=supplier_dict,
-                items=items,
-                currency="CLP",
-                notes=None,
-                auto_open=True,
+            out = generate_po_to_downloads(\n                po_number=po_number,\n                supplier=supplier_dict,\n                items=items,\n                currency=\"CLP\",\n                notes=notes,\n                auto_open=True,
             )
             self._info(f"Orden de Compra creada en Descargas:\n{out}")
         except Exception as e:
@@ -445,13 +560,7 @@ class PurchasesView(ttk.Frame):
                 "pago": (getattr(self, 'cmb_pago', None).get() if hasattr(self, 'cmb_pago') else get_po_payment_method()),
             }
 
-            out = generate_quote_downloads(
-                quote_number=quote_number,
-                supplier=supplier_dict,
-                items=items,
-                currency="CLP",
-                notes=None,
-                auto_open=True,   # abrir automáticamente el PDF
+            out = generate_quote_downloads(\n                quote_number=quote_number,\n                supplier=supplier_dict,\n                items=items,\n                currency=\"CLP\",\n                notes=notes,\n                auto_open=True,   # abrir automáticamente el PDF
             )
             self._info(f"Cotización creada en Descargas:\n{out}")
 
@@ -525,5 +634,10 @@ class PurchasesView(ttk.Frame):
 
         if estado:
             q = q.filter(getattr(Purchase, "estado") == estado)
+
+
+
+
+
 
 

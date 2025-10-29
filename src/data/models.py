@@ -138,6 +138,23 @@ class Purchase(Base):
     total_compra: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     estado: Mapped[str] = mapped_column(String, nullable=False)  # Pendiente/Completada/Cancelada
 
+    # Campos adicionales de cabecera (opcionales)
+    numero_documento: Mapped[Optional[str]] = mapped_column(String)
+    fecha_documento: Mapped[Optional[dt]] = mapped_column(DateTime, nullable=True)
+    fecha_contable: Mapped[Optional[dt]] = mapped_column(DateTime, nullable=True)
+    fecha_vencimiento: Mapped[Optional[dt]] = mapped_column(DateTime, nullable=True)
+    moneda: Mapped[Optional[str]] = mapped_column(String)
+    tasa_cambio: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 4))
+    unidad_negocio: Mapped[Optional[str]] = mapped_column(String)
+    proporcionalidad: Mapped[Optional[str]] = mapped_column(String)
+    atencion: Mapped[Optional[str]] = mapped_column(String)
+    tipo_descuento: Mapped[Optional[str]] = mapped_column(String)  # 'Monto' | 'Porcentaje'
+    descuento: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    ajuste_iva: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    stock_policy: Mapped[Optional[str]] = mapped_column(String)  # 'Mueve' | 'No Mueve'
+    referencia: Mapped[Optional[str]] = mapped_column(String)
+    ajuste_impuesto: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+
     supplier: Mapped["Supplier"] = relationship()
     details: Mapped[List["PurchaseDetail"]] = relationship(
         back_populates="purchase", cascade="all, delete-orphan"

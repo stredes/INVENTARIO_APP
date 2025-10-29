@@ -147,7 +147,7 @@ class PurchaseManager:
                 self.details.add(det)
 
             # Stock (si corresponde)
-            if estado.lower() == "completada" and apply_to_stock:
+            if estado.lower() in ("completada", "por pagar") and apply_to_stock:
                 for it in items:
                     self.inventory.register_entry(
                         product_id=it.product_id,
@@ -176,7 +176,7 @@ class PurchaseManager:
         if pur.estado.lower() == "cancelada":
             return
 
-        if revert_stock and pur.estado.lower() == "completada":
+        if revert_stock and pur.estado.lower() in ("completada", "por pagar"):
             for det in pur.details:
                 self.inventory.register_exit(
                     product_id=det.id_producto,
@@ -198,7 +198,7 @@ class PurchaseManager:
             # nada que borrar
             return
 
-        if revert_stock and pur.estado.lower() == "completada":
+        if revert_stock and pur.estado.lower() in ("completada", "por pagar"):
             for det in pur.details:
                 self.inventory.register_exit(
                     product_id=det.id_producto,
