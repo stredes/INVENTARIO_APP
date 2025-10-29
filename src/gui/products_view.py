@@ -1,4 +1,4 @@
-# src/gui/products_view.py
+﻿# src/gui/products_view.py
 from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -52,7 +52,7 @@ class ProductsView(ttk.Frame):
         self._rows_cache: List[List[str]] = []
         self._id_by_index: List[int] = []
 
-        # ---------- Estado (variables UI) ----------
+        # ---------- estádo (variables UI) ----------
         self.var_nombre = tk.StringVar()
         self.var_codigo = tk.StringVar()
         self.var_unidad = tk.StringVar(value="unidad")
@@ -187,13 +187,14 @@ class ProductsView(ttk.Frame):
 
     # ----------------- Unidad/Empaque prompts ----------------- #
     def _on_unidad_change(self, _evt=None):
-        """Cuando el usuario selecciona la unidad, pedir detalle si aplica.
+        """Solicita detalle según la unidad elegida.
 
-        - caja  -> preguntar "¿Cajas de cuántas unidades?" (entero > 0) => "caja x N"
-        - bolsa -> preguntar "¿Bolsas de cuántas unidades?" (entero > 0) => "bolsa x N"
-        - kg    -> preguntar "¿De cuántos kg?" (decimal > 0)                => "kg N"
-        - lt    -> preguntar "¿De cuántos litros?" (decimal > 0)            => "lt N"
-        - unidad -> queda como "unidad" sin prompt
+        - caja  -> "caja x N" (N entero > 0)
+        - bolsa -> "bolsa x N" (N entero > 0)
+        - kg    -> "kg N"     (N decimal > 0)
+        - lt    -> "lt N"     (N decimal > 0)
+        - ml    -> "N ml"     (N entero > 0)
+        - unidad -> sin prompt
         """
         try:
             base = (self.var_unidad.get() or "unidad").strip().lower()
@@ -207,7 +208,6 @@ class ProductsView(ttk.Frame):
                     self._ensure_unidad_value(value)
                     self.var_unidad.set(value)
                 else:
-                    # Revertir a unidad base si cancelan / inválido
                     self.var_unidad.set("caja")
                 return
             if base == "bolsa":
@@ -222,7 +222,6 @@ class ProductsView(ttk.Frame):
             if base == "kg":
                 val = simpledialog.askfloat("Kilogramos", "¿De cuántos kg?", minvalue=0.001, parent=self)
                 if val and float(val) > 0:
-                    # Normaliza a 3 decimales máx.
                     value = f"kg {float(val):g}"
                     self._ensure_unidad_value(value)
                     self.var_unidad.set(value)
@@ -237,6 +236,15 @@ class ProductsView(ttk.Frame):
                     self.var_unidad.set(value)
                 else:
                     self.var_unidad.set("lt")
+                return
+            if base == "ml":
+                nml = simpledialog.askinteger("Mililitros", "¿Cuántos ml tiene el producto?", minvalue=1, parent=self)
+                if nml and int(nml) > 0:
+                    value = f"{int(nml)} ml"
+                    self._ensure_unidad_value(value)
+                    self.var_unidad.set(value)
+                else:
+                    self.var_unidad.set("ml")
                 return
         except Exception:
             # No bloquear flujo si hay algún error con el diálogo
@@ -317,26 +325,7 @@ class ProductsView(ttk.Frame):
     def _on_auto_calc(self, _evt=None):
         self._recalc_prices()
 
-    def _on_unidad_change(self, _evt=None):
-        try:
-            unidad = (self.var_unidad.get() or "").strip().lower()
-            if unidad == "ml":
-                val = simpledialog.askstring("Mililitros", "¿De cuántos ml es el producto?", parent=self)
-                if val is None or not str(val).strip():
-                    return
-                val = str(val).strip().replace("ml", "").strip()
-                try:
-                    n = float(val)
-                    if n <= 0:
-                        raise ValueError
-                    # Normalizamos como entero si corresponde
-                    n_txt = str(int(n)) if abs(n - int(n)) < 1e-6 else str(n)
-                    self.var_unidad.set(f"{n_txt} ml")
-                except Exception:
-                    # Si no es número, igual lo colocamos como texto ml
-                    self.var_unidad.set(f"{val} ml")
-        except Exception:
-            pass
+    # (def _on_unidad_change duplicado eliminado; lógica consolidada arriba)
 
     # ---------- CRUD ----------
     def _on_add(self):
@@ -397,7 +386,7 @@ class ProductsView(ttk.Frame):
         if idx is None or idx < 0 or idx >= len(self._rows_cache):
             return
         vals = self._rows_cache[idx]
-        # 0 id, 1 nombre, 2 código, 3 pcompra, 4 iva, 5 iva_monto, 6 pmasiva, 7 margen, 8 pventa, 9 unidad
+        # 0 id, 1 nombre, 2 Código, 3 pcompra, 4 iva, 5 iva_monto, 6 pmasiva, 7 margen, 8 pventa, 9 unidad
         self._editing_id = int(vals[0])
         self._current_product = self.repo.get(self._editing_id)
         self.var_nombre.set(vals[1])
@@ -560,7 +549,7 @@ class ProductsView(ttk.Frame):
         def _disp(s: Supplier) -> str:
             rut = (s.rut or "").strip()
             rs = (s.razon_social or "").strip()
-            return f"{rs} — {rut}" if rut else rs
+            return f"{rs} â€” {rut}" if rut else rs
 
         self.cmb_supplier["values"] = [_disp(s) for s in self._suppliers]
         # Selecciona automáticamente si solo hay un proveedor
@@ -628,3 +617,6 @@ class ProductsView(ttk.Frame):
         if region == "heading":
             tv.selection_remove(tv.selection())
             self._clear_form()
+
+
+

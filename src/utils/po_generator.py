@@ -21,7 +21,7 @@ from src.utils.helpers import (
     get_downloads_dir,
     unique_path,
 )
-from src.utils.money import D, q2, vat_breakdown
+from src.utils.money import D, q2, q0
 
 
 def _fmt_money(value, currency: str) -> str:
@@ -168,18 +168,28 @@ def generate_po_pdf(
         Paragraph("Cantidad", hdr), Paragraph("Precio Unit.<br/>(sin IVA)", hdr), Paragraph("Dcto", hdr), Paragraph("Total<br/>(sin IVA)", hdr)
     ]
     data = [headers]
-    total = D(0)
+    net_total = D(0)
+    gross_total = D(0)
     for idx, it in enumerate(items, start=1):
         cantidad = D(it.get("cantidad", 0) or 0)
         precio_bruto = D(it.get("precio", 0) or 0)
-        precio_neto = precio_bruto / (D(1) + D("0.19"))
-        subtotal = cantidad * precio_neto
+        precio_neto_raw = precio_bruto / (D(1) + D("0.19"))
+        precio_neto = q0(precio_neto_raw) if currency.upper() == "CLP" else q2(precio_neto_raw)
+        dcto_pct = D(it.get("dcto_pct", 0) or 0)
+        dcto_rate = dcto_pct / D(100)
+        dcto_monto_raw = cantidad * precio_neto * dcto_rate
+        subtotal_neto_raw = cantidad * precio_neto - dcto_monto_raw
+        dcto_monto = q0(dcto_monto_raw) if currency.upper() == "CLP" else q2(dcto_monto_raw)
+        subtotal_neto = q0(subtotal_neto_raw) if currency.upper() == "CLP" else q2(subtotal_neto_raw)
         data.append([
             str(idx), str(it.get("id", "") or ""), Paragraph(it.get("nombre", "") or "", cell), it.get("unidad", "U") or "U",
             f"{int(cantidad) if cantidad == cantidad.to_integral_value() else cantidad}",
-            _fmt_money(precio_neto, currency), _fmt_money(0, currency), _fmt_money(subtotal, currency),
+            _fmt_money(precio_neto, currency), _fmt_money(dcto_monto, currency), _fmt_money(subtotal_neto, currency),
         ])
-        total += D(subtotal)
+        net_total += D(subtotal_neto)
+        sub_bruto = D(it.get("subtotal", (cantidad * precio_bruto)))
+        sub_bruto = q0(sub_bruto) if currency.upper() == "CLP" else q2(sub_bruto)
+        gross_total += sub_bruto
 
     items_table = Table(
         data,
@@ -204,9 +214,10 @@ def generate_po_pdf(
     # Facturación
     story.append(_band("Facturación"))
     story.append(Spacer(1, 2 * mm))
-    iva_rate = D("0.19")
-    neto, iva, total = vat_breakdown(items, currency=currency, iva_rate=iva_rate)
     p2 = ParagraphStyle(name="p2", fontName="Helvetica", fontSize=10, leading=13)
+    neto = net_total
+    total = gross_total
+    iva = (total - neto) if currency.upper() != "CLP" else q0(total - neto)
     tot_tbl = Table([
         [Paragraph("<b>Neto :</b>", p2), Paragraph(_fmt_money(neto, currency), p2)],
         [Paragraph("<b>IVA :</b>", p2), Paragraph(_fmt_money(iva, currency), p2)],

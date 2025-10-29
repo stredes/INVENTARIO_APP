@@ -18,7 +18,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import ParagraphStyle
 
 from src.utils.helpers import get_company_info, get_downloads_dir, get_po_payment_method
-from src.utils.money import D, q2, vat_breakdown
+from src.utils.money import D, q2, q0, vat_breakdown
 
 
 def _downloads_dir() -> Path:
@@ -111,8 +111,10 @@ def _items_table_net(items: List[Dict[str, object]], currency: str) -> Table:
         cant = D(it.get("cantidad", 0) or 0)
         precio_bruto = D(it.get("precio", 0) or 0)
         dcto = D(it.get("descuento_porcentaje", it.get("dcto", 0)) or 0)
-        precio_neto = precio_bruto / (D(1) + iva_rate)
-        sub_neto = cant * precio_neto * (D(1) - dcto / D(100))
+        precio_neto_raw = precio_bruto / (D(1) + iva_rate)
+        precio_neto = (q0(precio_neto_raw) if currency.upper() == "CLP" else q2(precio_neto_raw))
+        sub_neto_raw = cant * precio_neto * (D(1) - dcto / D(100))
+        sub_neto = (q0(sub_neto_raw) if currency.upper() == "CLP" else q2(sub_neto_raw))
         data.append([
             str(idx),
             str(it.get("id", "")),
@@ -141,7 +143,25 @@ def _items_table_net(items: List[Dict[str, object]], currency: str) -> Table:
 
 
 def _totals_block(company: Dict[str, Any], items: List[Dict[str, object]], currency: str):
-    neto, iva, total = vat_breakdown(items, currency=currency, iva_rate=D("0.19"))
+    # Recalcular totales consistentes con lo mostrado por línea (precio sin IVA redondeado)
+    iva_rate = D("0.19")
+    net_total = D(0)
+    gross_total = D(0)
+    for it in items:
+        cant = D(it.get("cantidad", 0) or 0)
+        precio_bruto = D(it.get("precio", 0) or 0)
+        dcto = D(it.get("descuento_porcentaje", it.get("dcto", 0)) or 0)
+        precio_neto_raw = precio_bruto / (D(1) + iva_rate)
+        precio_neto = q0(precio_neto_raw) if currency.upper() == "CLP" else q2(precio_neto_raw)
+        sub_neto_raw = cant * precio_neto * (D(1) - dcto / D(100))
+        sub_neto = q0(sub_neto_raw) if currency.upper() == "CLP" else q2(sub_neto_raw)
+        net_total += sub_neto
+        sub_bruto = D(it.get("subtotal", (cant * precio_bruto)))
+        sub_bruto = q0(sub_bruto) if currency.upper() == "CLP" else q2(sub_bruto)
+        gross_total += sub_bruto
+    neto = net_total
+    total = gross_total
+    iva = (total - neto) if currency.upper() != "CLP" else q0(total - neto)
     p = ParagraphStyle(name="p", fontName="Helvetica", fontSize=10, leading=13)
     tot_tbl = Table([
         [Paragraph("<b>Neto :</b>", p), Paragraph(_fmt_moneda(neto, currency), p)],

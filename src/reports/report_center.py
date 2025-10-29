@@ -1,4 +1,4 @@
-# src/gui/report_center.py
+﻿# src/gui/report_center.py
 from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -28,8 +28,8 @@ from src.gui.printer_select_dialog import PrinterSelectDialog
 # ----------------------------- Utilidades ----------------------------- #
 def _parse_date(s: str) -> Optional[dt.datetime]:
     """
-    Convierte 'YYYY-MM-DD' en datetime al inicio del día.
-    Devuelve None si está vacío o formateado incorrectamente.
+    Convierte 'YYYY-MM-DD' en datetime al inicio del dÃ­a.
+    Devuelve None si estÃ¡ vacÃ­o o formateado incorrectamente.
     """
     s = (s or "").strip()
     if not s:
@@ -43,7 +43,7 @@ def _parse_date(s: str) -> Optional[dt.datetime]:
 
 def _range_to_datetimes(d_from: Optional[dt.datetime], d_to: Optional[dt.datetime]) -> Tuple[Optional[dt.datetime], Optional[dt.datetime]]:
     """
-    Si hay fecha hasta, la mueve al fin del día 23:59:59 para incluirla.
+    Si hay fecha hasta, la mueve al fin del dÃ­a 23:59:59 para incluirla.
     """
     if d_to is not None:
         d_to = d_to + dt.timedelta(hours=23, minutes=59, seconds=59)
@@ -55,27 +55,27 @@ class ReportCenter(ttk.Frame):
     """
     Centro de Informes:
       - Inventario (completo, compra, venta)
-      - Ventas (resumen por venta, detalle por ítem, top productos)
-      - Compras (resumen por compra, detalle por ítem)
+      - Ventas (resumen por venta, detalle por Ã­tem, top productos)
+      - Compras (resumen por compra, detalle por Ã­tem)
       - Listados (productos, proveedores, clientes)
     """
 
-    # Definición de informes disponibles
+    # DefiniciÃ³n de informes disponibles
     REPORTS = [
-        ("inventory_full",   "Inventario – Completo"),
-        ("inventory_compra", "Inventario – Compra"),
-        ("inventory_venta",  "Inventario – Venta"),
-        ("sales_period",         "Ventas por período"),
-        ("sales_detail_period",  "Detalle de ventas por período"),
-        ("sales_top_products",   "Top productos vendidos por período"),
-        ("purchases_period",        "Compras por período"),
-        ("purchases_detail_period", "Detalle de compras por período"),
+        ("inventory_full",   "Inventario â€“ Completo"),
+        ("inventory_compra", "Inventario â€“ Compra"),
+        ("inventory_venta",  "Inventario â€“ Venta"),
+        ("sales_period",         "Ventas por perÃ­odo"),
+        ("sales_detail_period",  "Detalle de ventas por perÃ­odo"),
+        ("sales_top_products",   "Top productos vendidos por perÃ­odo"),
+        ("purchases_period",        "Compras por perÃ­odo"),
+        ("purchases_detail_period", "Detalle de compras por perÃ­odo"),
         ("products_list",   "Listado de productos"),
         ("suppliers_list",  "Listado de proveedores"),
         ("customers_list",  "Listado de clientes"),
     ]
 
-    # Estados sugeridos (puedes ajustar según tus flujos)
+    # Estados sugeridos (puedes ajustar segÃºn tus flujos)
     SALES_STATES = ["(Todos)", "Confirmada", "Pendiente", "Cancelada", "Eliminada"]
     PURCH_STATES = ["(Todos)", "Completada", "Pendiente", "Cancelada", "Eliminada"]
 
@@ -128,8 +128,8 @@ class ReportCenter(ttk.Frame):
         self.cmb_state.current(0)
         self.cmb_state.grid(row=0, column=5, sticky="w")
 
-        # Botón de filtros avanzados de inventario (abre tu diálogo)
-        self.btn_inventory_filters = ttk.Button(filt, text="Filtros inventario…", command=self._open_inventory_filters)
+        # BotÃ³n de filtros avanzados de inventario (abre tu diÃ¡logo)
+        self.btn_inventory_filters = ttk.Button(filt, text="Filtros inventarioâ€¦", command=self._open_inventory_filters)
         self.btn_inventory_filters.grid(row=0, column=6, sticky="w", padx=8)
 
         # Filtros adicionales comunes (ventas/compras)
@@ -141,10 +141,10 @@ class ReportCenter(ttk.Frame):
         self.var_product = tk.StringVar()
         ttk.Entry(filt, textvariable=self.var_product, width=24).grid(row=1, column=3, sticky="w")
 
-        ttk.Label(filt, text="Total ≥").grid(row=1, column=4, sticky="e", padx=8)
+        ttk.Label(filt, text="Total >=").grid(row=1, column=4, sticky="e", padx=8)
         self.var_total_min = tk.StringVar()
         ttk.Entry(filt, textvariable=self.var_total_min, width=10).grid(row=1, column=5, sticky="w")
-        ttk.Label(filt, text="Total ≤").grid(row=1, column=6, sticky="e", padx=8)
+        ttk.Label(filt, text="Total <=").grid(row=1, column=6, sticky="e", padx=8)
         self.var_total_max = tk.StringVar()
         ttk.Entry(filt, textvariable=self.var_total_max, width=10).grid(row=1, column=7, sticky="w")
 
@@ -163,25 +163,25 @@ class ReportCenter(ttk.Frame):
         # Estado interno de filtros inventario
         self._inv_filter: InventoryFilter = InventoryFilter()
 
-        # Inicializa controles según el primer informe
+        # Inicializa controles segÃºn el primer informe
         self._on_report_changed()
 
     # ---------------------- Handlers de UI ---------------------- #
     def _on_report_changed(self):
-        """Muestra/oculta filtros según el informe activo y cambia texto de Exportar."""
+        """Muestra/oculta filtros segÃºn el informe activo y cambia texto de Exportar."""
         key = self._current_report_key = self._current_report_key_from_ui()
 
         # Por defecto: exporta a CSV
         self.btn_export.config(text="Exportar CSV")
 
         # Filtros visibles por tipo
-        # Inventario: sin fechas / estado; con botón de filtros avanzados
+        # Inventario: sin fechas / estado; con botÃ³n de filtros avanzados
         is_inventory = key.startswith("inventory_")
         self._set_filters_visible(
             show_dates=False if is_inventory else self._report_uses_dates(key),
             state_values=[] if is_inventory else (self.SALES_STATES if key.startswith("sales_") else (self.PURCH_STATES if key.startswith("purchases_") else []))
         )
-        # Inventario → exportar XLSX / imprimir disponibles
+        # Inventario â†’ exportar XLSX / imprimir disponibles
         if is_inventory:
             self.btn_export.config(text="Exportar XLSX")
 
@@ -198,7 +198,7 @@ class ReportCenter(ttk.Frame):
             pass  # por claridad; no necesitamos ocultar el Labelframe completo
 
         # Simplemente habilitamos/deshabilitamos
-        # (Entradas siguen a la vista pero no afectan si están vacías)
+        # (Entradas siguen a la vista pero no afectan si estÃ¡n vacÃ­as)
         # Estado
         if state_values:
             self.cmb_state.configure(values=state_values)
@@ -208,7 +208,7 @@ class ReportCenter(ttk.Frame):
             self.cmb_state.set("")
             self.cmb_state.state(["disabled"])
 
-        # Botón filtros inventario
+        # BotÃ³n filtros inventario
         if self._current_report_key.startswith("inventory_"):
             self.btn_inventory_filters.state(["!disabled"])
         else:
@@ -229,11 +229,11 @@ class ReportCenter(ttk.Frame):
 
     # ---------------------- Inventario (filtros) ---------------------- #
     def _open_inventory_filters(self):
-        """Abre el diálogo de filtros avanzados de inventario y los guarda localmente."""
+        """Abre el diÃ¡logo de filtros avanzados de inventario y los guarda localmente."""
         try:
             from src.gui.inventory_filters_dialog import InventoryFiltersDialog
         except Exception:
-            messagebox.showwarning("Inventario", "El diálogo de filtros no está disponible.")
+            messagebox.showwarning("Inventario", "El diÃ¡logo de filtros no estÃ¡ disponible.")
             return
 
         dlg = InventoryFiltersDialog(self, initial=self._inv_filter)
@@ -259,7 +259,7 @@ class ReportCenter(ttk.Frame):
 
             # Volcar a grid
             self.table.set_data(self._current_cols, self._current_rows)
-            # Ajuste ancho de columnas (GridTable ya maneja widths por defecto; aquí dejamos autosize)
+            # Ajuste ancho de columnas (GridTable ya maneja widths por defecto; aquÃ­ dejamos autosize)
             self.var_status.set(f"{len(self._current_rows)} fila(s).")
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo ejecutar el informe:\n{e}")
@@ -349,7 +349,7 @@ class ReportCenter(ttk.Frame):
             self._current_cols, self._current_rows = cols, rows
 
         elif key == "sales_detail_period":
-            # Detalle por ítem
+            # Detalle por Ã­tem
             q = (
                 self.session.query(Sale, SaleDetail, Product, Customer)
                 .join(SaleDetail, SaleDetail.id_venta == Sale.id)
@@ -413,7 +413,7 @@ class ReportCenter(ttk.Frame):
                 likep = f"%{prod_like}%"
                 q = q.filter((Product.nombre.ilike(likep)) | (Product.sku.ilike(likep)))
 
-            # Ordenar por cantidad descendente usando la expresión agregada
+            # Ordenar por cantidad descendente usando la expresiÃ³n agregada
             q = q.order_by(qty.desc())
             cols = ["ID Prod", "Producto", "Unidades vendidas", "Total"]
             rows = []
@@ -504,7 +504,7 @@ class ReportCenter(ttk.Frame):
     # ---------------------- Listados simples ---------------------- #
     def _run_list_report(self, key: str):
         if key == "products_list":
-            cols = ["ID", "Nombre", "Código", "Unidad", "P. Compra", "P. Venta", "Stock"]
+            cols = ["ID", "Nombre", "CÃ³digo", "Unidad", "P. Compra", "P. Venta", "Stock"]
             rows = []
             for p in self.session.query(Product).order_by(Product.nombre.asc()):
                 rows.append([
@@ -516,7 +516,7 @@ class ReportCenter(ttk.Frame):
             return
 
         if key == "suppliers_list":
-            cols = ["ID", "Razón social", "RUT", "Contacto", "Teléfono", "Email", "Dirección"]
+            cols = ["ID", "RazÃ³n social", "RUT", "Contacto", "TelÃ©fono", "Email", "DirecciÃ³n"]
             rows = []
             for s in self.session.query(Supplier).order_by(Supplier.razon_social.asc()):
                 rows.append([
@@ -527,7 +527,7 @@ class ReportCenter(ttk.Frame):
             return
 
         if key == "customers_list":
-            cols = ["ID", "Razón social", "RUT", "Contacto", "Teléfono", "Email", "Dirección"]
+            cols = ["ID", "RazÃ³n social", "RUT", "Contacto", "TelÃ©fono", "Email", "DirecciÃ³n"]
             rows = []
             for c in self.session.query(Customer).order_by(Customer.razon_social.asc()):
                 rows.append([
@@ -546,7 +546,7 @@ class ReportCenter(ttk.Frame):
             messagebox.showwarning("Exportar", "Ejecuta un informe primero.")
             return
 
-        # Inventario → usa tu generador XLSX (y permite imprimir)
+        # Inventario â†’ usa tu generador XLSX (y permite imprimir)
         if key.startswith("inventory_"):
             try:
                 rtype = "completo"
@@ -562,7 +562,7 @@ class ReportCenter(ttk.Frame):
                 messagebox.showerror("Exportar", f"No se pudo generar XLSX:\n{e}")
             return
 
-        # Resto → CSV plano sin dependencias
+        # Resto â†’ CSV plano sin dependencias
         try:
             outdir = Path("reports")
             outdir.mkdir(parents=True, exist_ok=True)
@@ -601,6 +601,6 @@ class ReportCenter(ttk.Frame):
         try:
             flt = InventoryFilter(**{**self._inv_filter.__dict__, "report_type": rtype})
             path = print_inventory_report(self.session, flt, f"Inventario ({rtype})", printer_name=printer_name)
-            messagebox.showinfo("Impresión", f"Enviado a '{printer_name}'.\nArchivo: {path}")
+            messagebox.showinfo("ImpresiÃ³n", f"Enviado a '{printer_name}'.\nArchivo: {path}")
         except Exception as e:
             messagebox.showerror("Imprimir", f"No se pudo imprimir:\n{e}")

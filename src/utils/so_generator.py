@@ -76,7 +76,7 @@ def generate_so_to_downloads(
     notes: Optional[str] = None,
     auto_open: bool = True,
 ) -> str:
-    """Guarda la OV en Descargas con nombre Ãºnico y la abre si se pide."""
+    """Guarda la OV en Descargas con nombre único y la abre si se pide."""
     safe_customer = (customer.get("nombre") or "Cliente").strip().replace("/", "-").replace("\\", "-")
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     filename = f"{so_number}_{safe_customer}_{ts}.pdf"

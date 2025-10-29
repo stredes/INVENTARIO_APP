@@ -1,7 +1,8 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import List, Optional, Dict
+from pathlib import Path
 from decimal import Decimal
 
 from src.data.database import get_session
@@ -60,9 +61,9 @@ class PurchasesView(ttk.Frame):
 
         # Estado + forma de pago (acordeón = combobox)
         ttk.Label(head, text="Estado:").grid(row=0, column=3, sticky="e", padx=4)
-        self.ESTADOS = ("Completada", "Pendiente", )
+        self.ESTADOS = ("Completada", "Pendiente", "Cancelada", "Eliminada")
         self.cmb_estado = ttk.Combobox(head, state="readonly", width=14, values=self.ESTADOS)
-        self.cmb_estado.set("Completada")
+        self.cmb_estado.set("Pendiente")
         self.cmb_estado.grid(row=0, column=4, sticky="w", padx=4)
         self.cmb_estado.bind("<<ComboboxSelected>>", lambda _e=None: self._on_estado_change())
 
@@ -91,12 +92,17 @@ class PurchasesView(ttk.Frame):
         self.ent_price = ttk.Entry(det, textvariable=self.var_price, width=14, state="readonly")
         self.ent_price.grid(row=0, column=5, sticky="w", padx=4, pady=4)
 
-        ttk.Button(det, text="Agregar ítem", command=self._on_add_item).grid(row=0, column=6, padx=8)
+        ttk.Label(det, text="Desc. %:").grid(row=0, column=6, sticky="e", padx=4, pady=4)
+        self.var_disc = tk.StringVar(value="0")
+        self.ent_disc = ttk.Entry(det, textvariable=self.var_disc, width=6)
+        self.ent_disc.grid(row=0, column=7, sticky="w", padx=4, pady=4)
+
+        ttk.Button(det, text="Agregar ítem", command=self._on_add_item).grid(row=0, column=8, padx=8)
 
         # ---------- Tabla ----------
         self.tree = ttk.Treeview(
             self,
-            columns=("prod_id", "producto", "cant", "precio", "subtotal"),
+            columns=("prod_id", "producto", "cant", "precio", "desc_pct", "subtotal"),
             show="headings",
             height=12,
         )
@@ -105,6 +111,7 @@ class PurchasesView(ttk.Frame):
             ("producto", "Producto", 300),
             ("cant", "Cant.", 80),
             ("precio", "Precio (c/IVA)", 120),
+            ("desc_pct", "Desc. %", 80),
             ("subtotal", "Subtotal", 120),
         ]:
             self.tree.heading(cid, text=text, anchor="center")
@@ -127,14 +134,14 @@ class PurchasesView(ttk.Frame):
         ttk.Button(bottom, text="Limpiar tabla", command=self._on_clear_table).pack(side="right", padx=6)
         ttk.Button(bottom, text="Generar OC (PDF en Descargas)", command=self._on_generate_po_downloads).pack(side="right", padx=6)
         ttk.Button(bottom, text="Generar Cotización (PDF)", command=self._on_generate_quote_downloads).pack(side="right", padx=6)
-        ttk.Button(bottom, text="Confirmar compra", command=self._on_confirm_purchase).pack(side="right", padx=6)
+        ttk.Button(bottom, text="Guardar compra", command=self._on_confirm_purchase).pack(side="right", padx=6)
 
         # Inicializa proveedores y dataset de productos (filtrado)
         self.refresh_lookups()
-
     # ======================== Lookups ========================
     def refresh_lookups(self):
         """Carga proveedores y productos según proveedor seleccionado."""
+
         # Proveedores por razón social
         self.suppliers = self.session.query(Supplier).order_by(Supplier.razon_social.asc()).all()
         self.cmb_supplier["values"] = [self._display_supplier(s) for s in self.suppliers]
@@ -168,14 +175,14 @@ class PurchasesView(ttk.Frame):
             ]
 
         self.cmb_product.set_dataset(self.products, keyfunc=_disp, searchkeys=_keys)
-        self.cmb_product.set("")  # limpiar selección visible
+        self.cmb_product.set("")  # limpiar selecciÃ³n visible
         self._update_price_field()
 
     def _display_supplier(self, s: Supplier) -> str:
         rut = getattr(s, "rut", "") or ""
         rs = getattr(s, "razon_social", "") or ""
         if rut and rs:
-            return f"{rut} — {rs}"
+            return f"{rut} – {rs}"
         return rs or rut or f"Proveedor {s.id}"
 
     # ======================== Precio con IVA ========================
@@ -244,14 +251,27 @@ class PurchasesView(ttk.Frame):
                 self._warn("El producto no tiene precio de compra válido.")
                 return
 
+            # Descuento % (0..100)
+            try:
+                disc_pct = float(str(self.var_disc.get() or "0").replace(",", "."))
+            except Exception:
+                disc_pct = 0.0
+            if disc_pct < 0:
+                disc_pct = 0.0
+            if disc_pct > 100:
+                disc_pct = 100.0
+            disc_rate = D(disc_pct) / D(100)
+
             # Evita duplicados (opcional)
             for iid in self.tree.get_children():
                 if str(p.id) == str(self.tree.item(iid, "values")[0]):
                     self._warn("Este producto ya está en la tabla.")
                     return
 
-            subtotal = q2(D(qty) * D(price))
-            self.tree.insert("", "end", values=(p.id, p.nombre, qty, fmt_2(price), fmt_2(subtotal)))
+            # Subtotal con descuento aplicado (descuento sobre el neto antes de IVA)
+            # Aquí trabajamos a nivel "precio con IVA", por simplicidad: aplicamos el % directo
+            subtotal = q2(D(qty) * D(price) * (D(1) - disc_rate))
+            self.tree.insert("", "end", values=(p.id, p.nombre, qty, fmt_2(price), f"{disc_pct:.1f}", fmt_2(subtotal)))
             self._update_total()
 
             # reset mínimo
@@ -275,7 +295,7 @@ class PurchasesView(ttk.Frame):
         total = D(0)
         for iid in self.tree.get_children():
             try:
-                total += D(self.tree.item(iid, "values")[4])
+                total += D(self.tree.item(iid, "values")[5])
             except Exception:
                 pass
         self.lbl_total.config(text=f"Total: {fmt_2(total)}")
@@ -283,12 +303,19 @@ class PurchasesView(ttk.Frame):
     def _collect_items_for_manager(self) -> List[PurchaseItem]:
         items: List[PurchaseItem] = []
         for iid in self.tree.get_children():
-            prod_id, _name, scnt, sprice, _sub = self.tree.item(iid, "values")
+            prod_id, _name, scnt, sprice, sdisc, _sub = self.tree.item(iid, "values")
+            # Aplicamos descuento al precio unitario para reflejar el total mostrado
+            try:
+                disc_pct = D(str(sdisc).replace("%", ""))
+            except Exception:
+                disc_pct = D(0)
+            disc_rate = disc_pct / D(100)
+            price_eff = q2(D(sprice) * (D(1) - disc_rate))
             items.append(
                 PurchaseItem(
                     product_id=int(prod_id),
                     cantidad=int(float(scnt)),
-                    precio_unitario=D(sprice),  # ya viene con IVA
+                    precio_unitario=price_eff,  # con IVA y descuento aplicado
                 )
             )
         return items
@@ -296,13 +323,26 @@ class PurchasesView(ttk.Frame):
     def _collect_items_for_pdf(self) -> List[Dict[str, object]]:
         rows: List[Dict[str, object]] = []
         for iid in self.tree.get_children():
-            prod_id, name, scnt, sprice, ssub = self.tree.item(iid, "values")
+            prod_id, name, scnt, sprice, sdisc, ssub = self.tree.item(iid, "values")
+            try:
+                disc_pct = D(str(sdisc).replace("%", ""))
+            except Exception:
+                disc_pct = D(0)
+            try:
+                p: Optional[Product] = self.session.get(Product, int(prod_id))
+                unidad = getattr(p, "unidad_medida", None) or "U"
+            except Exception:
+                unidad = "U"
             rows.append({
                 "id": int(prod_id),
                 "nombre": str(name),
                 "cantidad": int(float(scnt)),
-                "precio": D(sprice),
-                "subtotal": D(ssub),
+                "precio": D(sprice),          # con IVA (precio bruto)
+                "subtotal": D(ssub),          # con IVA y descuento ya aplicado
+                "dcto_pct": disc_pct,         # usado por OC
+                "descuento_porcentaje": disc_pct,  # compat para cotizaciÃ³n
+                "dcto": disc_pct,             # compat alternativa
+                "unidad": unidad,
             })
         return rows
 
@@ -432,3 +472,58 @@ class PurchasesView(ttk.Frame):
 
     def _info(self, msg: str):
         messagebox.showinfo("OK", msg)
+
+    # ======================== Informe Compras ========================
+    def _selected_filter_supplier(self) -> Optional[Supplier]:
+        it = getattr(self, 'flt_supplier', None)
+        if it is None:
+            return None
+        sel = it.get_selected_item()
+        if sel is not None:
+            return sel
+        try:
+            idx = it.current()
+            if idx is not None and idx >= 0 and idx < len(self.suppliers):
+                return self.suppliers[idx]
+        except Exception:
+            pass
+        return None
+
+    def _selected_filter_product(self) -> Optional[Product]:
+        it = getattr(self, 'flt_product', None)
+        if it is None:
+            return None
+        sel = it.get_selected_item()
+        if sel is not None:
+            return sel
+        try:
+            idx = it.current()
+            if idx is not None and idx >= 0 and idx < len(self.products):
+                return self.products[idx]
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def _parse_ddmmyyyy(s: str):
+        from datetime import datetime
+        d, m, y = s.strip().split("/")
+        return datetime(int(y), int(m), int(d))
+
+    def _query_purchases_between(self, d_from, d_to, *, supplier_id: Optional[int], product_id: Optional[int], estado: Optional[str], total_min: Optional[float], total_max: Optional[float]):
+        from sqlalchemy import and_
+        from datetime import datetime
+        from src.data.models import Purchase, PurchaseDetail
+
+        start_dt = datetime.combine(d_from, datetime.min.time())
+        end_dt = datetime.combine(d_to, datetime.max.time())
+
+        q = self.session.query(Purchase).filter(
+            and_(getattr(Purchase, "fecha_compra") >= start_dt,
+                 getattr(Purchase, "fecha_compra") <= end_dt)
+        )
+
+        if estado:
+            q = q.filter(getattr(Purchase, "estado") == estado)
+
+

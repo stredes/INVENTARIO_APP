@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import List, Optional, Dict, Callable
@@ -19,10 +19,10 @@ from src.gui.treeview_utils import apply_default_treeview_styles, enable_auto_ce
 class SalesView(ttk.Frame):
     """
     Crear ventas + Generar OV + ADMIN (cancelar / marcar eliminada).
-    Selector de estado y lógica de stock:
+    Selector de estado y lÃ³gica de stock:
       - Pagada -> puede descontar stock (si checkbox activo)
       - Reservada / Cancelada -> no descuenta
-    Informe de Ventas con filtros + exportación CSV/PDF a Descargas.
+    Informe de Ventas con filtros + exportaciÃ³n CSV/PDF a Descargas.
     """
 
     ESTADOS = ["Confirmada", "Pendiente", "Cancelada", "Eliminada"]
@@ -62,7 +62,7 @@ class SalesView(ttk.Frame):
         self.cmb_estado.grid(row=0, column=4, sticky="w", padx=4)
 
         ttk.Label(top, text="Pago:").grid(row=0, column=5, sticky="e", padx=4)
-        self.PAGOS = ("Contado", "Débito", "Transferencia", "Crédito 30 días")
+        self.PAGOS = ("Contado", "DÃ©bito", "Transferencia", "CrÃ©dito 30 dÃ­as")
         self.cmb_pago = ttk.Combobox(top, state="readonly", width=18, values=self.PAGOS)
         self.cmb_pago.set("Contado")
         self.cmb_pago.grid(row=0, column=6, sticky="w", padx=4)
@@ -91,7 +91,7 @@ class SalesView(ttk.Frame):
         self.ent_disc.insert(0, "0")
         self.ent_disc.grid(row=0, column=7, sticky="w", padx=4, pady=4)
 
-        ttk.Button(det, text="Agregar ítem", command=self._on_add_item)\
+        ttk.Button(det, text="Agregar Ã­tem", command=self._on_add_item)\
             .grid(row=0, column=8, padx=8)
 
         # ---------- Tabla + Scrollbar ----------
@@ -120,7 +120,7 @@ class SalesView(ttk.Frame):
         tree_frame.rowconfigure(0, weight=1)
         tree_frame.columnconfigure(0, weight=1)
 
-        # Soporte de rueda del ratón (Windows/macOS/Linux)
+        # Soporte de rueda del ratÃ³n (Windows/macOS/Linux)
         self.tree.bind("<MouseWheel>", self._on_mousewheel)
         self.tree.bind("<Button-4>", self._on_mousewheel)   # Linux scroll up
         self.tree.bind("<Button-5>", self._on_mousewheel)   # Linux scroll down
@@ -137,13 +137,13 @@ class SalesView(ttk.Frame):
         self.lbl_total = ttk.Label(bottom, text="Total: 0.00", font=("", 11, "bold"))
         self.lbl_total.pack(side="left")
 
-        # Estado ya está en el encabezado; no lo repetimos en el footer
+        # Estado ya estÃ¡ en el encabezado; no lo repetimos en el footer
 
-        ttk.Button(bottom, text="Eliminar ítem", command=self._on_delete_item)\
+        ttk.Button(bottom, text="Eliminar Ã­tem", command=self._on_delete_item)\
             .pack(side="right", padx=6)
         ttk.Button(bottom, text="Limpiar tabla", command=self._on_clear_table)\
             .pack(side="right", padx=6)
-        ttk.Button(bottom, text="Generar Cotización (PDF)", command=self._on_generate_sales_quote)\
+        ttk.Button(bottom, text="Generar CotizaciÃ³n (PDF)", command=self._on_generate_sales_quote)\
             .pack(side="right", padx=6)
         ttk.Button(bottom, text="Generar OV (PDF en Descargas)", command=self._on_generate_so_downloads)\
             .pack(side="right", padx=6)
@@ -164,22 +164,27 @@ class SalesView(ttk.Frame):
         # ---------- Informe de Ventas ----------
         rep = ttk.Labelframe(self, text="Informe de ventas por fecha y filtros", padding=10)
         rep.pack(fill="x", expand=False, pady=(10, 0))
+        # Hacer las columnas de entrada elásticas
+        for col in (1, 3, 5):
+            rep.grid_columnconfigure(col, weight=1)
+        for col in (0, 2, 4, 6):
+            rep.grid_columnconfigure(col, weight=0)
 
         ttk.Label(rep, text="Desde (dd/mm/aaaa):").grid(row=0, column=0, sticky="e", padx=4, pady=4)
         self.ent_from = ttk.Entry(rep, width=12)
-        self.ent_from.grid(row=0, column=1, sticky="w", padx=4, pady=4)
+        self.ent_from.grid(row=0, column=1, sticky="ew", padx=4, pady=4)
 
         ttk.Label(rep, text="Hasta (dd/mm/aaaa):").grid(row=0, column=2, sticky="e", padx=4, pady=4)
         self.ent_to = ttk.Entry(rep, width=12)
-        self.ent_to.grid(row=0, column=3, sticky="w", padx=4, pady=4)
+        self.ent_to.grid(row=0, column=3, sticky="ew", padx=4, pady=4)
 
         ttk.Label(rep, text="Cliente:").grid(row=1, column=0, sticky="e", padx=4, pady=4)
         self.flt_customer = AutoCompleteCombobox(rep, width=40, state="normal")
-        self.flt_customer.grid(row=1, column=1, sticky="w", padx=4, pady=4)
+        self.flt_customer.grid(row=1, column=1, sticky="ew", padx=4, pady=4)
 
         ttk.Label(rep, text="Producto:").grid(row=1, column=2, sticky="e", padx=4, pady=4)
         self.flt_product = AutoCompleteCombobox(rep, width=40, state="normal")
-        self.flt_product.grid(row=1, column=3, sticky="w", padx=4, pady=4)
+        self.flt_product.grid(row=1, column=3, sticky="ew", padx=4, pady=4)
 
         ttk.Label(rep, text="Estado:").grid(row=2, column=0, sticky="e", padx=4, pady=4)
         self.flt_estado = ttk.Combobox(
@@ -189,16 +194,16 @@ class SalesView(ttk.Frame):
         self.flt_estado.grid(row=2, column=1, sticky="w", padx=4, pady=4)
         self.flt_estado.set("")
 
-        ttk.Label(rep, text="Total ≥").grid(row=2, column=2, sticky="e", padx=4, pady=4)
+        ttk.Label(rep, text="Total >=").grid(row=2, column=2, sticky="e", padx=4, pady=4)
         self.flt_total_min = ttk.Entry(rep, width=12)
         self.flt_total_min.grid(row=2, column=3, sticky="w", padx=4, pady=4)
 
-        ttk.Label(rep, text="Total ≤").grid(row=2, column=4, sticky="e", padx=4, pady=4)
+        ttk.Label(rep, text="Total <=").grid(row=2, column=4, sticky="e", padx=4, pady=4)
         self.flt_total_max = ttk.Entry(rep, width=12)
         self.flt_total_max.grid(row=2, column=5, sticky="w", padx=4, pady=4)
 
         ttk.Button(rep, text="Generar Informe", command=self._on_generate_sales_report)\
-            .grid(row=0, column=4, columnspan=2, sticky="w", padx=8, pady=4)
+            .grid(row=0, column=6, sticky="e", padx=8, pady=4)
 
         self.refresh_lookups()
 
@@ -252,7 +257,7 @@ class SalesView(ttk.Frame):
         rut = getattr(c, "rut", "") or ""
         rs = getattr(c, "razon_social", "") or ""
         if rut and rs:
-            return f"{rut} — {rs}"
+            return f"{rut} â€” {rs}"
         return rs or rut or f"Cliente {c.id}"
 
     def _get_selected_customer(self) -> Optional[Customer]:
@@ -261,7 +266,7 @@ class SalesView(ttk.Frame):
             return None
         return self.customers[idx]
 
-    # -------------------- Selección de producto --------------------
+    # -------------------- SelecciÃ³n de producto --------------------
     def _selected_product(self) -> Optional[Product]:
         it = self.cmb_product.get_selected_item()
         if it is not None:
@@ -290,9 +295,9 @@ class SalesView(ttk.Frame):
         except Exception:
             pass
 
-    # -------------------- Ítems --------------------
+    # -------------------- Ãtems --------------------
     def _on_add_item(self):
-        """Agrega un ítem validando duplicados y valores."""
+        """Agrega un Ã­tem validando duplicados y valores."""
         try:
             p = self._selected_product()
             if not p:
@@ -303,13 +308,13 @@ class SalesView(ttk.Frame):
             try:
                 qty = int(float(self.ent_qty.get()))
             except Exception:
-                self._warn("Cantidad inválida.")
+                self._warn("Cantidad invÃ¡lida.")
                 return
             if qty <= 0:
                 self._warn("La cantidad debe ser > 0.")
                 return
 
-            # Precio: si no se indicó, usar precio_venta del producto
+            # Precio: si no se indicÃ³, usar precio_venta del producto
             try:
                 price = D(self.ent_price.get())
             except Exception:
@@ -317,7 +322,7 @@ class SalesView(ttk.Frame):
             if price <= 0:
                 price = D(getattr(p, "precio_venta", 0) or 0)
             if price <= 0:
-                self._warn("Ingrese un precio válido (> 0).")
+                self._warn("Ingrese un precio vÃ¡lido (> 0).")
                 return
 
             # Descuento %
@@ -330,7 +335,7 @@ class SalesView(ttk.Frame):
             # Evita duplicados
             for iid in self.tree.get_children():
                 if str(p.id) == str(self.tree.item(iid, "values")[0]):
-                    self._warn("Este producto ya está en la tabla.")
+                    self._warn("Este producto ya estÃ¡ en la tabla.")
                     return
 
             eff_price = q2(D(price) * D(1 - disc/100))
@@ -346,7 +351,7 @@ class SalesView(ttk.Frame):
             self.cmb_product.focus_set()
 
         except Exception as e:
-            self._error(f"No se pudo agregar el ítem:\n{e}")
+            self._error(f"No se pudo agregar el Ã­tem:\n{e}")
 
     def _on_delete_item(self):
         for item in self.tree.selection():
@@ -417,13 +422,13 @@ class SalesView(ttk.Frame):
         for name in ("create_sale", "create", "register_sale", "add_sale"):
             if hasattr(self.sm, name):
                 return getattr(self.sm, name)
-        raise AttributeError("SalesManager no expone un método para crear ventas (create_sale/create/...)")
+        raise AttributeError("SalesManager no expone un mÃ©todo para crear ventas (create_sale/create/...)")
 
     def _on_confirm_sale(self):
         try:
             items = self._collect_items()
             if not items:
-                self._warn("Agregue al menos un ítem.")
+                self._warn("Agregue al menos un Ã­tem.")
                 return
             cust = self._get_selected_customer()
             if not cust:
@@ -436,7 +441,7 @@ class SalesView(ttk.Frame):
             ]
 
             estado = (self.cmb_estado.get() or "Confirmada").strip()
-            # Descontar stock solo si está Confirmada o Pagada (compatibilidad)
+            # Descontar stock solo si estÃ¡ Confirmada o Pagada (compatibilidad)
             apply_to_stock = self.var_apply.get() and (estado in ("Confirmada", "Pagada"))
 
             create_fn = self._resolve_create_sale()
@@ -456,7 +461,7 @@ class SalesView(ttk.Frame):
         try:
             items = self._collect_items()
             if not items:
-                self._warn("Agregue al menos un ítem.")
+                self._warn("Agregue al menos un Ã­tem.")
                 return
             cust = self._get_selected_customer_dict()
             try:
@@ -480,7 +485,7 @@ class SalesView(ttk.Frame):
         try:
             items = self._collect_items()
             if not items:
-                self._warn("Agregue al menos un ��tem.")
+                self._warn("Agregue al menos un Ã­tem.")
                 return
             cust = self._get_selected_customer_dict()
             cust.setdefault("nombre", cust.get("razon_social") or "")
@@ -497,9 +502,9 @@ class SalesView(ttk.Frame):
                 notes=None,
                 auto_open=True,
             )
-            self._info(f"Cotización de venta creada en Descargas:\n{out}")
+            self._info(f"CotizaciÃ³n de venta creada en Descargas:\n{out}")
         except Exception as e:
-            self._error(f"No se pudo generar la cotización:\n{e}")
+            self._error(f"No se pudo generar la cotizaciÃ³n:\n{e}")
 
     def _on_cancel_sale(self):
         try:
@@ -512,14 +517,14 @@ class SalesView(ttk.Frame):
     def _on_delete_sale(self):
         try:
             sid = int(self.ent_sale_id.get())
-            if not messagebox.askyesno("Confirmar", f"¿Marcar venta {sid} como Eliminada? Se revertirá stock si corresponde."):
+            if not messagebox.askyesno("Confirmar", f"Â¿Marcar venta {sid} como Eliminada? Se revertirÃ¡ stock si corresponde."):
                 return
             self.sm.delete_sale(sid, revert_stock=True)
             self._info(f"Venta {sid} marcada como Eliminada.")
         except Exception as e:
             self._error(f"No se pudo eliminar:\n{e}")
 
-    # ==================== Informe de Ventas (Lógica) ====================
+    # ==================== Informe de Ventas (LÃ³gica) ====================
     @staticmethod
     def _parse_ddmmyyyy(s: str):
         from datetime import datetime as _dt
@@ -685,8 +690,8 @@ class SalesView(ttk.Frame):
                 "Cliente": filtro_cliente or "Todos",
                 "Producto": filtro_producto or "Todos",
                 "Estado": (self.flt_estado.get() or "").strip() or "Todos",
-                "Total ≥": self.flt_total_min.get() or "-",
-                "Total ≤": self.flt_total_max.get() or "-",
+                "Total â‰¥": self.flt_total_min.get() or "-",
+                "Total â‰¤": self.flt_total_max.get() or "-",
             }
 
             date_from = self.ent_from.get().strip()
@@ -755,7 +760,7 @@ class SalesView(ttk.Frame):
 
     # -------------------- Mensajes --------------------
     def _warn(self, msg: str):
-        messagebox.showwarning("Validación", msg)
+        messagebox.showwarning("ValidaciÃ³n", msg)
 
     def _error(self, msg: str):
         messagebox.showerror("Error", msg)
