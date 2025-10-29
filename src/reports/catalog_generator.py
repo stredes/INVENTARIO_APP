@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 from __future__ import annotations
 from pathlib import Path
 from typing import Optional, List
@@ -7,7 +7,8 @@ import webbrowser
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import mm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle, KeepInFrame
+from reportlab.pdfbase import pdfmetrics
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 from sqlalchemy.orm import Session
@@ -83,7 +84,7 @@ def generate_products_catalog(
     out_path: Optional[Path] = None,
     iva: float = 0.19,
     copies: int = 1,
-    title: str = "Catálogo de Productos",
+    title: str = "CatÃ¡logo de Productos",
     cols: int = 3,
     rows: int = 4,
     show_company: bool = True,
@@ -94,13 +95,13 @@ def generate_products_catalog(
     auto_open: bool = True,
 ) -> Path:
     """
-    Genera un catálogo PDF de todos los productos con:
+    Genera un catÃ¡logo PDF de todos los productos con:
       - Imagen (si existe, usando thumbnail),
       - Nombre + SKU,
       - Stock actual,
       - Precio de venta sin IVA.
 
-    Layout: tarjetas en grilla (3 columnas x 4 filas) por página.
+    Layout: tarjetas en grilla (3 columnas x 4 filas) por pÃ¡gina.
     """
     session = session or get_session()
     products: List[Product] = session.query(Product).order_by(Product.nombre.asc()).all()
@@ -111,7 +112,7 @@ def generate_products_catalog(
 
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name="tiny", fontSize=7, leading=9))
-    styles.add(ParagraphStyle(name="card_title", fontSize=9, leading=11, spaceAfter=2, alignment=1))
+    styles.add(ParagraphStyle(name="card_title", fontSize=9, leading=11, spaceAfter=2, alignment=0, wordWrap="CJK"))
     styles.add(ParagraphStyle(name="hdr", fontSize=12, leading=14))
     styles.add(ParagraphStyle(name="hdr_b", fontSize=16, leading=18, alignment=1))
 
@@ -151,6 +152,51 @@ def generate_products_catalog(
         story.append(Spacer(1, 6))
     cards: List[List] = []
     row_buf: List = []
+    def _wrap_title(text: str, max_width: float, max_lines: int = 2, *, font_name: str = "Helvetica-Bold", font_size: int = 9) -> str:
+        """Ajusta el nombre del producto al ancho y limita lineas, agregando '...' si es necesario."""
+        if not text:
+            return ""
+        words = (text.replace("\n", " ").strip()).split()
+        lines_acc = []
+        line = ""
+        i = 0
+        while i < len(words):
+            w = words[i]
+            cand = (line + (" " if line else "") + w).strip()
+            if pdfmetrics.stringWidth(cand, font_name, font_size) <= max_width:
+                line = cand
+                i += 1
+            else:
+                if line:
+                    lines_acc.append(line)
+                    line = ""
+                else:
+                    cut = w
+                    while cut and pdfmetrics.stringWidth(cut, font_name, font_size) > max_width:
+                        cut = cut[:-1]
+                    if cut:
+                        lines_acc.append(cut)
+                        rest = w[len(cut):]
+                        if rest:
+                            words[i] = rest
+                            continue
+                        i += 1
+                    else:
+                        i += 1
+                if len(lines_acc) >= max_lines:
+                    break
+        if len(lines_acc) < max_lines and line:
+            lines_acc.append(line)
+        if i < len(words):
+            last = lines_acc[-1] if lines_acc else ""
+            ell = "..."
+            while last and pdfmetrics.stringWidth(last + ell, font_name, font_size) > max_width:
+                last = last[:-1]
+            if lines_acc:
+                lines_acc[-1] = (last + ell) if last else ell
+            else:
+                lines_acc = [ell]
+        return "<br/>".join(lines_acc)
 
     for p in products:
         img_path, thumb_path = get_latest_image_paths(int(p.id))
@@ -166,7 +212,7 @@ def generate_products_catalog(
         if use_path is not None:
             try:
                 im = Image(str(use_path))
-                # Escalar manteniendo proporción sin exceder el box
+                # Escalar manteniendo proporciÃ³n sin exceder el box
                 iw, ih = float(getattr(im, 'imageWidth', 1)), float(getattr(im, 'imageHeight', 1))
                 r = min(img_box_w / max(iw, 1.0), img_box_h / max(ih, 1.0), 1.0)
                 im.drawWidth = iw * r
@@ -182,7 +228,8 @@ def generate_products_catalog(
             ("BOX", (0,0), (-1,-1), 0.3, colors.lightgrey),
         ]))
 
-        title = f"<b>{(p.nombre or '').strip()}</b>"
+        raw_title = (p.nombre or '').strip()
+        title = f"<b>{_wrap_title(raw_title, col_w - 8*mm, 2)}</b>"
         sku = (p.sku or "").strip()
         sku_txt = f"SKU: {sku}" if sku else ""
         stock = int(getattr(p, "stock_actual", 0) or 0)
@@ -199,9 +246,10 @@ def generate_products_catalog(
         if show_price_gross:
             lines.append(Paragraph(f"Precio (con IVA): <b>{int(price_raw):,}</b>".replace(",", "."), styles["tiny"]))
 
+        text_block = KeepInFrame(col_w-8*mm, row_h*0.4, content=lines, mode='truncate', mergeSpace=True)
         card_tbl = Table([
             [img_cell],
-            [Table([[l] for l in lines], colWidths=[col_w-8*mm])]
+            [text_block]
         ], colWidths=[col_w-8*mm], rowHeights=[row_h*0.6, row_h*0.4])
         card_tbl.setStyle(TableStyle([
             ("BOX", (0,0), (-1,-1), 0.3, colors.black),
@@ -226,15 +274,14 @@ def generate_products_catalog(
     if cards:
         story.append(Table(cards, colWidths=[col_w]*cols, rowHeights=[row_h]*len(cards), hAlign='CENTER'))
 
-    # Repetir páginas según 'copies'
+    # Repetir pÃ¡ginas segÃºn 'copies'
     if copies and copies > 1:
         story = story * int(copies)
 
     def _footer(canvas, _doc):
         pg = canvas.getPageNumber()
         canvas.setFont("Helvetica", 8)
-        canvas.drawRightString(W - 15*mm, 10*mm, f"Página {pg} — {datetime.now().strftime('%d/%m/%Y')}")
-
+        canvas.drawRightString(W - 15*mm, 10*mm, "Pagina {0} - ".format(pg) + __import__("datetime").datetime.now().strftime("%d/%m/%Y"))
     doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
     if auto_open:
         try:
@@ -242,3 +289,9 @@ def generate_products_catalog(
         except Exception:
             pass
     return out_path
+
+
+
+
+
+

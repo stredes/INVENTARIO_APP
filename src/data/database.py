@@ -1,9 +1,9 @@
-"""
-Gestión de la base de datos (SQLAlchemy):
+﻿"""
+GestiÃ³n de la base de datos (SQLAlchemy):
 - Crea engine + scoped_session.
 - Activa PRAGMA foreign_keys en SQLite.
 - init_db(): crea tablas con ORM o aplica schema.sql si se indica en config.
-- MIGRACIÓN LIGERA: asegura columnas nuevas (p.ej. products.image_path, products.id_proveedor).
+- MIGRACIÃ“N LIGERA: asegura columnas nuevas (p.ej. products.image_path, products.id_proveedor).
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ def _read_config() -> configparser.ConfigParser:
                 tried = True
     if not tried:
         # Valor por defecto si no existe settings.ini
-        cfg["database"] = {"url": "sqlite:///./inventario.db"}
+        cfg["database"] = {"url": "sqlite:///app_data/inventario.db"}
     return cfg
 
 
@@ -90,55 +90,13 @@ def _safe_sqlite_url(db_url: str) -> str:
     raw_path = db_url[len(prefix):]
     path = Path(raw_path)
     if not path.is_absolute():
-        # Determinar nombre de archivo y candidatos de carpeta escribibles
-        fname = path.name if path.name else "inventario.db"
-        candidates: list[Path] = []
         exedir = _frozen_dir()
-        if exedir is not None:
-            candidates.append(exedir)  # junto al .exe (preferido)
-        # Carpeta de datos del usuario (si exedir no es escribible)
-        base = os.getenv("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-        candidates.append(Path(base) / "InventarioApp")
-        # Documentos del usuario
+        base = exedir if exedir is not None else Path.cwd()
+        path = base / path
         try:
-            documents = Path.home() / "Documents" / "InventarioApp"
-            candidates.append(documents)
+            path.parent.mkdir(parents=True, exist_ok=True)
         except Exception:
             pass
-        # Carpeta pública (suele ser escribible sin admin)
-        try:
-            public_dir = Path(os.environ.get("PUBLIC", r"C:\\Users\\Public")) / "InventarioApp"
-            candidates.append(public_dir)
-        except Exception:
-            pass
-
-        chosen: Path | None = None
-        for folder in candidates:
-            try:
-                folder.mkdir(parents=True, exist_ok=True)
-                test_path = folder / (fname + ".write_test")
-                with open(test_path, "a", encoding="utf-8"):
-                    pass
-                try:
-                    test_path.unlink(missing_ok=True)  # py>=3.8
-                except Exception:
-                    try:
-                        if test_path.exists():
-                            test_path.unlink()
-                    except Exception:
-                        pass
-                chosen = folder / fname
-                break
-            except Exception:
-                continue
-        if chosen is None:
-            # último recurso: ruta relativa en cwd
-            chosen = Path.cwd() / fname
-            try:
-                chosen.parent.mkdir(parents=True, exist_ok=True)
-            except Exception:
-                pass
-        path = chosen
     try:
         resolved = Path(path).resolve()
     except Exception:
@@ -162,7 +120,7 @@ def get_engine() -> Engine:
         db_url = env_url
     else:
         cfg = _read_config()
-        db_url = cfg.get("database", "url", fallback="sqlite:///./inventario.db")
+        db_url = cfg.get("database", "url", fallback="sqlite:///app_data/inventario.db")
     db_url = _safe_sqlite_url(db_url)
 
     # 2) Engine con pool razonable si es servidor (PostgreSQL)
@@ -185,7 +143,7 @@ def get_engine() -> Engine:
             # Si no es SQLite o falla, ignoramos silenciosamente
             pass
 
-    # MIGRACIÓN LIGERA (idempotente)
+    # MIGRACIÃ“N LIGERA (idempotente)
     _ensure_schema(_engine)
 
     return _engine
@@ -205,12 +163,12 @@ def get_session() -> scoped_session:
 def init_db(apply_schema_sql_path: Optional[str] = None, create_with_orm: bool = True) -> None:
     """
     Inicializa la base:
-    - Si apply_schema_sql_path está definido (o en settings.ini: database.apply_schema_sql),
+    - Si apply_schema_sql_path estÃ¡ definido (o en settings.ini: database.apply_schema_sql),
       aplica ese SQL (p.ej., schema.sql).
     - Si create_with_orm=True, hace Base.metadata.create_all() con los modelos ORM.
     """
     engine = get_engine()
-    _ = get_session()  # asegura la sesión creada
+    _ = get_session()  # asegura la sesiÃ³n creada
 
     # Carga diferida para evitar import circular
     from .models import Base  # noqa: WPS433
@@ -219,13 +177,13 @@ def init_db(apply_schema_sql_path: Optional[str] = None, create_with_orm: bool =
     if apply_schema_sql_path is None:
         apply_schema_sql_path = cfg.get("database", "apply_schema_sql", fallback=None)
 
-    # 1) Aplicar schema.sql si se indicó
+    # 1) Aplicar schema.sql si se indicÃ³
     if apply_schema_sql_path:
         sql_path = Path(apply_schema_sql_path)
         if not sql_path.exists():
-            raise FileNotFoundError(f"No se encontró el archivo SQL: {sql_path}")
+            raise FileNotFoundError(f"No se encontrÃ³ el archivo SQL: {sql_path}")
         sql_text = sql_path.read_text(encoding="utf-8")
-        # Ejecutamos dentro de una transacción
+        # Ejecutamos dentro de una transacciÃ³n
         with engine.begin() as conn:
             # Desactivar restricciones si lo necesitas (SQLite)
             conn.exec_driver_sql("PRAGMA foreign_keys=OFF;")
@@ -236,12 +194,12 @@ def init_db(apply_schema_sql_path: Optional[str] = None, create_with_orm: bool =
     if create_with_orm:
         Base.metadata.create_all(bind=engine)
 
-    # 3) Asegurar columnas nuevas (por si create_all no las puede añadir)
+    # 3) Asegurar columnas nuevas (por si create_all no las puede aÃ±adir)
     _ensure_schema(engine)
 
 
 def dispose_engine() -> None:
-    """Cierra el engine y limpia el scoped_session (útil para tests)."""
+    """Cierra el engine y limpia el scoped_session (Ãºtil para tests)."""
     global _engine, SessionLocal
     if SessionLocal is not None:
         SessionLocal.remove()
@@ -276,7 +234,7 @@ def _table_exists(engine: Engine, table: str) -> bool:
 def _table_has_column(engine: Engine, table: str, column: str) -> bool:
     """Devuelve True si la columna existe (solo SQLite; para otros motores devuelve True y no hace nada)."""
     if not _is_sqlite(engine):
-        return True  # no gestionamos introspección aquí para otros motores
+        return True  # no gestionamos introspecciÃ³n aquÃ­ para otros motores
     if not _table_exists(engine, table):
         return False
     with engine.connect() as conn:
@@ -305,14 +263,14 @@ def _add_column_if_missing(engine: Engine, table: str, column: str, type_sql: st
 
 def _create_index_if_missing(engine: Engine, index_sql: str, index_name: str) -> None:
     """
-    Crea un índice si no existe (solo SQLite).
+    Crea un Ã­ndice si no existe (solo SQLite).
     index_sql: sentencia completa 'CREATE INDEX IF NOT EXISTS ...'
-    index_name: nombre del índice para chequeo rápido.
+    index_name: nombre del Ã­ndice para chequeo rÃ¡pido.
     """
     if not _is_sqlite(engine):
         return
     with engine.connect() as conn:
-        # Si el índice ya existe, no hacemos nada
+        # Si el Ã­ndice ya existe, no hacemos nada
         row = conn.exec_driver_sql(
             "SELECT name FROM sqlite_master WHERE type='index' AND name=?;",
             (index_name,),
@@ -325,11 +283,11 @@ def _create_index_if_missing(engine: Engine, index_sql: str, index_name: str) ->
 
 def _ensure_schema(engine: Engine) -> None:
     """
-    Aplica pequeñas migraciones idempotentes necesarias para la app.
+    Aplica pequeÃ±as migraciones idempotentes necesarias para la app.
     - products.image_path TEXT
     - products.id_proveedor INTEGER REFERENCES suppliers(id)
       (queda NULL-permitido para no romper BD con datos previos; validar en capa de app)
-    - Índice en products(id_proveedor) para acelerar filtros por proveedor.
+    - Ãndice en products(id_proveedor) para acelerar filtros por proveedor.
     """
     try:
         # Asegurar columna de imagen en productos
@@ -343,7 +301,7 @@ def _ensure_schema(engine: Engine) -> None:
             type_sql='INTEGER REFERENCES suppliers(id)'
         )
 
-        # Asegurar columna de ubicación en productos (FK a locations)
+        # Asegurar columna de ubicaciÃ³n en productos (FK a locations)
         _add_column_if_missing(
             engine,
             table="products",
@@ -351,14 +309,14 @@ def _ensure_schema(engine: Engine) -> None:
             type_sql='INTEGER REFERENCES locations(id)'
         )
 
-        # Índice para consultas por proveedor (opcional pero útil)
+        # Ãndice para consultas por proveedor (opcional pero Ãºtil)
         _create_index_if_missing(
             engine,
             index_sql='CREATE INDEX IF NOT EXISTS idx_products_id_proveedor ON products(id_proveedor);',
             index_name='idx_products_id_proveedor',
         )
 
-        # Índice para ubicación (opcional)
+        # Ãndice para ubicaciÃ³n (opcional)
         _create_index_if_missing(
             engine,
             index_sql='CREATE INDEX IF NOT EXISTS idx_products_id_ubicacion ON products(id_ubicacion);',
@@ -366,6 +324,8 @@ def _ensure_schema(engine: Engine) -> None:
         )
 
     except Exception:
-        # Evitar que un fallo de migración bloquee el arranque;
-        # si necesitas depurar, eleva la excepción.
+        # Evitar que un fallo de migraciÃ³n bloquee el arranque;
+        # si necesitas depurar, eleva la excepciÃ³n.
         pass
+
+

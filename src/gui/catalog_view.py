@@ -137,6 +137,60 @@ class CatalogView(ttk.Frame):
             draw.text((margin, 4), f"{comp.get('name', '')}", fill=(0, 0, 0), font=font_t)
             draw.text((W//2 - 120, 4), title, fill=(0, 0, 0), font=font_t)
 
+        def _wrap_pil(text: str, *, font: ImageFont.ImageFont, max_w: int, max_lines: int = 2) -> list[str]:
+            if not text:
+                return []
+            words = (text or "").replace("\n", " ").strip().split()
+            lines: list[str] = []
+            line = ""
+            # Medidor de ancho (compat PIL)
+            def _w(s: str) -> int:
+                try:
+                    return int(draw.textlength(s, font=font))
+                except Exception:
+                    try:
+                        box = font.getbbox(s)
+                        return int((box[2] - box[0]) if box else 0)
+                    except Exception:
+                        return len(s) * max(1, font.size // 2)
+            i = 0
+            while i < len(words):
+                w = words[i]
+                cand = (line + (" " if line else "") + w).strip()
+                if _w(cand) <= max_w:
+                    line = cand
+                    i += 1
+                else:
+                    if line:
+                        lines.append(line)
+                        line = ""
+                    else:
+                        # cortar palabra muy larga
+                        cut = w
+                        while cut and _w(cut) > max_w:
+                            cut = cut[:-1]
+                        if cut:
+                            lines.append(cut)
+                            rest = w[len(cut):]
+                            if rest:
+                                words[i] = rest
+                                continue
+                            i += 1
+                        else:
+                            i += 1
+                    if len(lines) >= max_lines:
+                        break
+            if len(lines) < max_lines and line:
+                lines.append(line)
+            # Ellipsis si faltó
+            if i < len(words) and lines:
+                last = lines[-1]
+                ell = "..."
+                while last and _w(last + ell) > max_w:
+                    last = last[:-1]
+                lines[-1] = (last + ell) if last else ell
+            return lines
+
         for idx, p in enumerate(prods):
             r = idx // cols
             c = idx % cols
@@ -180,8 +234,11 @@ class CatalogView(ttk.Frame):
 
             tx = x0 + 12
             ty = y0 + int(row_h * 0.55)
-            draw.text((tx, ty), name, fill=(0, 0, 0), font=font_t)
-            ty += 22
+            # Nombre envuelto (2 líneas máx)
+            max_text_w = col_w - 24
+            for ln in _wrap_pil(name, font=font_t, max_w=max_text_w, max_lines=2):
+                draw.text((tx, ty), ln, fill=(0, 0, 0), font=font_t)
+                ty += 18
             if self.var_show_sku.get() and sku:
                 draw.text((tx, ty), f"SKU: {sku}", fill=(20, 20, 20), font=font_s)
                 ty += 18

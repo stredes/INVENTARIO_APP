@@ -244,7 +244,9 @@ def seed_sales(session: Session, clientes: List[Customer], productos: List[Produ
         cust = random.choice(clientes)
         items = random.sample(productos, k=random.randint(1, 5))
         fecha = _random_recent_datetime(120)
-        estado = random.choices(estados, weights=[0.6, 0.25, 0.15], k=1)[0]
+        # Pesos deben coincidir con la cantidad de estados
+        # Preferimos más ventas Confirmadas, luego Pendientes, menos Canceladas y muy pocas Eliminadas
+        estado = random.choices(estados, weights=[0.6, 0.25, 0.1, 0.05], k=1)[0]
 
         sale = Sale(
             fecha_venta=fecha,

@@ -532,7 +532,7 @@ class ProductsView(ttk.Frame):
                 f"{iva_ref:.1f}",
                 f"{iva_monto:.0f}",
                 f"{pmasiva:.0f}",
-                f"{margen:.1f}",
+                f"{round(margen):.0f}",
                 f"{pv:.0f}",
                 p.unidad_medida or "",
             ]

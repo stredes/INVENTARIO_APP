@@ -104,6 +104,26 @@ class ProductRepository(BaseRepository[Product]):
             .all()
         )
 
+    def _has_dependencies(self, product_id: int) -> bool:
+        """True si hay compras/ventas o movimientos que referencian el producto."""
+        checks = [
+            self.session.query(PurchaseDetail).filter(PurchaseDetail.id_producto == product_id).count(),
+            self.session.query(SaleDetail).filter(SaleDetail.id_producto == product_id).count(),
+            self.session.query(StockEntry).filter(StockEntry.id_producto == product_id).count(),
+            self.session.query(StockExit).filter(StockExit.id_producto == product_id).count(),
+        ]
+        return any(c > 0 for c in checks)
+
+    def delete(self, id_: int) -> None:  # type: ignore[override]
+        """
+        Evita IntegrityError: si hay dependencias, avisa con mensaje claro.
+        """
+        if self._has_dependencies(id_):
+            raise ValueError(
+                "No se puede eliminar el producto: tiene ventas/compras o movimientos de stock asociados."
+            )
+        super().delete(id_)
+
 
 # ---------------------------
 # Suppliers (proveedores)

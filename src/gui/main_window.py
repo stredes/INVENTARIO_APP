@@ -110,10 +110,17 @@ class MainWindow(ttk.Frame):
         m_tools.add_command(label="Nuevo (Ctrl+N)", command=self._new_current)
         m_tools.add_command(label="Guardar (Ctrl+S)", command=self._save_current)
         m_tools.add_command(label="Imprimir (Ctrl+P)", command=self._print_current)
+        m_tools.add_command(label="Refrescar aplicacion (F5)", command=self._refresh_all)
         m_tools.add_separator()
         m_tools.add_command(label="Generador de catálogos", command=self._generate_catalog)
         m_tools.add_separator()
         m_tools.add_command(label="Conexión a BD…", command=self._open_db_connection_dialog)
+        # Importacion SQL masiva
+        m_tools.add_separator()
+        m_tools.add_command(label="Importacion SQL masiva...", command=self._open_sql_importer)
+        # Limpiador de base de datos (BORRA TODO)
+        m_tools.add_separator()
+        m_tools.add_command(label="Limpiar base de datos...", command=self._wipe_databases)
         menubar.add_cascade(label="Herramientas", menu=m_tools)
 
         m_view = Menu(menubar, tearoff=False)
@@ -126,6 +133,11 @@ class MainWindow(ttk.Frame):
         self.bind_all("<Control-n>", lambda e: self._new_current())
         self.bind_all("<Control-s>", lambda e: self._save_current())
         self.bind_all("<Control-p>", lambda e: self._print_current())
+        # F5 refresca toda la aplicacion
+        try:
+            self.bind_all("<F5>", lambda e: self._refresh_all())
+        except Exception:
+            pass
 
     def _open_palette(self) -> None:
         actions = self._build_actions()
@@ -320,3 +332,148 @@ class MainWindow(ttk.Frame):
             return self.notebook.index(self.notebook.select())
         except Exception:
             return 0
+
+    def _wipe_databases(self) -> None:
+        """Elimina TODOS los datos de la BD ORM y del ERP simple. IRREVERSIBLE."""
+        try:
+            from tkinter import messagebox
+        except Exception:
+            return
+        if not messagebox.askyesno(
+            "Limpiar base de datos",
+            "Esto eliminará TODOS los registros (productos, proveedores, clientes,\n"
+            "ventas, compras, inventario y documentos ERP).\n\n¿Desea continuar?",
+            parent=self.app_root,
+        ):
+            return
+
+        # 1) Limpiar ORM (SQLAlchemy)
+        try:
+            from sqlalchemy.orm import Session as _S
+            from src.data.models import (
+                SaleDetail, Sale, PurchaseDetail, Purchase,
+                StockEntry, StockExit, Product, Supplier, Customer, Location,
+            )
+            sess: _S = self.products_tab.session
+            # Orden seguro respetando FKs
+            sess.query(SaleDetail).delete()
+            sess.query(Sale).delete()
+            sess.query(PurchaseDetail).delete()
+            sess.query(Purchase).delete()
+            sess.query(StockEntry).delete()
+            sess.query(StockExit).delete()
+            sess.query(Product).delete()
+            sess.query(Supplier).delete()
+            sess.query(Customer).delete()
+            sess.query(Location).delete()
+            sess.commit()
+        except Exception as ex:
+            try:
+                Toast.show(self.app_root, f"Error limpiando ORM: {ex}", kind="danger", position="tr")
+            except Exception:
+                pass
+            return
+
+        # 2) Limpiar ERP (sqlite simple) si existe
+        try:
+            from src.erp.core.database import get_connection, DEFAULT_DB_PATH
+            conn = get_connection(DEFAULT_DB_PATH)
+            try:
+                conn.execute("PRAGMA foreign_keys = ON;")
+                conn.execute("DELETE FROM detalles;")
+                conn.execute("DELETE FROM documentos;")
+                conn.execute("DELETE FROM log_auditoria;")
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception:
+            # Si no existe o falla, lo omitimos silenciosamente
+            pass
+
+        # 3) Notificar
+        try:
+            Toast.show(self.app_root, "Base de datos limpiada", kind="success")
+        except Exception:
+            messagebox.showinfo("BD", "Base de datos limpiada")
+
+    def _seed_surt_fake(self) -> None:
+        """Seed SURT VENTAS (fake): proveedor + productos, opcional compra/stock."""
+        try:
+            from tkinter import messagebox
+            from scripts import seed_surt_ventas as seed
+        except Exception as ex:
+            try:
+                Toast.show(self.app_root, f"No se pudo cargar seed: {ex}", kind="danger")
+            except Exception:
+                pass
+            return
+
+        if not messagebox.askyesno(
+            "Sembrar SURT",
+            "Se insertaran/actualizaran proveedor y productos basicos.\n\n¿Continuar?",
+            parent=self.app_root,
+        ):
+            return
+
+        try:
+            create_purchase = messagebox.askyesno(
+                "Sembrar SURT",
+                "¿Crear tambien una Orden de Compra (Pendiente)?",
+                parent=self.app_root,
+            )
+            sum_stock = messagebox.askyesno(
+                "Sembrar SURT",
+                "¿Sumar stock segun cantidades de la orden?",
+                parent=self.app_root,
+            )
+
+            session = self.products_tab.session
+            supplier = seed.ensure_supplier(session, **seed.SUPPLIER)
+            seed.upsert_products(session, supplier, seed.ITEMS, margen_pct=30.0)
+            if create_purchase:
+                seed.create_purchase(session, supplier, seed.ITEMS, estado="Pendiente")
+            if sum_stock:
+                seed.sum_stock(session, seed.ITEMS)
+
+            Toast.show(self.app_root, "Seed SURT completado", kind="success")
+        except Exception as ex:
+            Toast.show(self.app_root, f"Fallo seed SURT: {ex}", kind="danger", position="tr")
+    
+    def _open_sql_importer(self) -> None:
+        try:
+            from src.gui.sql_importer_dialog import SqlMassImporter
+            SqlMassImporter(self)
+        except Exception as ex:
+            try:
+                Toast.show(self.app_root, f"No se pudo abrir importador SQL: {ex}", kind="danger")
+            except Exception:
+                pass
+
+    def _refresh_all(self) -> None:
+        """Refresca todas las pestañas de la aplicacion de forma segura."""
+        views = [
+            getattr(self, "products_tab", None),
+            getattr(self, "suppliers_tab", None),
+            getattr(self, "customers_tab", None),
+            getattr(self, "purchases_tab", None),
+            getattr(self, "sales_tab", None),
+            getattr(self, "inventory_tab", None),
+            getattr(self, "orders_admin_tab", None),
+            getattr(self, "report_center_tab", None),
+            getattr(self, "catalog_tab", None),
+        ]
+        for v in views:
+            if v is None:
+                continue
+            for name in ("refresh_all", "refresh", "refresh_table", "refresh_lookups"):
+                try:
+                    fn = getattr(v, name, None)
+                    if callable(fn):
+                        fn()
+                        break
+                except Exception:
+                    pass
+        try:
+            self.status.flash("Aplicacion refrescada", kind="info", ms=1200)
+        except Exception:
+            pass
