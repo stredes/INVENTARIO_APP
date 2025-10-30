@@ -323,6 +323,29 @@ def _ensure_schema(engine: Engine) -> None:
             index_name='idx_products_id_ubicacion',
         )
 
+        # Vinculación OC-Recepción: cantidad recepcionada
+        _add_column_if_missing(
+            engine,
+            table="purchase_details",
+            column="received_qty",
+            type_sql="INTEGER NOT NULL DEFAULT 0",
+        )
+
+        # Tabla de recepciones (si no existe)
+        if not _table_exists(engine, "receptions"):
+            with engine.begin() as conn:
+                conn.exec_driver_sql(
+                    """
+                    CREATE TABLE IF NOT EXISTS receptions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id_compra INTEGER NOT NULL REFERENCES purchases(id) ON DELETE CASCADE,
+                        tipo_doc TEXT,
+                        numero_documento TEXT,
+                        fecha TEXT
+                    );
+                    """
+                )
+
         # --------- Compras: campos adicionales opcionales ---------
         _add_column_if_missing(engine, table="purchases", column="numero_documento", type_sql="TEXT")
         _add_column_if_missing(engine, table="purchases", column="fecha_documento", type_sql="DATETIME")

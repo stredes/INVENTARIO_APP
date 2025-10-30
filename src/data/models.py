@@ -171,6 +171,8 @@ class PurchaseDetail(Base):
     id_compra: Mapped[int] = mapped_column(ForeignKey("purchases.id", ondelete="CASCADE"), nullable=False)
     id_producto: Mapped[int] = mapped_column(ForeignKey("products.id"), nullable=False)
     cantidad: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Cantidad recepcionada acumulada para vincular OC con recepciones
+    received_qty: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     precio_unitario: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     subtotal: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
 
@@ -179,6 +181,19 @@ class PurchaseDetail(Base):
 
     def __repr__(self) -> str:
         return f"<PurchaseDetail compra={self.id_compra} prod={self.id_producto} cant={self.cantidad}>"
+
+
+# ====================================================
+# RECEPCIONES (vinculan OC con documento de proveedor)
+# ====================================================
+class Reception(Base):
+    __tablename__ = "receptions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id_compra: Mapped[int] = mapped_column(ForeignKey("purchases.id", ondelete="CASCADE"), nullable=False)
+    tipo_doc: Mapped[Optional[str]] = mapped_column(String)  # 'Factura' | 'Guía'
+    numero_documento: Mapped[Optional[str]] = mapped_column(String)
+    fecha: Mapped[dt] = mapped_column(DateTime, nullable=False, default=dt.utcnow)
 
 
 # ====================================================

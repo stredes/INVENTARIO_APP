@@ -353,12 +353,18 @@ class MainWindow(ttk.Frame):
             from src.data.models import (
                 SaleDetail, Sale, PurchaseDetail, Purchase,
                 StockEntry, StockExit, Product, Supplier, Customer, Location,
+                Reception,
             )
             sess: _S = self.products_tab.session
             # Orden seguro respetando FKs
             sess.query(SaleDetail).delete()
             sess.query(Sale).delete()
             sess.query(PurchaseDetail).delete()
+            # Recepciones vinculadas a compras (evita FK al borrar purchases)
+            try:
+                sess.query(Reception).delete()
+            except Exception:
+                pass
             sess.query(Purchase).delete()
             sess.query(StockEntry).delete()
             sess.query(StockExit).delete()

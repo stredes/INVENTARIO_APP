@@ -38,12 +38,14 @@ from src.data.models import (  # type: ignore
     Customer,
     Purchase,
     PurchaseDetail,
+    Reception,
     Sale,
     SaleDetail,
     StockEntry,
     StockExit,
     Location,
 )
+from src.utils.po_generator import generate_po_to_downloads  # type: ignore
 
 fake = Faker("es_CL")  # Datos falsos en español de Chile
 
@@ -219,6 +221,45 @@ def seed_purchases(session: Session, proveedores: List[Supplier], productos: Lis
             session.add(detail)
 
         purchase.total_compra = round(total, 2)
+        # Genera OC (PDF) en Descargas utilizando el mismo esquema que seed_surt_ventas
+        try:
+            supplier = session.get(Supplier, int(purchase.id_proveedor))
+            if supplier is not None:
+                supplier_dict = {
+                    "id": str(getattr(supplier, "id", "")),
+                    "nombre": getattr(supplier, "razon_social", "") or "",
+                    "contacto": getattr(supplier, "contacto", "") or "",
+                    "telefono": getattr(supplier, "telefono", "") or "",
+                    "email": getattr(supplier, "email", "") or "",
+                    "direccion": getattr(supplier, "direccion", "") or "",
+                    "pago": "Crédito 30 días",
+                }
+                # Construir items desde detalles (precio con IVA ya almacenado)
+                items_pdf = []
+                for det in session.query(PurchaseDetail).filter(PurchaseDetail.id_compra == purchase.id).all():
+                    prod = session.get(Product, int(det.id_producto))
+                    unidad = getattr(prod, "unidad_medida", None) or "U"
+                    items_pdf.append({
+                        "id": int(getattr(prod, "id", 0) or 0),
+                        "nombre": getattr(prod, "nombre", "") or "",
+                        "cantidad": int(det.cantidad or 0),
+                        "precio": float(det.precio_unitario or 0),  # con IVA
+                        "subtotal": float(det.subtotal or 0),
+                        "dcto_pct": 0,
+                        "unidad": unidad,
+                    })
+                po_number = f"OC-{purchase.id}"
+                generate_po_to_downloads(
+                    po_number=po_number,
+                    supplier=supplier_dict,
+                    items=items_pdf,
+                    currency="CLP",
+                    notes="Seed FAKE",
+                    auto_open=False,
+                )
+        except Exception:
+            # No romper el seed si el generador de PDF falla en el entorno
+            pass
     session.commit()
 
 
@@ -293,6 +334,11 @@ def clear_all(session: Session) -> None:
     session.query(SaleDetail).delete()
     session.query(Sale).delete()
     session.query(PurchaseDetail).delete()
+    # Recepciones vinculadas a OC (evita FK al borrar compras)
+    try:
+        session.query(Reception).delete()
+    except Exception:
+        pass
     session.query(Purchase).delete()
     session.query(StockEntry).delete()
     session.query(StockExit).delete()

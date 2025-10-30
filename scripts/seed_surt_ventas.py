@@ -35,6 +35,7 @@ if str(ROOT) not in sys.path:
 from src.data.database import get_session  # type: ignore
 from src.data.models import Supplier, Product, Purchase, PurchaseDetail  # type: ignore
 from src.utils.money import D, q2  # type: ignore
+from src.utils.po_generator import generate_po_to_downloads  # type: ignore
 
 
 @dataclass
@@ -178,6 +179,48 @@ def create_purchase(session, supplier: Supplier, items: List[Item], *, estado: s
     return pur
 
 
+def generate_po_pdf(session, supplier: Supplier, items: List[Item], purchase: Purchase) -> str:
+    """Genera la Orden de Compra (PDF) a Descargas para la compra creada."""
+    # Supplier dict esperado por el generador
+    supplier_dict = {
+        "id": str(getattr(supplier, "id", "")),
+        "nombre": getattr(supplier, "razon_social", "") or "",
+        "contacto": getattr(supplier, "contacto", "") or "",
+        "telefono": getattr(supplier, "telefono", "") or "",
+        "email": getattr(supplier, "email", "") or "",
+        "direccion": getattr(supplier, "direccion", "") or "",
+        "pago": "Crédito 30 días",
+    }
+    # Ítems para el PDF: precio con IVA y unidad
+    iva = D("1.19")
+    pdf_items = []
+    for it in items:
+        # localizar unidad/sku actual del producto (por si ya existía)
+        prod = session.query(Product).filter(Product.sku == it.sku).first()
+        unidad = getattr(prod, "unidad_medida", None) or it.unidad or "U"
+        price = q2(D(it.precio_neto) * iva)
+        subtotal = q2(D(int(it.cantidad or 0)) * price)
+        pdf_items.append({
+            "id": int(getattr(prod, "id", 0) or 0),
+            "nombre": it.nombre,
+            "cantidad": int(it.cantidad or 0),
+            "precio": float(price),
+            "subtotal": float(subtotal),
+            "dcto_pct": 0,
+            "unidad": unidad,
+        })
+    po_number = f"OC-{purchase.id}"
+    out = generate_po_to_downloads(
+        po_number=po_number,
+        supplier=supplier_dict,
+        items=pdf_items,
+        currency="CLP",
+        notes="Seed SURT",
+        auto_open=False,
+    )
+    return str(out)
+
+
 def sum_stock(session, items: List[Item]) -> None:
     for it in items:
         prod = session.query(Product).filter(Product.sku == it.sku).first()
@@ -192,7 +235,8 @@ def main():
     parser.add_argument("--cleanup", action="store_true", help="Eliminar productos del proveedor sin dependencias")
     parser.add_argument("--create-purchase", action="store_true", help="Crear compra Pendiente con cantidades de la orden")
     parser.add_argument("--sum-stock", action="store_true", help="Incrementar stock con las cantidades de la orden")
-    parser.add_argument("--margen", type=float, default=30.0, help="% margen para precio_venta")
+    # Nota: argparse usa formateo estilo % en help; para un % literal usar '%%'
+    parser.add_argument("--margen", type=float, default=30.0, help="Margen (%%) para precio_venta")
     args = parser.parse_args()
 
     supplier = ensure_supplier(session, **SUPPLIER)
@@ -202,8 +246,12 @@ def main():
     upsert_products(session, supplier, ITEMS, margen_pct=args.margen)
 
     if args.create_purchase:
-        create_purchase(session, supplier, ITEMS, estado="Pendiente")
-        print("Compra (Pendiente) creada")
+        pur = create_purchase(session, supplier, ITEMS, estado="Pendiente")
+        try:
+            pdf = generate_po_pdf(session, supplier, ITEMS, pur)
+            print(f"Compra (Pendiente) creada. OC generada en: {pdf}")
+        except Exception as ex:
+            print(f"Compra creada, pero no se pudo generar OC: {ex}")
     if args.sum_stock:
         sum_stock(session, ITEMS)
         print("Stock actualizado con cantidades de la orden")
