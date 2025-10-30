@@ -527,7 +527,13 @@ class PurchasesView(ttk.Frame):
                 "direccion": getattr(sup, "direccion", ""),
                 "pago": (getattr(self, 'cmb_pago', None).get() if hasattr(self, 'cmb_pago') else get_po_payment_method()),
             }
-            out = generate_po_to_downloads(\n                po_number=po_number,\n                supplier=supplier_dict,\n                items=items,\n                currency=\"CLP\",\n                notes=notes,\n                auto_open=True,
+            out = generate_po_to_downloads(
+                po_number=po_number,
+                supplier=supplier_dict,
+                items=items,
+                currency="CLP",
+                notes=notes,
+                auto_open=True,
             )
             self._info(f"Orden de Compra creada en Descargas:\n{out}")
         except Exception as e:
@@ -560,7 +566,13 @@ class PurchasesView(ttk.Frame):
                 "pago": (getattr(self, 'cmb_pago', None).get() if hasattr(self, 'cmb_pago') else get_po_payment_method()),
             }
 
-            out = generate_quote_downloads(\n                quote_number=quote_number,\n                supplier=supplier_dict,\n                items=items,\n                currency=\"CLP\",\n                notes=notes,\n                auto_open=True,   # abrir automáticamente el PDF
+            out = generate_quote_downloads(
+                quote_number=quote_number,
+                supplier=supplier_dict,
+                items=items,
+                currency="CLP",
+                notes=notes,
+                auto_open=True,   # abrir automáticamente el PDF
             )
             self._info(f"Cotización creada en Descargas:\n{out}")
 
@@ -634,6 +646,8 @@ class PurchasesView(ttk.Frame):
 
         if estado:
             q = q.filter(getattr(Purchase, "estado") == estado)
+
+
 
 
 
