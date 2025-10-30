@@ -8,7 +8,7 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from src.data.database import get_session
-from src.data.models import Purchase, PurchaseDetail, Product, Supplier
+from src.data.models import Purchase, PurchaseDetail, Product, Supplier, Reception
 from src.data.repository import (
     PurchaseRepository,
     PurchaseDetailRepository,
@@ -206,6 +206,10 @@ class PurchaseManager:
                     motivo=f"Reversa compra {purchase_id}",
                     when=datetime.utcnow(),
                 )
-
+        # Elimina recepciones vinculadas (para evitar FK constraint)
+        try:
+            self.session.query(Reception).filter(Reception.id_compra == purchase_id).delete(synchronize_session=False)
+        except Exception:
+            pass
         self.purchases.delete(purchase_id)
         self.session.commit()

@@ -143,11 +143,38 @@ def generate_po_pdf(
         ("Dirección:", supplier.get('direccion') or "-"),
         ("Despachar a:", supplier.get('direccion') or "-"),
     ]
+    # Si 'notes' contiene "F. Documento:" usamos ese valor en cabecera.
+    def _pick_from_notes(label: str) -> Optional[str]:
+        try:
+            if not notes:
+                return None
+            txt = str(notes)
+            key = f"{label}:"
+            if key in txt:
+                # Busca 'Label: valor' y toma hasta el próximo separador ' | ' o fin de línea
+                part = txt.split(key, 1)[1].strip()
+                for sep in [" | ", "\n"]:
+                    if sep in part:
+                        part = part.split(sep, 1)[0]
+                        break
+                return part.strip()
+        except Exception:
+            return None
+        return None
+
+    doc_date = _pick_from_notes("F. Documento") or datetime.now().strftime("%d/%m/%Y")
     right_lines = [
-        ("Fecha Documento:", datetime.now().strftime("%d/%m/%Y")),
+        ("Fecha Documento:", doc_date),
         ("Rut:", supplier.get('rut', '-') or "-"),
         ("Forma de Pago:", supplier.get('pago') or get_po_payment_method()),
     ]
+    # Mostrar F. Contable y F. Venc. si vienen en notas
+    cont = _pick_from_notes("F. Contable")
+    if cont:
+        right_lines.append(("F. Contable:", cont))
+    venc = _pick_from_notes("F. Venc.")
+    if venc:
+        right_lines.append(("F. Venc.:", venc))
 
     def _two_col(rows, w_label_mm: float, w_val_mm: float):
         data = []
@@ -191,9 +218,10 @@ def generate_po_pdf(
         sub_bruto = q0(sub_bruto) if currency.upper() == "CLP" else q2(sub_bruto)
         gross_total += sub_bruto
 
+    # Ajuste de anchos: más espacio a "Unidad" para cadenas como "caja x 12"
     items_table = Table(
         data,
-        colWidths=[8 * mm, 16 * mm, 70 * mm, 12 * mm, 16 * mm, 28 * mm, 10 * mm, 22 * mm],
+        colWidths=[8 * mm, 16 * mm, 64 * mm, 20 * mm, 16 * mm, 28 * mm, 10 * mm, 22 * mm],
         repeatRows=1,
     )
     items_table.setStyle(TableStyle([

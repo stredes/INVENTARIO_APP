@@ -6,12 +6,13 @@ from pathlib import Path
 from decimal import Decimal
 
 from src.data.database import get_session
-from src.data.models import Product, Supplier
+from src.data.models import Product, Supplier, Purchase, PurchaseDetail
 from src.data.repository import ProductRepository, SupplierRepository
 from src.core import PurchaseManager, PurchaseItem
+from src.core.inventory_manager import InventoryManager
 from src.utils.po_generator import generate_po_to_downloads
 from src.utils.quote_generator import generate_quote_to_downloads as generate_quote_downloads
-from src.utils.helpers import get_po_payment_method
+from src.utils.helpers import get_po_payment_method, get_ui_purchases_mode, set_ui_purchases_mode
 from src.gui.widgets.autocomplete_combobox import AutoCompleteCombobox
 from src.utils.money import D, q2, fmt_2, mul
 from src.gui.treeview_utils import apply_default_treeview_styles, enable_auto_center_for_new_treeviews
@@ -41,6 +42,7 @@ class PurchasesView(ttk.Frame):
 
         self.session = get_session()
         self.pm = PurchaseManager(self.session)
+        self.inv = InventoryManager(self.session)
         self.repo_prod = ProductRepository(self.session)
         self.repo_supp = SupplierRepository(self.session)
 
@@ -61,7 +63,7 @@ class PurchasesView(ttk.Frame):
 
         # Estado + forma de pago (acordeón = combobox)
         ttk.Label(head, text="Estado:").grid(row=0, column=3, sticky="e", padx=4)
-        self.ESTADOS = ("Completada", "Por pagar", "Pendiente", "Cancelada", "Eliminada")
+        self.ESTADOS = ("Pendiente", "Incompleta", "Por pagar", "Completada", "Cancelada", "Eliminada")
         self.cmb_estado = ttk.Combobox(head, state="readonly", width=14, values=self.ESTADOS)
         self.cmb_estado.set("Pendiente")
         self.cmb_estado.grid(row=0, column=4, sticky="w", padx=4)
@@ -72,6 +74,19 @@ class PurchasesView(ttk.Frame):
         self.cmb_pago = ttk.Combobox(head, state="readonly", width=18, values=self.PAGOS)
         self.cmb_pago.set(get_po_payment_method())
         self.cmb_pago.grid(row=0, column=6, sticky="w", padx=4)
+        # Modo: Compra vs Recepcion
+        ttk.Label(head, text="Modo:").grid(row=0, column=7, sticky="e", padx=4)
+        self.var_mode = tk.StringVar(value="Compra")
+        self.cmb_mode = ttk.Combobox(head, textvariable=self.var_mode, values=["Compra", "Recepcion"], width=12, state="readonly")
+        self.cmb_mode.grid(row=0, column=8, sticky="w", padx=4)
+        try:
+            self.var_mode.set(get_ui_purchases_mode("Compra"))
+        except Exception:
+            pass
+        try:
+            self.cmb_mode.bind("<<ComboboxSelected>>", lambda _e=None: self._on_mode_change())
+        except Exception:
+            pass
 
         # ---- Campos adicionales de cabecera ----
         ttk.Label(head, text="Número doc:").grid(row=1, column=0, sticky="e", padx=4, pady=2)
@@ -121,6 +136,12 @@ class PurchasesView(ttk.Frame):
         ttk.Label(head, text="Stock:").grid(row=3, column=6, sticky="e")
         self.var_stockpol = tk.StringVar(value="No Mueve")
         ttk.Combobox(head, textvariable=self.var_stockpol, values=["No Mueve", "Mueve"], width=10, state="readonly").grid(row=3, column=7, sticky="w")
+        # Ajusta política inicial de stock según estado por defecto
+        try:
+            self._on_estado_change()
+        except Exception:
+            pass
+
 
         ttk.Label(head, text="Referencia:").grid(row=4, column=0, sticky="e")
         self.var_ref = tk.StringVar()
@@ -129,6 +150,37 @@ class PurchasesView(ttk.Frame):
         ttk.Label(head, text="Ajuste imp:").grid(row=4, column=4, sticky="e")
         self.var_ajimp = tk.StringVar(value="0")
         ttk.Entry(head, textvariable=self.var_ajimp, width=10).grid(row=4, column=5, sticky="w")
+
+        # Widgets visibles solo en modo Recepción (marcados por coordenadas)
+        self._receipt_only_widgets = []
+        try:
+            coords = {
+                (1,0),(1,1),  # Nº doc
+                (1,2),(1,3),  # F. documento
+                (1,4),(1,5),  # F. contable
+                (1,6),(1,7),  # F. venc.
+                (2,0),(2,1),  # Moneda
+                (2,2),(2,3),  # Tasa cambio
+                (2,4),(2,5),  # U. negocio
+                (2,6),(2,7),  # Proporcionalidad
+                (3,0),(3,1),  # Tipo dcto
+                (3,2),(3,3),  # Descuento
+                (3,4),(3,5),  # Ajuste IVA
+                (3,6),(3,7),  # Stock
+                (4,4),(4,5),  # Ajuste imp
+            }
+            for w in head.winfo_children():
+                gi = w.grid_info()
+                rc = (int(gi.get('row', -1)), int(gi.get('column', -1)))
+                if rc in coords:
+                    self._receipt_only_widgets.append(w)
+        except Exception:
+            pass
+        # Aplicar visibilidad inicial según modo guardado
+        try:
+            self._on_mode_change()
+        except Exception:
+            pass
 
         # ---------- Detalle ----------
         det = ttk.Labelframe(self, text="Detalle de compra", padding=10)
@@ -232,14 +284,67 @@ class PurchasesView(ttk.Frame):
             ]
 
         self.cmb_product.set_dataset(self.products, keyfunc=_disp, searchkeys=_keys)
-        self.cmb_product.set("")  # limpiar selecciÃ³n visible
+        self.cmb_product.set("")  # limpiar selección visible
         self._update_price_field()
+
+    def _on_estado_change(self):
+        """Ajusta política de stock/checkbox según el estado seleccionado.
+
+        - Completada / Por pagar: permite mover stock (activa var_apply=True y setea 'Mueve').
+        - Otros estados: no mueve stock (var_apply=False, 'No Mueve').
+        """
+        try:
+            est = (self.cmb_estado.get() or '').strip()
+        except Exception:
+            est = ''
+        try:
+            if est in ('Completada', 'Por pagar', 'Incompleta'):
+                self.var_apply.set(True)
+                try:
+                    self.var_stockpol.set('Mueve')
+                except Exception:
+                    pass
+            else:
+                self.var_apply.set(False)
+                try:
+                    self.var_stockpol.set('No Mueve')
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _on_mode_change(self):
+        """Muestra/oculta campos de cabecera según el modo y persiste preferencia."""
+        try:
+            mode = (self.var_mode.get() or "Compra").strip()
+        except Exception:
+            mode = "Compra"
+        # Persistir
+        try:
+            set_ui_purchases_mode(mode)
+        except Exception:
+            pass
+        # Visibilidad
+        is_receipt = mode.lower().startswith("recep")
+        try:
+            for w in getattr(self, "_receipt_only_widgets", []) or []:
+                try:
+                    if is_receipt:
+                        # Restaurar grid si estaba oculto
+                        if str(w.winfo_manager()) != "grid":
+                            w.grid()
+                    else:
+                        w.grid_remove()
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     def _display_supplier(self, s: Supplier) -> str:
         rut = getattr(s, "rut", "") or ""
         rs = getattr(s, "razon_social", "") or ""
         if rut and rs:
-            return f"{rut} – {rs}"
+            return f"{rut} - {rs}"
         return rs or rut or f"Proveedor {s.id}"
 
     # ======================== Precio con IVA ========================
@@ -416,6 +521,27 @@ class PurchasesView(ttk.Frame):
             if not items:
                 self._warn("Agregue al menos un ítem.")
                 return
+            # Modo Recepcion: solo entradas de stock
+            try:
+                mode = (self.var_mode.get() if hasattr(self, 'var_mode') else 'Compra') or 'Compra'
+            except Exception:
+                mode = 'Compra'
+            if str(mode).lower().startswith('recep'):
+                for iid in self.tree.get_children():
+                    vals = self.tree.item(iid, "values")
+                    try:
+                        prod_id = int(vals[0]); qty = int(float(vals[2]))
+                    except Exception:
+                        continue
+                    if qty > 0:
+                        self.inv.register_entry(product_id=prod_id, cantidad=qty, motivo=f"Recepcion {self._stamp()}")
+                try:
+                    self.session.commit()
+                except Exception:
+                    self.session.rollback(); self.session.commit()
+                self._on_clear_table()
+                self._info("Recepción registrada y stock actualizado.")
+                return
 
             # Validación extra en UI: por si editaron manualmente la tabla
             # (la capa core también valida, pero esto mejora la UX)
@@ -480,6 +606,13 @@ class PurchasesView(ttk.Frame):
 
     def _on_generate_po_downloads(self):
         try:
+            # Bloquear generación en modo Recepción
+            try:
+                if str((self.var_mode.get() or "")).lower().startswith("recep"):
+                    self._warn("En modo Recepción no se generan documentos.")
+                    return
+            except Exception:
+                pass
             sup = self._selected_supplier()
             if not sup:
                 self._warn("Seleccione un proveedor.")
@@ -489,7 +622,12 @@ class PurchasesView(ttk.Frame):
                 self._warn("Agregue al menos un ítem.")
                 return
 
-            po_number = f"OC-{sup.id}-{self._stamp()}"
+            # Número de OC secuencial (OC-000000, OC-000001, ...)
+            try:
+                from src.utils.helpers import make_po_number
+                po_number = make_po_number()
+            except Exception:
+                po_number = f"OC-{self._stamp()}"
             # Construir notas con metadatos de cabecera
             try:
                 notes_lines = []
@@ -556,6 +694,34 @@ class PurchasesView(ttk.Frame):
                 return
 
             quote_number = f"COT-{sup.id}-{self._stamp()}"
+            # Construir notas (igual que en OC)
+            try:
+                notes_lines = []
+                nd = (getattr(self, 'var_numdoc', tk.StringVar()).get() or '').strip()
+                if nd: notes_lines.append(f"N� Doc: {nd}")
+                fd = (getattr(self, 'var_fdoc', tk.StringVar()).get() or '').strip()
+                if fd: notes_lines.append(f"F. Documento: {fd}")
+                fc = (getattr(self, 'var_fcont', tk.StringVar()).get() or '').strip()
+                if fc: notes_lines.append(f"F. Contable: {fc}")
+                fv = (getattr(self, 'var_fvenc', tk.StringVar()).get() or '').strip()
+                if fv: notes_lines.append(f"F. Venc.: {fv}")
+                mon = (getattr(self, 'var_moneda', tk.StringVar(value='PESO CHILENO')).get() or '').strip()
+                if mon: notes_lines.append(f"Moneda: {mon}")
+                tc = (getattr(self, 'var_tc', tk.StringVar(value='1')).get() or '').strip()
+                if tc: notes_lines.append(f"Tasa cambio: {tc}")
+                un = (getattr(self, 'var_uneg', tk.StringVar()).get() or '').strip()
+                if un: notes_lines.append(f"U. negocio: {un}")
+                pr = (getattr(self, 'var_prop', tk.StringVar()).get() or '').strip()
+                if pr: notes_lines.append(f"Proporcionalidad: {pr}")
+                rf = (getattr(self, 'var_ref', tk.StringVar()).get() or '').strip()
+                if rf: notes_lines.append(f"Referencia: {rf}")
+                ajiva = (getattr(self, 'var_ajiva', tk.StringVar(value='0')).get() or '').strip()
+                if ajiva: notes_lines.append(f"Ajuste IVA: {ajiva}")
+                ajimp = (getattr(self, 'var_ajimp', tk.StringVar(value='0')).get() or '').strip()
+                if ajimp: notes_lines.append(f"Ajuste impuesto: {ajimp}")
+                notes = " | ".join(notes_lines) if notes_lines else None
+            except Exception:
+                notes = None
             supplier_dict = {
                 "id": str(sup.id),
                 "nombre": getattr(sup, "razon_social", "") or "",
@@ -572,7 +738,7 @@ class PurchasesView(ttk.Frame):
                 items=items,
                 currency="CLP",
                 notes=notes,
-                auto_open=True,   # abrir automáticamente el PDF
+                auto_open=True,
             )
             self._info(f"Cotización creada en Descargas:\n{out}")
 
@@ -583,6 +749,139 @@ class PurchasesView(ttk.Frame):
     def _stamp() -> str:
         from datetime import datetime
         return datetime.now().strftime("%Y%m%d-%H%M%S")
+    # ======================== Recepción desde Órdenes ========================
+    def load_purchase_for_reception(self, purchase_id: int, *, tipo_doc: str | None = None, numero_doc: str | None = None) -> None:
+        try:
+            po = self.session.get(Purchase, int(purchase_id))
+            if not po:
+                self._error(f"No se encontró la OC {purchase_id}.")
+                return
+            try:
+                self.var_mode.set("Recepcion")
+                self._on_mode_change()
+            except Exception:
+                pass
+            self.refresh_lookups()
+            try:
+                pid = int(po.id_proveedor)
+                idx = next((i for i, s in enumerate(self.suppliers) if int(s.id) == pid), -1)
+                if idx >= 0:
+                    self.cmb_supplier.current(idx)
+            except Exception:
+                pass
+            for iid in self.tree.get_children():
+                self.tree.delete(iid)
+            # Construye tabla con pendientes y dataset para posible edición
+            pending_lines = []  # (prod_id, name, pending)
+            for det in po.details:
+                try:
+                    pending = int(det.cantidad or 0) - int(getattr(det, "received_qty", 0) or 0)
+                except Exception:
+                    pending = 0
+                if pending <= 0:
+                    continue
+                p = self.session.get(Product, det.id_producto)
+                if not p:
+                    continue
+                price = self._price_with_iva(p)
+                price_bruto = q2(D(price) * (D(1) + IVA_RATE))
+                subtotal = q2(D(pending) * price_bruto)
+                self.tree.insert("", "end", values=(p.id, p.nombre, pending, fmt_2(price), "0", fmt_2(subtotal)))
+                pending_lines.append((int(p.id), str(p.nombre), int(pending)))
+            if numero_doc:
+                try:
+                    self.var_numdoc.set(numero_doc)
+                except Exception:
+                    pass
+            self._update_total()
+            # Si es Guía, permitir edición de cantidades a recepcionar por línea
+            is_guia = False
+            try:
+                is_guia = (str(tipo_doc or "").lower().startswith("gu"))
+            except Exception:
+                is_guia = False
+
+            received_by: Dict[int, int] | None = None
+            if is_guia and pending_lines:
+                try:
+                    from src.gui.reception_qty_dialog import ReceptionQtyDialog
+                    dlg = ReceptionQtyDialog(self, pending_lines, title=f"Recepción OC {po.id} (Guía)")
+                    self.wait_window(dlg)
+                    if dlg.result is None:
+                        return  # cancelado
+                    received_by = dlg.result
+                except Exception:
+                    received_by = None
+
+            if not messagebox.askyesno("Recepción", f"OC {po.id}: ¿Desea confirmar esta recepción ahora?"):
+                return
+            self._apply_reception_for_po(po, received_by_prod=received_by, tipo_doc=tipo_doc)
+        except Exception as ex:
+            self._error(f"No se pudo preparar la recepción:\n{ex}")
+
+    def _apply_reception_for_po(self, po: Purchase, *, received_by_prod: Dict[int, int] | None = None, tipo_doc: str | None = None) -> None:
+        """
+        Aplica la recepción a la OC:
+        - Si received_by_prod es None: recepciona todo lo pendiente.
+        - Si viene un dict: recepciona por producto las cantidades indicadas (capped al pendiente).
+        - Suma stock solo si la OC estaba Pendiente.
+        - Estado final si está totalmente recepcionada:
+            * Factura -> 'Completada'
+            * Guía    -> 'Por pagar'
+        """
+        estado_actual = str(getattr(po, "estado", "")).strip()
+        add_stock = estado_actual in ("Pendiente", "Incompleta")
+        any_received = False
+        try:
+            for det in po.details:
+                # Pendiente por línea
+                try:
+                    pending = int(det.cantidad or 0) - int(getattr(det, "received_qty", 0) or 0)
+                except Exception:
+                    pending = 0
+                if pending <= 0:
+                    continue
+                # Cantidad a recepcionar esta vez
+                if received_by_prod is None:
+                    to_recv = int(pending)
+                else:
+                    to_recv = int(max(0, int(received_by_prod.get(int(det.id_producto), 0))))
+                    if to_recv > pending:
+                        to_recv = int(pending)
+                if to_recv <= 0:
+                    continue
+                if add_stock:
+                    self.inv.register_entry(product_id=int(det.id_producto), cantidad=int(to_recv), motivo=f"Recepcion {po.id}")
+                det.received_qty = int(getattr(det, "received_qty", 0) or 0) + int(to_recv)
+                if to_recv > 0:
+                    any_received = True
+
+            # Si suma stock y quedó totalmente recepcionada, ajusta estado según tipo_doc
+            all_rec = True
+            for d in po.details:
+                if int(getattr(d, "received_qty", 0) or 0) < int(d.cantidad or 0):
+                    all_rec = False
+                    break
+            if all_rec and any_received:
+                td = (tipo_doc or "").lower()
+                if td.startswith("fact"):
+                    po.estado = "Completada"
+                elif td.startswith("gu"):
+                    po.estado = "Por pagar"
+                else:
+                    # Fallback
+                    if add_stock:
+                        po.estado = "Por pagar"
+            elif any_received:
+                # Recepción parcial
+                po.estado = "Incompleta"
+
+            self.session.commit()
+            self._on_clear_table()
+            self._info(f"Recepción de OC {po.id} confirmada.")
+        except Exception as ex:
+            self.session.rollback()
+            self._error(f"No se pudo confirmar la recepción:\n{ex}")
 
     # ======================== Mensajes ========================
     def _warn(self, msg: str):
