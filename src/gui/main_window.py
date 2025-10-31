@@ -5,6 +5,7 @@ import configparser
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, Menu
+from tkinter import filedialog, messagebox
 
 from src.gui.products_view import ProductsView
 from src.gui.suppliers_view import SuppliersView
@@ -121,6 +122,14 @@ class MainWindow(ttk.Frame):
         # Limpiador de base de datos (BORRA TODO)
         m_tools.add_separator()
         m_tools.add_command(label="Limpiar base de datos...", command=self._wipe_databases)
+        # ERP Backup
+        m_tools.add_separator()
+        m_tools.add_command(label="ERP: Exportar backup (XLSX)...", command=self._erp_export_backup)
+        m_tools.add_command(label="ERP: Importar backup (XLSX)...", command=self._erp_import_backup)
+        # APP Backup (5 hojas)
+        m_tools.add_separator()
+        m_tools.add_command(label="APP: Exportar backup (XLSX)...", command=self._app_export_backup)
+        m_tools.add_command(label="APP: Importar backup (XLSX)...", command=self._app_import_backup)
         menubar.add_cascade(label="Herramientas", menu=m_tools)
 
         m_view = Menu(menubar, tearoff=False)
@@ -138,6 +147,116 @@ class MainWindow(ttk.Frame):
             self.bind_all("<F5>", lambda e: self._refresh_all())
         except Exception:
             pass
+
+    # ---------------- ERP BACKUP ---------------- #
+    def _erp_export_backup(self) -> None:
+        try:
+            from src.erp.tools.backup import export_erp_to_xlsx
+        except Exception as ex:
+            Toast.show(self.app_root, f"No se pudo cargar backup: {ex}", kind="danger")
+            return
+        # Seleccionar destino
+        try:
+            initial = Path.home() / "Downloads" / f"ERP_backup.xlsx"
+        except Exception:
+            initial = None
+        path = filedialog.asksaveasfilename(
+            parent=self.app_root,
+            title="Guardar backup ERP",
+            defaultextension=".xlsx",
+            filetypes=[("Excel", "*.xlsx")],
+            initialfile=(initial.name if initial else None),
+            initialdir=(str(initial.parent) if initial else None),
+        )
+        if not path:
+            return
+        try:
+            out = export_erp_to_xlsx(Path(path), auto_open=True)
+            Toast.show(self.app_root, f"Backup generado: {out}", kind="success")
+        except Exception as ex:
+            Toast.show(self.app_root, f"Error al generar backup: {ex}", kind="danger")
+
+    def _erp_import_backup(self) -> None:
+        try:
+            from src.erp.tools.backup import import_erp_from_xlsx
+        except Exception as ex:
+            Toast.show(self.app_root, f"No se pudo cargar backup: {ex}", kind="danger")
+            return
+        path = filedialog.askopenfilename(
+            parent=self.app_root,
+            title="Seleccionar backup ERP (XLSX)",
+            filetypes=[("Excel", "*.xlsx"), ("Todos", "*.*")],
+        )
+        if not path:
+            return
+        if not messagebox.askyesno("Confirmar", "Esto reemplazará los datos ERP por el backup seleccionado. ¿Continuar?", parent=self.app_root):
+            return
+        try:
+            import_erp_from_xlsx(Path(path))
+            Toast.show(self.app_root, "Backup importado correctamente", kind="success")
+        except Exception as ex:
+            Toast.show(self.app_root, f"Error al importar backup: {ex}", kind="danger")
+
+    # ---------------- APP BACKUP (5 hojas) ---------------- #
+    def _app_export_backup(self) -> None:
+        try:
+            from src.erp.tools.backup import export_app_backup_to_xlsx
+        except Exception as ex:
+            try:
+                Toast.show(self.app_root, f"No se pudo cargar backup APP: {ex}", kind="danger")
+            except Exception:
+                pass
+            return
+        # Seleccionar destino
+        try:
+            initial = Path.home() / "Downloads" / f"APP_backup.xlsx"
+        except Exception:
+            initial = None
+        path = filedialog.asksaveasfilename(
+            parent=self.app_root,
+            title="Guardar backup APP",
+            defaultextension=".xlsx",
+            filetypes=[("Excel", "*.xlsx")],
+            initialfile=(initial.name if initial else None),
+            initialdir=(str(initial.parent) if initial else None),
+        )
+        if not path:
+            return
+        try:
+            out = export_app_backup_to_xlsx(Path(path), auto_open=True)
+            Toast.show(self.app_root, f"Backup APP generado: {out}", kind="success")
+        except Exception as ex:
+            Toast.show(self.app_root, f"Error al exportar backup APP: {ex}", kind="danger")
+
+    def _app_import_backup(self) -> None:
+        try:
+            from src.erp.tools.backup import import_app_backup_from_xlsx
+        except Exception as ex:
+            try:
+                Toast.show(self.app_root, f"No se pudo cargar importador APP: {ex}", kind="danger")
+            except Exception:
+                pass
+            return
+        path = filedialog.askopenfilename(
+            parent=self.app_root,
+            title="Seleccionar backup APP (XLSX)",
+            filetypes=[("Excel", "*.xlsx"), ("Todos", "*.*")],
+        )
+        if not path:
+            return
+        if not messagebox.askyesno(
+            "Confirmar",
+            "Esto reemplazará productos, clientes, proveedores, órdenes y stock actual por el archivo seleccionado.\n\n¿Desea continuar?",
+            parent=self.app_root,
+        ):
+            return
+        try:
+            import_app_backup_from_xlsx(Path(path), reset=True)
+            Toast.show(self.app_root, "Backup APP importado correctamente", kind="success")
+            # Refrescar vistas para reflejar los datos importados
+            self._refresh_all()
+        except Exception as ex:
+            Toast.show(self.app_root, f"Error al importar backup APP: {ex}", kind="danger")
 
     def _open_palette(self) -> None:
         actions = self._build_actions()
@@ -357,17 +476,19 @@ class MainWindow(ttk.Frame):
             )
             sess: _S = self.products_tab.session
             # Orden seguro respetando FKs
+            # 1) Movimientos primero (dependen de productos y recepciones)
+            sess.query(StockEntry).delete()
+            sess.query(StockExit).delete()
+            # 2) Detalles
             sess.query(SaleDetail).delete()
-            sess.query(Sale).delete()
             sess.query(PurchaseDetail).delete()
-            # Recepciones vinculadas a compras (evita FK al borrar purchases)
+            # 3) Cabeceras hijas (recepciones) antes de compras
             try:
                 sess.query(Reception).delete()
             except Exception:
                 pass
+            sess.query(Sale).delete()
             sess.query(Purchase).delete()
-            sess.query(StockEntry).delete()
-            sess.query(StockExit).delete()
             sess.query(Product).delete()
             sess.query(Supplier).delete()
             sess.query(Customer).delete()

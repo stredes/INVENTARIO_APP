@@ -346,6 +346,37 @@ def _ensure_schema(engine: Engine) -> None:
                     """
                 )
 
+        # --------- Trazabilidad en stock_entries: lote/serie/fecha_vencimiento ---------
+        _add_column_if_missing(engine, table="stock_entries", column="lote", type_sql="TEXT")
+        _add_column_if_missing(engine, table="stock_entries", column="serie", type_sql="TEXT")
+        _add_column_if_missing(engine, table="stock_entries", column="fecha_vencimiento", type_sql="DATETIME")
+        _add_column_if_missing(engine, table="stock_entries", column="id_recepcion", type_sql="INTEGER REFERENCES receptions(id)")
+        _add_column_if_missing(engine, table="stock_entries", column="id_ubicacion", type_sql="INTEGER REFERENCES locations(id)")
+        # Índices útiles para filtros por lote/serie
+        try:
+            _create_index_if_missing(
+                engine,
+                index_sql='CREATE INDEX IF NOT EXISTS idx_stock_entries_lote ON stock_entries(lote);',
+                index_name='idx_stock_entries_lote',
+            )
+            _create_index_if_missing(
+                engine,
+                index_sql='CREATE INDEX IF NOT EXISTS idx_stock_entries_serie ON stock_entries(serie);',
+                index_name='idx_stock_entries_serie',
+            )
+            _create_index_if_missing(
+                engine,
+                index_sql='CREATE INDEX IF NOT EXISTS idx_stock_entries_recepcion ON stock_entries(id_recepcion);',
+                index_name='idx_stock_entries_recepcion',
+            )
+            _create_index_if_missing(
+                engine,
+                index_sql='CREATE INDEX IF NOT EXISTS idx_stock_entries_ubicacion ON stock_entries(id_ubicacion);',
+                index_name='idx_stock_entries_ubicacion',
+            )
+        except Exception:
+            pass
+
         # --------- Compras: campos adicionales opcionales ---------
         _add_column_if_missing(engine, table="purchases", column="numero_documento", type_sql="TEXT")
         _add_column_if_missing(engine, table="purchases", column="fecha_documento", type_sql="DATETIME")

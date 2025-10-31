@@ -330,18 +330,20 @@ def clear_all(session: Session) -> None:
     este orden evita violaciones de integridad.
     """
     print("Eliminando datos previos (orden seguro por FKs)...")
-    # Detalles primero
+    # Movimientos primero
+    session.query(StockEntry).delete()
+    session.query(StockExit).delete()
+    # Detalles
     session.query(SaleDetail).delete()
-    session.query(Sale).delete()
     session.query(PurchaseDetail).delete()
-    # Recepciones vinculadas a OC (evita FK al borrar compras)
+    # Recepciones antes de Compras
     try:
         session.query(Reception).delete()
     except Exception:
         pass
+    # Cabeceras
+    session.query(Sale).delete()
     session.query(Purchase).delete()
-    session.query(StockEntry).delete()
-    session.query(StockExit).delete()
     # Entidades base al final
     session.query(Product).delete()
     session.query(Supplier).delete()

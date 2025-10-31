@@ -33,8 +33,8 @@ class ProductsView(ttk.Frame):
     - Proveedor (obligatorio) vía Combobox
     """
 
-    COLS = ["ID", "Nombre", "Código", "P. Compra", "IVA %", "Monto IVA", "P. + IVA", "Margen %", "P. Venta", "Unidad"]
-    COL_WIDTHS = [50, 220, 120, 90, 70, 90, 90, 90, 90, 90]
+    COLS = ["ID", "Nombre", "Código", "P. Compra", "IVA %", "Monto IVA", "P. + IVA", "Margen %", "P. Venta", "Unidad", "Etiqueta"]
+    COL_WIDTHS = [50, 220, 120, 90, 70, 90, 90, 90, 90, 90, 80]
 
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
@@ -77,6 +77,41 @@ class ProductsView(ttk.Frame):
         right = ttk.Frame(frm)
         right.grid(row=0, column=1, sticky="nw")
 
+        # Panel extremo derecho: Manager de Código de Barras
+        bar = ttk.Labelframe(frm, text="Código de barras", padding=8)
+        bar.grid(row=0, column=2, sticky="ne", padx=(12,0))
+        # Toggle: si este producto tendrá etiqueta de código de barras (basado en SKU)
+        self.var_has_barcode = tk.BooleanVar(value=False)
+        ttk.Checkbutton(bar, text="Generar etiqueta (usar SKU)", variable=self.var_has_barcode,
+                        command=lambda: self._on_toggle_has_barcode()).grid(row=0, column=0, columnspan=2, sticky="w")
+        # Opción: mostrar texto legible con el nombre debajo
+        self.var_bar_text = tk.BooleanVar(value=True)
+        ttk.Checkbutton(bar, text="Mostrar texto (nombre)", variable=self.var_bar_text,
+                        command=lambda: self._refresh_barcode_preview()).grid(row=1, column=0, columnspan=2, sticky="w")
+        # Preview
+        self._bar_img_obj = None
+        self._bar_preview = ttk.Label(bar, text="(sin código)")
+        self._bar_preview.grid(row=2, column=0, columnspan=2, pady=(6,4))
+        # Tamaño + copias
+        ttk.Label(bar, text="Tamaño:").grid(row=3, column=0, sticky="e", padx=2)
+        self.var_bar_size = tk.StringVar(value="50x30 mm")
+        ttk.Combobox(bar, textvariable=self.var_bar_size, values=["30x20 mm", "50x30 mm", "70x40 mm"], width=12, state="readonly").grid(row=3, column=1, sticky="w")
+        ttk.Label(bar, text="Copias:").grid(row=4, column=0, sticky="e", padx=2, pady=(2,0))
+        self.var_bar_copies = tk.IntVar(value=1)
+        ttk.Spinbox(bar, from_=1, to=999, textvariable=self.var_bar_copies, width=6).grid(row=4, column=1, sticky="w", pady=(2,0))
+        # Botones
+        btns_bar = ttk.Frame(bar)
+        btns_bar.grid(row=5, column=0, columnspan=2, pady=(6,0))
+        ttk.Button(btns_bar, text="Actualizar", command=self._refresh_barcode_preview).pack(side="left", padx=3)
+        ttk.Button(btns_bar, text="Imprimir", command=self._print_barcode_label).pack(side="left", padx=3)
+        ttk.Button(btns_bar, text="Impresoras…", command=self._choose_printer).pack(side="left", padx=3)
+
+        # Acciones masivas sobre la selección de la tabla
+        bulk = ttk.Frame(bar)
+        bulk.grid(row=6, column=0, columnspan=2, pady=(6,0))
+        ttk.Button(bulk, text="Marcar selección", command=lambda: self._apply_label_to_selection(True)).pack(side="left", padx=3)
+        ttk.Button(bulk, text="Quitar selección", command=lambda: self._apply_label_to_selection(False)).pack(side="left", padx=3)
+
         # Fila 0: Nombre / Código
         ttk.Label(right, text="Nombre:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
         ent_nombre = ttk.Entry(right, textvariable=self.var_nombre, width=35)
@@ -85,6 +120,12 @@ class ProductsView(ttk.Frame):
 
         ttk.Label(right, text="Código:").grid(row=0, column=2, sticky="e", padx=4, pady=4)
         ttk.Entry(right, textvariable=self.var_codigo, width=20).grid(row=0, column=3, sticky="w", padx=4, pady=4)
+        # Preview en vivo al cambiar código o nombre
+        try:
+            self.var_codigo.trace_add('write', lambda *_: self._refresh_barcode_preview())
+            self.var_nombre.trace_add('write', lambda *_: self._refresh_barcode_preview())
+        except Exception:
+            pass
 
         # Fila 1: Precio Compra / IVA %
         ttk.Label(right, text="Precio Compra (neto):").grid(row=1, column=0, sticky="e", padx=4, pady=4)
@@ -184,6 +225,158 @@ class ProductsView(ttk.Frame):
         self._load_table()
         self._recalc_prices()
         self.ent_nombre.focus_set()
+
+    # --------- Barcode manager logic --------- #
+    def _refresh_barcode_preview(self):
+        try:
+            # Si no está habilitada la etiqueta para este producto, mostrar desactivado
+            if not bool(self.var_has_barcode.get()):
+                self._bar_preview.configure(text="(etiqueta desactivada)", image="")
+                return
+            code = (self.var_codigo.get() or "").strip()
+            if not code:
+                self._bar_preview.configure(text="(sin código)", image="")
+                return
+            from src.reports.barcode_label import generate_barcode_png
+            text = (self.var_nombre.get().strip() if self.var_bar_text.get() else None) or None
+            png = generate_barcode_png(code, text=text, symbology="code128", width_mm=50, height_mm=15)
+            # Prefer PIL para mejor escalado; si no está, usa PhotoImage nativo
+            try:
+                import PIL.Image, PIL.ImageTk  # type: ignore
+                im = PIL.Image.open(png)
+                max_w = 280
+                if im.width > max_w:
+                    im = im.resize((max_w, int(im.height * (max_w / im.width))))
+                self._bar_img_obj = PIL.ImageTk.PhotoImage(im)
+                self._bar_preview.configure(image=self._bar_img_obj, text="")
+            except Exception:
+                try:
+                    self._bar_img_obj = tk.PhotoImage(file=str(png))
+                    self._bar_preview.configure(image=self._bar_img_obj, text="")
+                except Exception:
+                    self._bar_preview.configure(text=str(png), image="")
+        except Exception:
+            pass
+
+    def _print_barcode_label(self):
+        try:
+            code = (self.var_codigo.get() or "").strip()
+            if not code:
+                messagebox.showwarning("Código", "Ingrese el código del producto.")
+                return
+            size = (self.var_bar_size.get() or "50x30 mm").replace("mm"," ").strip().split("x")
+            try:
+                w_mm = float(size[0])
+                h_mm = float(size[1])
+            except Exception:
+                w_mm, h_mm = 50, 30
+            copies = max(1, int(self.var_bar_copies.get() or 1))
+            from src.reports.barcode_label import generate_label_pdf
+            text = (self.var_nombre.get().strip() if self.var_bar_text.get() else None) or None
+            out = generate_label_pdf(code, text=text, symbology="code128", label_w_mm=w_mm, label_h_mm=h_mm, copies=copies, auto_open=True)
+            messagebox.showinfo("Etiquetas", f"PDF generado:\n{out}")
+        except Exception as ex:
+            messagebox.showerror("Etiquetas", f"No se pudo generar etiquetas:\n{ex}")
+
+    def _choose_printer(self):
+        try:
+            from src.gui.printer_select_dialog import PrinterSelectDialog
+        except Exception:
+            messagebox.showwarning("Impresoras", "Selector de impresoras no disponible.")
+            return
+        dlg = PrinterSelectDialog(self)
+        self.wait_window(dlg)
+        if getattr(dlg, 'result', None):
+            messagebox.showinfo("Impresoras", f"Seleccionada: {dlg.result}")
+
+    def _on_toggle_has_barcode(self) -> None:
+        """Activa/desactiva la etiqueta para el producto actual.
+        - Si se activa: guarda Product.barcode = SKU
+        - Si se desactiva: guarda Product.barcode = None
+        También actualiza la preview y la tabla.
+        """
+        try:
+            p = getattr(self, "_current_product", None)
+            if p is None:
+                # No hay producto cargado: solo refrescar preview
+                self._refresh_barcode_preview()
+                return
+            code = (self.var_codigo.get() or "").strip()
+            if bool(self.var_has_barcode.get()) and code:
+                p.barcode = code
+            else:
+                p.barcode = None
+            self.session.commit()
+            # actualizar vista y preview
+            self._refresh_barcode_preview()
+            self._load_table()
+        except Exception:
+            try:
+                self.session.rollback()
+            except Exception:
+                pass
+            # Aun así refrescar preview por si quedó en estado intermedio
+            self._refresh_barcode_preview()
+
+    # --------- Selección múltiple: aplicar/quitar etiqueta --------- #
+    def _get_selected_row_indices(self) -> list[int]:
+        idxs: list[int] = []
+        tv = getattr(self.table, "_fallback", None)
+        if tv is not None:
+            try:
+                for iid in tv.selection():
+                    try:
+                        idxs.append(int(tv.index(iid)))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            return sorted(set(i for i in idxs if 0 <= i < len(self._id_by_index)))
+        # tksheet (si algún día se habilita)
+        if hasattr(self.table, "sheet"):
+            try:
+                rows = list(self.table.sheet.get_selected_rows())
+                return sorted(set(r for r in rows if 0 <= r < len(self._id_by_index)))
+            except Exception:
+                return []
+        return []
+
+    def _apply_label_to_selection(self, enable: bool) -> None:
+        try:
+            idxs = self._get_selected_row_indices()
+            if not idxs:
+                messagebox.showwarning("Etiquetas", "Seleccione uno o más productos en la tabla.")
+                return
+            ids = [self._id_by_index[i] for i in idxs]
+            ok = 0
+            for pid in ids:
+                p = self.session.get(Product, int(pid))
+                if p is None:
+                    continue
+                if enable:
+                    code = (getattr(p, 'sku', '') or '').strip()
+                    if not code:
+                        continue
+                    p.barcode = code
+                else:
+                    p.barcode = None
+                ok += 1
+            self.session.commit()
+            self._load_table()
+            # refrescar preview si el producto actual es parte de la selección
+            try:
+                if self._current_product and self._current_product.id in ids:
+                    self.var_has_barcode.set(bool(self._current_product.barcode))
+                    self._refresh_barcode_preview()
+            except Exception:
+                pass
+            messagebox.showinfo("Etiquetas", f"{('Marcados' if enable else 'Quitados')} {ok} productos.")
+        except Exception as ex:
+            try:
+                self.session.rollback()
+            except Exception:
+                pass
+            messagebox.showerror("Etiquetas", f"No se pudo aplicar a la selección:\n{ex}")
 
     # ----------------- Unidad/Empaque prompts ----------------- #
     def _on_unidad_change(self, _evt=None):
@@ -420,6 +613,16 @@ class ProductsView(ttk.Frame):
         self.btn_update.config(state="normal")
         self.btn_delete.config(state="normal")
 
+        # Refrescar preview de código de barras (SKU)
+        try:
+            # Si el producto tiene 'barcode' almacenado, el toggle queda activado. En esta app usamos el SKU como valor.
+            try:
+                self.var_has_barcode.set(bool(getattr(self._current_product, 'barcode', None)))
+            except Exception:
+                self.var_has_barcode.set(False)
+            self._refresh_barcode_preview()
+        except Exception:
+            pass
     # ---------- Imagen: callback ----------
     def _on_image_changed(self, new_path: Optional[Path]):
         """Se dispara al cargar/quitar imagen desde ProductImageBox."""
@@ -462,6 +665,8 @@ class ProductsView(ttk.Frame):
                     location_id = self._locations[li].id
             except Exception:
                 location_id = None
+            # Valor de 'barcode': si el producto tiene etiqueta, usamos el SKU; de lo contrario, None.
+            barcode_val = (codigo if bool(self.var_has_barcode.get()) else None)
             return dict(
                 nombre=nombre,
                 sku=codigo,
@@ -470,6 +675,7 @@ class ProductsView(ttk.Frame):
                 unidad_medida=unidad,
                 id_proveedor=proveedor.id,
                 id_ubicacion=location_id,
+                barcode=barcode_val,
             )
         except ValueError:
             messagebox.showwarning("Validación", "Revisa números (PC/IVA/Margen/Precios).")
@@ -491,6 +697,13 @@ class ProductsView(ttk.Frame):
         self.btn_save.config(state="normal")
         self.btn_update.config(state="disabled")
         self.btn_delete.config(state="disabled")
+        # Reset preview de código de barras
+        try:
+            self.var_has_barcode.set(False)
+            self._bar_preview.configure(text="(sin código)", image="")
+            self._bar_img_obj = None
+        except Exception:
+            pass
         try:
             self.cmb_supplier.set("")
         except Exception:
@@ -524,6 +737,7 @@ class ProductsView(ttk.Frame):
             except Exception:
                 pv = float(p.precio_venta or 0)
                 margen = 0.0
+            etiqueta = "✓" if getattr(p, 'barcode', None) else ""
             row = [
                 p.id,
                 p.nombre or "",
@@ -535,6 +749,7 @@ class ProductsView(ttk.Frame):
                 f"{round(margen):.0f}",
                 f"{pv:.0f}",
                 p.unidad_medida or "",
+                etiqueta,
             ]
             self._rows_cache.append(row)
             self._id_by_index.append(int(p.id))

@@ -11,7 +11,7 @@ from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
 
-from src.data.models import Product
+from src.data.models import Product, StockEntry
 from src.utils.helpers import get_inventory_limits
 from .print_backend import print_xlsx as _print_xlsx
 
@@ -43,6 +43,9 @@ class InventoryFilter:
     order_asc: bool = True
     # Tipo de informe
     report_type: ReportType = "venta"
+    # Trazabilidad (filtros opcionales; exclusivos entre sí)
+    lote_contains: Optional[str] = None
+    serie_contains: Optional[str] = None
 
 
 # ---------------------------
@@ -89,6 +92,25 @@ class InventoryReportService:
             q = q.filter(Product.stock_actual < crit_min)
         if flt.solo_sobre_maximo:
             q = q.filter(Product.stock_actual > crit_max)
+
+        # Filtro por lote/serie (si se pide)
+        if flt.lote_contains and flt.serie_contains:
+            # En caso de venir ambos por error, prioriza lote
+            serie = None
+        if flt.lote_contains:
+            sub = (
+                self.session.query(StockEntry.id_producto)
+                .filter(StockEntry.lote.ilike(f"%{flt.lote_contains}%"))
+                .distinct()
+            )
+            q = q.filter(Product.id.in_(sub))
+        elif flt.serie_contains:
+            sub = (
+                self.session.query(StockEntry.id_producto)
+                .filter(StockEntry.serie.ilike(f"%{flt.serie_contains}%"))
+                .distinct()
+            )
+            q = q.filter(Product.id.in_(sub))
 
         # Rango de precio (en 'completo' se ignora)
         if flt.report_type != "completo":

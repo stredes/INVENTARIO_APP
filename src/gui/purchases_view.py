@@ -6,7 +6,8 @@ from pathlib import Path
 from decimal import Decimal
 
 from src.data.database import get_session
-from src.data.models import Product, Supplier, Purchase, PurchaseDetail
+from src.data.models import Product, Supplier, Purchase, PurchaseDetail, Location
+from src.gui.widgets.autocomplete_combobox import AutoCompleteCombobox
 from src.data.repository import ProductRepository, SupplierRepository
 from src.core import PurchaseManager, PurchaseItem
 from src.core.inventory_manager import InventoryManager
@@ -45,6 +46,11 @@ class PurchasesView(ttk.Frame):
         self.inv = InventoryManager(self.session)
         self.repo_prod = ProductRepository(self.session)
         self.repo_supp = SupplierRepository(self.session)
+        # Catálogo de ubicaciones (para trazabilidad)
+        try:
+            self._all_locations: List[Location] = self.session.query(Location).order_by(Location.nombre.asc()).all()
+        except Exception:
+            self._all_locations = []
 
         self.products: List[Product] = []
         self.suppliers: List[Supplier] = []
@@ -151,6 +157,39 @@ class PurchasesView(ttk.Frame):
         self.var_ajimp = tk.StringVar(value="0")
         ttk.Entry(head, textvariable=self.var_ajimp, width=10).grid(row=4, column=5, sticky="w")
 
+        # ---- Trazabilidad (solo Recepción): Lote / Serie / Vencimiento ----
+        # (Deprecated en header) Lote/Serie/Venc — se muestran ahora en el bloque Detalle
+        self.var_lote = tk.StringVar(); self.var_serie = tk.StringVar(); self.var_has_venc = tk.BooleanVar(value=False); self.var_venc = tk.StringVar()
+        self._head_trace_widgets = []
+        _lbl_lote = ttk.Label(head, text="Lote:"); _lbl_lote.grid(row=5, column=0, sticky="e"); self._head_trace_widgets.append(_lbl_lote)
+        _ent_lote = ttk.Entry(head, textvariable=self.var_lote, width=18); _ent_lote.grid(row=5, column=1, sticky="w"); self._head_trace_widgets.append(_ent_lote)
+        _lbl_serie = ttk.Label(head, text="Serie:"); _lbl_serie.grid(row=5, column=2, sticky="e"); self._head_trace_widgets.append(_lbl_serie)
+        _ent_serie = ttk.Entry(head, textvariable=self.var_serie, width=18); _ent_serie.grid(row=5, column=3, sticky="w"); self._head_trace_widgets.append(_ent_serie)
+        _chk_v = ttk.Checkbutton(head, text="Con venc.", variable=self.var_has_venc); _chk_v.grid(row=5, column=4, sticky="e"); self._head_trace_widgets.append(_chk_v)
+        _ent_v = ttk.Entry(head, textvariable=self.var_venc, width=12); _ent_v.grid(row=5, column=5, sticky="w"); self._head_trace_widgets.append(_ent_v)
+        # Ocultar por defecto en header (el editor vive en Detalle)
+        try:
+            for w in self._head_trace_widgets:
+                w.grid_remove()
+        except Exception:
+            pass
+        # Exclusividad Lote/Serie
+        def _excl_sync(*_):
+            try:
+                if (self.var_lote.get() or '').strip():
+                    if (self.var_serie.get() or '').strip():
+                        self.var_serie.set('')
+                elif (self.var_serie.get() or '').strip():
+                    if (self.var_lote.get() or '').strip():
+                        self.var_lote.set('')
+            except Exception:
+                pass
+        try:
+            self.var_lote.trace_add('write', _excl_sync)
+            self.var_serie.trace_add('write', _excl_sync)
+        except Exception:
+            pass
+
         # Widgets visibles solo en modo Recepción (marcados por coordenadas)
         self._receipt_only_widgets = []
         try:
@@ -208,6 +247,78 @@ class PurchasesView(ttk.Frame):
 
         ttk.Button(det, text="Agregar ítem", command=self._on_add_item).grid(row=0, column=8, padx=8)
 
+        # Estado interno para trazabilidad (sin UI en Detalle)
+        self.tr_lote = tk.StringVar(); self.tr_serie = tk.StringVar(); self.tr_has_venc = tk.BooleanVar(value=False); self.tr_venc = tk.StringVar()
+        self._trace_by_prod: Dict[int, Dict[str, object]] = {}
+        self._current_reception_id: Optional[int] = None
+        self._current_po_id: Optional[int] = None
+
+        # Editor de trazabilidad (debajo del bloque Detalle; oculto por defecto)
+        self._trace_frame = ttk.Labelframe(det, text="Trazabilidad del ítem seleccionado (Recepción)", padding=8)
+        # Colocar ocupando el ancho del bloque Detalle
+        self._trace_frame.grid(row=1, column=0, columnspan=9, sticky="we", pady=(6, 0))
+        # Construcción de widgets dentro del frame
+        self._tr_lbl_l = ttk.Label(self._trace_frame, text="Lote:")
+        self._tr_ent_l = ttk.Entry(self._trace_frame, textvariable=self.tr_lote, width=18)
+        self._tr_lbl_s = ttk.Label(self._trace_frame, text="Serie:")
+        self._tr_ent_s = ttk.Entry(self._trace_frame, textvariable=self.tr_serie, width=18)
+        self._tr_chk_v = ttk.Checkbutton(self._trace_frame, text="Con venc.", variable=self.tr_has_venc)
+        self._tr_ent_v = ttk.Entry(self._trace_frame, textvariable=self.tr_venc, width=12)
+        # Ubicación
+        # Acordeón de ubicación (colapsable) con autocompletar
+        self._tr_loc = tk.StringVar()
+        self._loc_header = ttk.Button(self._trace_frame, text="Ubicación ▸", command=lambda: self._toggle_loc_panel())
+        self._loc_panel = ttk.Frame(self._trace_frame)
+        self._tr_lbl_loc = ttk.Label(self._loc_panel, text="Seleccionar:")
+        self._tr_ac_loc = AutoCompleteCombobox(self._loc_panel, width=28, state="normal")
+        # Dataset de ubicaciones
+        try:
+            def _loc_disp(l: Location) -> str:
+                nm = (getattr(l, 'nombre', '') or '').strip()
+                return nm or f"Ubicación {l.id}"
+            def _loc_keys(l: Location):
+                return [str(getattr(l, 'id', '')), (getattr(l, 'nombre', '') or '').strip()]
+            self._tr_ac_loc.set_dataset(self._all_locations, keyfunc=_loc_disp, searchkeys=_loc_keys)
+            self._loc_name_by_id = {int(l.id): (l.nombre or '') for l in self._all_locations}
+            self._loc_id_by_name = {v: k for k, v in self._loc_name_by_id.items() if v}
+        except Exception:
+            self._loc_name_by_id = {}
+            self._loc_id_by_name = {}
+        self._tr_btns = ttk.Frame(self._trace_frame)
+        ttk.Button(self._tr_btns, text="Guardar", command=self._on_trace_save).pack(side="left", padx=2)
+        ttk.Button(self._tr_btns, text="Limpiar", command=self._on_trace_clear).pack(side="left", padx=2)
+        # Layout (grilla interna)
+        self._tr_lbl_l.grid(row=0, column=0, sticky="e", padx=4, pady=2)
+        self._tr_ent_l.grid(row=0, column=1, sticky="w")
+        self._tr_lbl_s.grid(row=0, column=2, sticky="e", padx=4)
+        self._tr_ent_s.grid(row=0, column=3, sticky="w")
+        self._tr_chk_v.grid(row=0, column=4, sticky="e", padx=4)
+        self._tr_ent_v.grid(row=0, column=5, sticky="w")
+        # Cantidad a recibir + pendiente
+        self.tr_qty = tk.IntVar(value=0)
+        self._tr_lbl_qty = ttk.Label(self._trace_frame, text="Cant.:")
+        self._tr_sp_qty = ttk.Spinbox(self._trace_frame, from_=0, to=999999, textvariable=self.tr_qty, width=8)
+        self._tr_lbl_pend = ttk.Label(self._trace_frame, text="Pendiente: -")
+        self._tr_lbl_qty.grid(row=0, column=6, sticky="e", padx=4)
+        self._tr_sp_qty.grid(row=0, column=7, sticky="w")
+        self._tr_lbl_pend.grid(row=0, column=8, sticky="w", padx=6)
+        # Acordeón header en la fila siguiente
+        self._loc_header.grid(row=1, column=0, sticky="w", padx=4, pady=(4, 0))
+        # Panel contenido (inicialmente oculto)
+        self._tr_lbl_loc.grid(row=0, column=0, sticky="e", padx=4)
+        self._tr_ac_loc.grid(row=0, column=1, sticky="w")
+        # Colocar panel en la grilla pero colapsado
+        self._loc_panel.grid(row=2, column=0, columnspan=12, sticky="w", padx=2)
+        self._loc_panel.grid_remove()
+        self._tr_btns.grid(row=0, column=11, padx=8)
+        # Conjunto para show/hide
+        self._trace_widgets_det = [self._trace_frame]
+        # Ocultar inicialmente; se muestra en modo Recepción + edición
+        try:
+            self._trace_frame.grid_remove()
+        except Exception:
+            pass
+
         # ---------- Tabla ----------
         self.tree = ttk.Treeview(
             self,
@@ -230,6 +341,13 @@ class PurchasesView(ttk.Frame):
         try:
             from src.gui.treeview_utils import enable_treeview_sort
             enable_treeview_sort(self.tree)
+        except Exception:
+            pass
+
+        # Enlazar selección/doble-clic para refrescar trazabilidad en el editor
+        try:
+            self.tree.bind('<<TreeviewSelect>>', lambda _e=None: self._on_trace_load_from_selection())
+            self.tree.bind('<Double-1>', lambda _e=None: self._on_trace_load_from_selection())
         except Exception:
             pass
 
@@ -335,6 +453,22 @@ class PurchasesView(ttk.Frame):
                             w.grid()
                     else:
                         w.grid_remove()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        # Mostrar/Ocultar editor de trazabilidad del Detalle solo en Recepción
+        try:
+            # Solo mostrar si estamos editando una recepción existente
+            edit_mode = bool(getattr(self, '_edit_reception_mode', False))
+            if is_receipt and edit_mode:
+                try:
+                    self._trace_frame.grid()
+                except Exception:
+                    pass
+            else:
+                try:
+                    self._trace_frame.grid_remove()
                 except Exception:
                     pass
         except Exception:
@@ -527,20 +661,39 @@ class PurchasesView(ttk.Frame):
             except Exception:
                 mode = 'Compra'
             if str(mode).lower().startswith('recep'):
+                # Si venimos vinculados a una OC, aplicar recepción coherente (recibe pendientes)
+                po_id = getattr(self, '_current_po_id', None)
+                if po_id:
+                    po = self.session.get(Purchase, int(po_id))
+                    if po:
+                        self._apply_reception_for_po(po)
+                        return
+                # Fallback: entradas simples con trazabilidad por ítem seleccionado
                 for iid in self.tree.get_children():
                     vals = self.tree.item(iid, "values")
                     try:
                         prod_id = int(vals[0]); qty = int(float(vals[2]))
                     except Exception:
                         continue
-                    if qty > 0:
-                        self.inv.register_entry(product_id=prod_id, cantidad=qty, motivo=f"Recepcion {self._stamp()}")
+                    if qty <= 0:
+                        continue
+                    tr = (self._trace_by_prod.get(prod_id) or {})
+                    lote = (tr.get('lote') or None)
+                    serie = (tr.get('serie') or None)
+                    venc = (tr.get('venc') or None)
+                    if lote and serie:
+                        serie = None
+                    self.inv.register_entry(
+                        product_id=prod_id, cantidad=qty, motivo=f"Recepcion {self._stamp()}",
+                        lote=str(lote) if lote else None, serie=str(serie) if serie else None, fecha_vencimiento=venc,
+                        reception_id=getattr(self, '_current_reception_id', None)
+                    )
                 try:
                     self.session.commit()
                 except Exception:
                     self.session.rollback(); self.session.commit()
                 self._on_clear_table()
-                self._info("Recepción registrada y stock actualizado.")
+                self._info("Recepción registrada.")
                 return
 
             # Validación extra en UI: por si editaron manualmente la tabla
@@ -750,7 +903,7 @@ class PurchasesView(ttk.Frame):
         from datetime import datetime
         return datetime.now().strftime("%Y%m%d-%H%M%S")
     # ======================== Recepción desde Órdenes ========================
-    def load_purchase_for_reception(self, purchase_id: int, *, tipo_doc: str | None = None, numero_doc: str | None = None) -> None:
+    def load_purchase_for_reception(self, purchase_id: int, *, rec_id: int | None = None, tipo_doc: str | None = None, numero_doc: str | None = None, lote: str | None = None, serie: str | None = None, has_venc: bool | None = None, f_venc: str | None = None) -> None:
         try:
             po = self.session.get(Purchase, int(purchase_id))
             if not po:
@@ -793,6 +946,43 @@ class PurchasesView(ttk.Frame):
                     self.var_numdoc.set(numero_doc)
                 except Exception:
                     pass
+            # Prefill trazabilidad si llegó desde Órdenes
+            try:
+                if lote:
+                    self.var_lote.set(lote)
+                if serie:
+                    self.var_serie.set(serie)
+                if bool(has_venc):
+                    self.var_has_venc.set(True)
+                    if f_venc:
+                        self.var_venc.set(str(f_venc))
+            except Exception:
+                pass
+            try:
+                self._current_reception_id = int(rec_id) if rec_id is not None else None
+                self._current_po_id = int(po.id)
+                # Modo edición si venimos con una recepción existente
+                self._edit_reception_mode = bool(self._current_reception_id)
+                self._on_mode_change()  # fuerza mostrar editor si corresponde
+            except Exception:
+                self._current_reception_id = None; self._current_po_id = int(po.id); self._edit_reception_mode = False
+            # Prefill trazabilidad si llegó desde Órdenes
+            try:
+                if lote:
+                    self.var_lote.set(lote)
+                if serie:
+                    self.var_serie.set(serie)
+                if bool(has_venc):
+                    self.var_has_venc.set(True)
+                    if f_venc:
+                        self.var_venc.set(str(f_venc))
+            except Exception:
+                pass
+            # Guardar id de recepción actual (si hay)
+            try:
+                self._current_reception_id = int(rec_id) if rec_id is not None else None
+            except Exception:
+                self._current_reception_id = None
             self._update_total()
             # Si es Guía, permitir edición de cantidades a recepcionar por línea
             is_guia = False
@@ -833,6 +1023,46 @@ class PurchasesView(ttk.Frame):
         add_stock = estado_actual in ("Pendiente", "Incompleta")
         any_received = False
         try:
+            # Cargar trazabilidad por producto (si existe guardada en el editor)
+
+            # Si estamos editando una recepción existente: actualizar trazabilidad sin mover stock
+            edit_mode = bool(getattr(self, '_edit_reception_mode', False)) and bool(getattr(self, '_current_reception_id', None))
+            if edit_mode:
+                try:
+                    from src.data.models import StockEntry
+                    rec_id = int(getattr(self, '_current_reception_id', 0) or 0)
+                    # ¿Ya existen movimientos para esta recepción?
+                    existing = (
+                        self.session.query(StockEntry.id)
+                        .filter(StockEntry.id_recepcion == rec_id)
+                        .limit(1)
+                        .all()
+                    )
+                    if existing:
+                        # Actualiza trazabilidad sobre movimientos existentes
+                        for pid, tr in (self._trace_by_prod or {}).items():
+                            lote = (tr.get('lote') or None)
+                            serie = (tr.get('serie') or None)
+                            venc = (tr.get('venc') or None)
+                            if lote and serie:
+                                serie = None
+                            q = (
+                                self.session.query(StockEntry)
+                                .filter(StockEntry.id_recepcion == rec_id)
+                                .filter(StockEntry.id_producto == int(pid))
+                            )
+                            for se in q:
+                                se.lote = str(lote) if lote else None
+                                se.serie = str(serie) if serie else None
+                                se.fecha_vencimiento = venc
+                        self.session.commit()
+                        self._info('Recepción actualizada.')
+                        return
+                    # Si no existen movimientos todavía, seguimos abajo con el flujo normal de creación
+                except Exception:
+                    # Si falla la comprobación, continuar con flujo normal
+                    pass
+
             for det in po.details:
                 # Pendiente por línea
                 try:
@@ -843,15 +1073,49 @@ class PurchasesView(ttk.Frame):
                     continue
                 # Cantidad a recepcionar esta vez
                 if received_by_prod is None:
-                    to_recv = int(pending)
+                    # Si hay cantidad guardada en el editor, úsala
+                    try:
+                        tr_rec = self._trace_by_prod.get(int(det.id_producto)) or {}
+                        tr_qty_val = int(tr_rec.get('qty') or 0)
+                    except Exception:
+                        tr_qty_val = 0
+                    if tr_qty_val > 0:
+                        to_recv = min(int(pending), tr_qty_val)
+                    else:
+                        to_recv = int(pending)
                 else:
                     to_recv = int(max(0, int(received_by_prod.get(int(det.id_producto), 0))))
                     if to_recv > pending:
                         to_recv = int(pending)
                 if to_recv <= 0:
                     continue
+                # Por defecto, usa lo guardado para este producto; si no hay, intenta header (compat)
+                tr = (self._trace_by_prod.get(int(det.id_producto)) or {})
+                lote = (tr.get('lote') or None)
+                serie = (tr.get('serie') or None)
+                venc = (tr.get('venc') or None)
+                if not (lote or serie or venc):
+                    try:
+                        lote = (self.var_lote.get() or '').strip() or None
+                        serie = (self.var_serie.get() or '').strip() or None
+                        if lote and serie:
+                            serie = None
+                        if bool(self.var_has_venc.get()):
+                            s = (self.var_venc.get() or '').strip()
+                            if s:
+                                venc = self._parse_ddmmyyyy(s)
+                    except Exception:
+                        pass
                 if add_stock:
-                    self.inv.register_entry(product_id=int(det.id_producto), cantidad=int(to_recv), motivo=f"Recepcion {po.id}")
+                    self.inv.register_entry(
+                        product_id=int(det.id_producto), cantidad=int(to_recv),
+                        motivo=f"Recepcion {po.id}",
+                        lote=str(lote) if lote else None,
+                        serie=str(serie) if serie else None,
+                        fecha_vencimiento=venc,
+                        reception_id=getattr(self, '_current_reception_id', None),
+                        location_id=(tr.get('loc_id') if isinstance(tr, dict) else None)
+                    )
                 det.received_qty = int(getattr(det, "received_qty", 0) or 0) + int(to_recv)
                 if to_recv > 0:
                     any_received = True
@@ -882,6 +1146,163 @@ class PurchasesView(ttk.Frame):
         except Exception as ex:
             self.session.rollback()
             self._error(f"No se pudo confirmar la recepción:\n{ex}")
+
+    # ======================== Editor de trazabilidad ========================
+    def _trace_selected_product_id(self) -> Optional[int]:
+        sel = self.tree.selection()
+        if not sel:
+            return None
+        try:
+            vals = self.tree.item(sel[0], 'values')
+            return int(vals[0])
+        except Exception:
+            return None
+
+    def _on_trace_load_from_selection(self):
+        pid = self._trace_selected_product_id()
+        if pid is None:
+            self._on_trace_clear()
+            return
+        tr = self._trace_by_prod.get(int(pid)) or {}
+        # Si no hay datos en memoria y estamos editando una recepción, intenta cargar desde DB
+        if not tr and bool(getattr(self, '_edit_reception_mode', False)) and getattr(self, '_current_reception_id', None):
+            try:
+                from src.data.models import StockEntry
+                rec_id = int(getattr(self, '_current_reception_id', 0) or 0)
+                se = (
+                    self.session.query(StockEntry)
+                    .filter(StockEntry.id_recepcion == rec_id)
+                    .filter(StockEntry.id_producto == int(pid))
+                    .order_by(StockEntry.id.desc())
+                    .first()
+                )
+                if se is not None:
+                    tr = {
+                        'lote': getattr(se, 'lote', None) or None,
+                        'serie': getattr(se, 'serie', None) or None,
+                        'venc': getattr(se, 'fecha_vencimiento', None) or None,
+                        'loc_id': getattr(se, 'id_ubicacion', None) or None,
+                    }
+                    self._trace_by_prod[int(pid)] = tr
+            except Exception:
+                pass
+        # Fallback a ubicación por defecto del producto si no hay trazabilidad cargada
+        if not tr.get('loc_id'):
+            try:
+                p = self.session.get(Product, int(pid))
+                if p and getattr(p, 'id_ubicacion', None):
+                    tr['loc_id'] = int(getattr(p, 'id_ubicacion'))
+                    self._trace_by_prod[int(pid)] = tr
+            except Exception:
+                pass
+        try:
+            self.tr_lote.set(str(tr.get('lote') or ''))
+            self.tr_serie.set(str(tr.get('serie') or ''))
+            v = tr.get('venc');
+            self.tr_has_venc.set(bool(v))
+            self.tr_venc.set(v.strftime('%d/%m/%Y') if v else '')
+            # Ubicación
+            loc_id = tr.get('loc_id')
+            if loc_id and loc_id in getattr(self, '_loc_name_by_id', {}):
+                try:
+                    self._tr_ac_loc.set(self._loc_name_by_id[int(loc_id)])
+                except Exception:
+                    self._tr_loc.set(self._loc_name_by_id[int(loc_id)])
+            else:
+                try:
+                    self._tr_ac_loc.set('')
+                except Exception:
+                    self._tr_loc.set('')
+            # Cantidad y pendiente
+            pend = None
+            try:
+                # calcular pendiente desde la OC si está disponible
+                if getattr(self, '_current_po_id', None):
+                    det = (
+                        self.session.query(PurchaseDetail)
+                        .filter(PurchaseDetail.id_compra == int(self._current_po_id))
+                        .filter(PurchaseDetail.id_producto == int(pid))
+                        .first()
+                    )
+                    if det is not None:
+                        pend = max(0, int(getattr(det, 'cantidad', 0) or 0) - int(getattr(det, 'received_qty', 0) or 0))
+            except Exception:
+                pend = None
+            if pend is None:
+                # fallback: usa la cantidad mostrada en la fila
+                try:
+                    vals = self.tree.item(self.tree.selection()[0], 'values')
+                    pend = int(float(vals[2]))
+                except Exception:
+                    pend = 0
+            try:
+                self._tr_lbl_pend.config(text=f"Pendiente: {pend}")
+            except Exception:
+                pass
+            # set qty saved or pending
+            try:
+                q_saved = tr.get('qty')
+                q_val = int(q_saved) if q_saved is not None else int(pend)
+                self.tr_qty.set(max(0, q_val))
+            except Exception:
+                self.tr_qty.set(int(pend or 0))
+        except Exception:
+            self.tr_lote.set(''); self.tr_serie.set(''); self.tr_has_venc.set(False); self.tr_venc.set('')
+            try: self._tr_loc.set('')
+            except Exception: pass
+
+    def _on_trace_clear(self):
+        try:
+            self.tr_lote.set(''); self.tr_serie.set(''); self.tr_has_venc.set(False); self.tr_venc.set('')
+            self._tr_loc.set('')
+            self.tr_qty.set(0)
+            try:
+                self._tr_lbl_pend.config(text="Pendiente: -")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _on_trace_save(self):
+        pid = self._trace_selected_product_id()
+        if pid is None:
+            self._warn('Seleccione un ítem en la tabla para aplicar trazabilidad.')
+            return
+        lote = (self.tr_lote.get() or '').strip()
+        serie = (self.tr_serie.get() or '').strip()
+        if lote and serie:
+            # Exclusivo: prioriza lote
+            serie = ''
+        venc = None
+        if bool(self.tr_has_venc.get()):
+            s = (self.tr_venc.get() or '').strip()
+            if s:
+                try:
+                    venc = self._parse_ddmmyyyy(s)
+                except Exception:
+                    self._warn('Fecha de vencimiento inválida. Use dd/mm/aaaa.')
+                    return
+        self._trace_by_prod[int(pid)] = {
+            'lote': (lote or None),
+            'serie': (serie or None),
+            'venc': venc,
+            'loc_id': (self._tr_ac_loc.get_selected_item().id if getattr(self._tr_ac_loc, 'get_selected_item', None) and self._tr_ac_loc.get_selected_item() is not None else (self._loc_id_by_name.get(self._tr_ac_loc.get()) if getattr(self, '_loc_id_by_name', None) else None)),
+            'qty': (int(self.tr_qty.get()) if str(self.tr_qty.get()).strip() != '' else None),
+        }
+        self._info('Trazabilidad guardada para el producto seleccionado.')
+
+    def _toggle_loc_panel(self):
+        try:
+            if str(self._loc_panel.winfo_manager()) == 'grid':
+                self._loc_panel.grid_remove()
+                try: self._loc_header.config(text="Ubicación ▸")
+                except Exception: pass
+            else:
+                self._loc_panel.grid()
+                try: self._loc_header.config(text="Ubicación ▾")
+                except Exception: pass
+        except Exception:
+            pass
 
     # ======================== Mensajes ========================
     def _warn(self, msg: str):

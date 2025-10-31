@@ -86,13 +86,63 @@ class SalesView(ttk.Frame):
         self.ent_price.insert(0, "0")
         self.ent_price.grid(row=0, column=5, sticky="w", padx=4, pady=4)
 
-        ttk.Label(det, text="Dcto (%):").grid(row=0, column=6, sticky="e", padx=4, pady=4)
-        self.ent_disc = ttk.Entry(det, width=6)
-        self.ent_disc.insert(0, "0")
-        self.ent_disc.grid(row=0, column=7, sticky="w", padx=4, pady=4)
+        # (Se eliminó el campo duplicado de Dcto (%) en cabecera)
 
-        ttk.Button(det, text="Agregar Ã­tem", command=self._on_add_item)\
+        ttk.Button(det, text="Agregar ítem", command=self._on_add_item)\
             .grid(row=0, column=8, padx=8)
+
+        # ----- Campos ampliados de Detalle (como en la referencia) -----
+        # Variables de estado
+        self.var_det_nro = tk.StringVar(value="1")
+        self.var_prod_code = tk.StringVar(value="")
+        self.var_prod_desc = tk.StringVar(value="")
+        self.var_unidad = tk.StringVar(value="Unidades")
+        self.var_desc_tipo = tk.StringVar(value="Monto")  # Monto | Porcentaje
+        self.var_desc_val = tk.DoubleVar(value=0.0)
+        self.var_ccosto = tk.StringVar(value="1001 - Ventas")
+        self.var_moneda = tk.StringVar(value="PESO CHILENO")
+        self.var_tasa = tk.DoubleVar(value=1.0)
+        self.var_monto_neto = tk.DoubleVar(value=0.0)
+
+        # Fila 1: Numero detalle / Codigo de producto / Descripcion
+        ttk.Label(det, text="Numero detalle").grid(row=1, column=0, sticky="e", padx=4, pady=4)
+        ttk.Entry(det, textvariable=self.var_det_nro, width=10, state="readonly").grid(row=1, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(det, text="Codigo de producto").grid(row=1, column=2, sticky="e", padx=4, pady=4)
+        ttk.Entry(det, textvariable=self.var_prod_code, width=18, state="readonly").grid(row=1, column=3, sticky="w", padx=4, pady=4)
+        ttk.Label(det, text="Descripcion").grid(row=1, column=4, sticky="e", padx=4, pady=4)
+        ttk.Entry(det, textvariable=self.var_prod_desc, width=36, state="readonly").grid(row=1, column=5, columnspan=3, sticky="we", padx=4, pady=4)
+
+        # Fila 2: Unidad / Tipo desc / Descuento / Monto neto unitario
+        ttk.Label(det, text="Unidad").grid(row=2, column=0, sticky="e", padx=4, pady=4)
+        ttk.Combobox(det, textvariable=self.var_unidad, state="readonly", width=12,
+                     values=["Unidades", "Caja", "Bolsa", "kg", "lt", "ml"]).grid(row=2, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(det, text="Tipo desc").grid(row=2, column=2, sticky="e", padx=4, pady=4)
+        cb_tipo = ttk.Combobox(det, textvariable=self.var_desc_tipo, state="readonly", width=12,
+                               values=["Monto", "Porcentaje"])
+        cb_tipo.grid(row=2, column=3, sticky="w", padx=4, pady=4)
+        ttk.Label(det, text="Descuento").grid(row=2, column=4, sticky="e", padx=4, pady=4)
+        ent_desc = ttk.Entry(det, textvariable=self.var_desc_val, width=12)
+        ent_desc.grid(row=2, column=5, sticky="w", padx=4, pady=4)
+        ttk.Label(det, text="Monto neto").grid(row=2, column=6, sticky="e", padx=4, pady=4)
+        ttk.Entry(det, textvariable=self.var_monto_neto, width=14, state="readonly").grid(row=2, column=7, sticky="w", padx=4, pady=4)
+
+        # Fila 3: Centro de costo / Moneda / Tasa de cambio
+        ttk.Label(det, text="Centro de costo").grid(row=3, column=0, sticky="e", padx=4, pady=4)
+        ttk.Combobox(det, textvariable=self.var_ccosto, state="readonly", width=18,
+                     values=["1001 - Ventas", "1002 - Exportaciones", "1003 - Servicios"]).grid(row=3, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(det, text="Moneda").grid(row=3, column=2, sticky="e", padx=4, pady=4)
+        ttk.Combobox(det, textvariable=self.var_moneda, state="readonly", width=18,
+                     values=["PESO CHILENO", "USD", "EUR"]).grid(row=3, column=3, sticky="w", padx=4, pady=4)
+        ttk.Label(det, text="Tasa de cambio").grid(row=3, column=4, sticky="e", padx=4, pady=4)
+        ttk.Entry(det, textvariable=self.var_tasa, width=12).grid(row=3, column=5, sticky="w", padx=4, pady=4)
+
+        # Eventos para recalcular neto unitario y mantener la compatibilidad con Dcto %
+        try:
+            self.ent_price.bind("<KeyRelease>", lambda _e: self._recalc_net())
+            ent_desc.bind("<KeyRelease>", lambda _e: self._recalc_net())
+            cb_tipo.bind('<<ComboboxSelected>>', lambda _e: self._recalc_net())
+        except Exception:
+            pass
 
         # ---------- Tabla + Scrollbar ----------
         tree_frame = ttk.Frame(self)
@@ -150,61 +200,7 @@ class SalesView(ttk.Frame):
         ttk.Button(bottom, text="Guardar venta", command=self._on_confirm_sale)\
             .pack(side="right", padx=6)
 
-        # ---------- Admin CRUD Venta ----------
-        admin = ttk.Labelframe(self, text="Administrar ventas (Cancelar / Marcar Eliminada)", padding=10)
-        admin.pack(fill="x", expand=False, pady=(10, 0))
-        ttk.Label(admin, text="ID Venta:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
-        self.ent_sale_id = ttk.Entry(admin, width=10)
-        self.ent_sale_id.grid(row=0, column=1, sticky="w", padx=4, pady=4)
-        ttk.Button(admin, text="Cancelar (reversa si confirma/paga)", command=self._on_cancel_sale)\
-            .grid(row=0, column=2, padx=6)
-        ttk.Button(admin, text="Eliminar (marca 'Eliminada')", command=self._on_delete_sale)\
-            .grid(row=0, column=3, padx=6)
-
-        # ---------- Informe de Ventas ----------
-        rep = ttk.Labelframe(self, text="Informe de ventas por fecha y filtros", padding=10)
-        rep.pack(fill="x", expand=False, pady=(10, 0))
-        # Hacer las columnas de entrada elásticas
-        for col in (1, 3, 5):
-            rep.grid_columnconfigure(col, weight=1)
-        for col in (0, 2, 4, 6):
-            rep.grid_columnconfigure(col, weight=0)
-
-        ttk.Label(rep, text="Desde (dd/mm/aaaa):").grid(row=0, column=0, sticky="e", padx=4, pady=4)
-        self.ent_from = ttk.Entry(rep, width=12)
-        self.ent_from.grid(row=0, column=1, sticky="ew", padx=4, pady=4)
-
-        ttk.Label(rep, text="Hasta (dd/mm/aaaa):").grid(row=0, column=2, sticky="e", padx=4, pady=4)
-        self.ent_to = ttk.Entry(rep, width=12)
-        self.ent_to.grid(row=0, column=3, sticky="ew", padx=4, pady=4)
-
-        ttk.Label(rep, text="Cliente:").grid(row=1, column=0, sticky="e", padx=4, pady=4)
-        self.flt_customer = AutoCompleteCombobox(rep, width=40, state="normal")
-        self.flt_customer.grid(row=1, column=1, sticky="ew", padx=4, pady=4)
-
-        ttk.Label(rep, text="Producto:").grid(row=1, column=2, sticky="e", padx=4, pady=4)
-        self.flt_product = AutoCompleteCombobox(rep, width=40, state="normal")
-        self.flt_product.grid(row=1, column=3, sticky="ew", padx=4, pady=4)
-
-        ttk.Label(rep, text="Estado:").grid(row=2, column=0, sticky="e", padx=4, pady=4)
-        self.flt_estado = ttk.Combobox(
-            rep, state="readonly", width=18,
-            values=("", "Confirmada", "Pendiente", "Cancelada", "Eliminada")
-        )
-        self.flt_estado.grid(row=2, column=1, sticky="w", padx=4, pady=4)
-        self.flt_estado.set("")
-
-        ttk.Label(rep, text="Total >=").grid(row=2, column=2, sticky="e", padx=4, pady=4)
-        self.flt_total_min = ttk.Entry(rep, width=12)
-        self.flt_total_min.grid(row=2, column=3, sticky="w", padx=4, pady=4)
-
-        ttk.Label(rep, text="Total <=").grid(row=2, column=4, sticky="e", padx=4, pady=4)
-        self.flt_total_max = ttk.Entry(rep, width=12)
-        self.flt_total_max.grid(row=2, column=5, sticky="w", padx=4, pady=4)
-
-        ttk.Button(rep, text="Generar Informe", command=self._on_generate_sales_report)\
-            .grid(row=0, column=6, sticky="e", padx=8, pady=4)
-
+        # (Se removieron los paneles de Administración e Informe de Ventas)
         self.refresh_lookups()
 
     # -------------------- Lookups --------------------
@@ -282,6 +278,18 @@ class SalesView(ttk.Frame):
     # -------------------- UI helpers --------------------
     def _on_product_change(self, _evt=None):
         self._fill_price_from_selected_product()
+        # Completar campos de detalle ampliado
+        try:
+            p = self._selected_product()
+            if p:
+                self.var_prod_code.set(getattr(p, 'sku', '') or '')
+                self.var_prod_desc.set(getattr(p, 'nombre', '') or '')
+                unidad = getattr(p, 'unidad_medida', None) or 'Unidades'
+                self.var_unidad.set(unidad)
+                # Recalcular neto con el nuevo precio seleccionado
+                self._recalc_net()
+        except Exception:
+            pass
 
     def _fill_price_from_selected_product(self):
         p = self._selected_product()
@@ -325,12 +333,21 @@ class SalesView(ttk.Frame):
                 self._warn("Ingrese un precio vÃ¡lido (> 0).")
                 return
 
-            # Descuento %
+            # Descuento: por monto o porcentaje
             try:
-                disc = float(self.ent_disc.get() or 0)
+                desc_val = float(self.var_desc_val.get() or 0)
             except Exception:
-                disc = 0.0
-            disc = max(0.0, min(100.0, disc))
+                desc_val = 0.0
+            desc_tipo = (self.var_desc_tipo.get() or 'Monto').strip()
+            disc = 0.0  # porcentaje equivalente para la columna
+            eff_price = D(price)
+            if desc_tipo == 'Monto':
+                eff_price = q2(D(price) - D(desc_val))
+                if D(price) > 0:
+                    disc = max(0.0, float((D(desc_val) / D(price)) * 100))
+            else:
+                disc = max(0.0, min(100.0, float(desc_val)))
+                eff_price = q2(D(price) * D(1 - disc/100))
 
             # Evita duplicados
             for iid in self.tree.get_children():
@@ -338,7 +355,6 @@ class SalesView(ttk.Frame):
                     self._warn("Este producto ya estÃ¡ en la tabla.")
                     return
 
-            eff_price = q2(D(price) * D(1 - disc/100))
             subtotal = q2(D(qty) * eff_price)
             self.tree.insert("", "end",
                              values=(p.id, p.nombre, qty, fmt_2(price), f"{disc:.1f}", fmt_2(subtotal)))
@@ -346,9 +362,19 @@ class SalesView(ttk.Frame):
 
             self.ent_qty.delete(0, "end"); self.ent_qty.insert(0, "1")
             self._fill_price_from_selected_product()
-            self.ent_disc.delete(0, "end"); self.ent_disc.insert(0, "0")
+            # limpiar descuento avanzado
+            try:
+                self.var_desc_val.set(0.0)
+            except Exception:
+                pass
             self.cmb_product.set("")
             self.cmb_product.focus_set()
+
+            # Actualizar número de detalle sugerido
+            try:
+                self.var_det_nro.set(str(len(self.tree.get_children()) + 1))
+            except Exception:
+                pass
 
         except Exception as e:
             self._error(f"No se pudo agregar el Ã­tem:\n{e}")
@@ -371,6 +397,26 @@ class SalesView(ttk.Frame):
             except Exception:
                 pass
         self.lbl_total.config(text=f"Total: {fmt_2(total)}")
+
+    # ---- Calcular neto unitario desde precio + tipo de descuento ----
+    def _recalc_net(self):
+        try:
+            price = float(self.ent_price.get() or 0)
+            desc_tipo = (self.var_desc_tipo.get() or 'Monto').strip()
+            desc_val = float(self.var_desc_val.get() or 0)
+            neto = price
+            pct = 0.0
+            if desc_tipo == 'Monto':
+                neto = max(0.0, price - desc_val)
+                if price > 0:
+                    pct = max(0.0, min(100.0, (desc_val / price) * 100.0))
+            else:
+                pct = max(0.0, min(100.0, desc_val))
+                neto = max(0.0, price * (1 - pct/100.0))
+            self.var_monto_neto.set(float(q2(D(neto))))
+            # La columna Dcto % en la tabla se calcula al agregar el ítem.
+        except Exception:
+            pass
 
     # -------------------- Scroll wheel --------------------
     def _on_mousewheel(self, event):

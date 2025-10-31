@@ -71,15 +71,39 @@ class InventoryView(ttk.Frame):
             font=("", 11, "bold"),
         ).pack(side="left")
 
-        ttk.Button(header, text="Imprimir", command=self._on_print).pack(side="right", padx=4)
-        ttk.Button(header, text="Exportar XLSX", command=self._on_export_xlsx).pack(side="right", padx=4)
-        ttk.Button(header, text="Filtrosâ€¦", command=self._on_filters).pack(side="right", padx=4)
-        ttk.Button(header, text="Refrescar ahora", command=self.refresh_table).pack(side="right", padx=4)
-        ttk.Checkbutton(header, text="Auto", variable=self._auto_enabled, command=self._on_toggle_auto).pack(side="right")
+        # Bloque derecho: acciones
+        actions = ttk.Frame(header)
+        actions.pack(side="right")
+        ttk.Button(actions, text="Imprimir", command=self._on_print).pack(side="right", padx=4)
+        ttk.Button(actions, text="Exportar XLSX", command=self._on_export_xlsx).pack(side="right", padx=4)
+        ttk.Button(actions, text="Filtros…", command=self._on_filters).pack(side="right", padx=4)
+        ttk.Button(actions, text="Refrescar ahora", command=self.refresh_table).pack(side="right", padx=4)
+        ttk.Checkbutton(actions, text="Auto", variable=self._auto_enabled, command=self._on_toggle_auto).pack(side="right")
+
+        # Manager de Código de Barras (top-right)
+        bar = ttk.Labelframe(header, text="Código de barras", padding=6)
+        bar.pack(side="right", padx=(8,0))
+        self._bar_prev = ttk.Label(bar, text="(sin selección)")
+        self._bar_prev.grid(row=0, column=0, columnspan=2)
+        self._bar_img = None
+        self._bar_show_text = tk.BooleanVar(value=True)
+        ttk.Checkbutton(bar, text="Texto (nombre)", variable=self._bar_show_text, command=lambda: self._update_bar_preview()).grid(row=1, column=0, columnspan=2, sticky="w")
+        ttk.Label(bar, text="Copias:").grid(row=2, column=0, sticky="e")
+        self._bar_copies = tk.IntVar(value=1)
+        ttk.Spinbox(bar, from_=1, to=999, textvariable=self._bar_copies, width=6).grid(row=2, column=1, sticky="w")
+        btns_bar = ttk.Frame(bar)
+        btns_bar.grid(row=3, column=0, columnspan=2, pady=(4,0))
+        ttk.Button(btns_bar, text="Actualizar", command=self._update_bar_preview).pack(side="left", padx=3)
+        ttk.Button(btns_bar, text="Imprimir", command=self._print_bar_label).pack(side="left", padx=3)
 
         # --- Tabla (GridTable) ---
         self.table = GridTable(self)
         self.table.pack(fill="both", expand=True, pady=(8, 10))
+        # Enlazar selección para actualizar preview de código de barras
+        tv = getattr(self.table, '_fallback', None)
+        if tv is not None:
+            tv.bind('<<TreeviewSelect>>', lambda _e: self._update_bar_preview())
+            tv.bind('<ButtonRelease-1>', lambda _e: self._update_bar_preview())
 
         # --- Footer de totales ---
         # Muestra Î£ P. Compra y Î£ P. Venta de lo actualmente listado
@@ -127,7 +151,7 @@ class InventoryView(ttk.Frame):
     # ====================== columnas y filas ====================== #
     def _columns_for(self, report_type: str) -> List[str]:
         """Define columnas del Treeview. Incluye todos los datos relevantes del producto."""
-        comunes = ["ID", "Producto", "SKU", "Unidad", "Stock"]
+        comunes = ["ID", "Producto", "SKU", "Unidad", "Stock", "Lote/Serie"]
         if report_type == "venta":
             return comunes + ["P. Venta", "Proveedor", "UbicaciÃ³n"]
         if report_type == "compra":
@@ -162,13 +186,31 @@ class InventoryView(ttk.Frame):
             elif stock > max_v:
                 color = "#fff6cc"    # alto (amarillo claro)
 
-            # Construir fila base sin cÃ³digo de barras
+            # Construir fila base con Lote/Serie más reciente (si existe)
+            # Busca la última entrada con trazabilidad
+            loteser = ""
+            try:
+                from src.data.models import StockEntry
+                se = (
+                    self.session.query(StockEntry)
+                    .filter(StockEntry.id_producto == int(p.id))
+                    .filter((StockEntry.lote.isnot(None)) | (StockEntry.serie.isnot(None)))
+                    .order_by(StockEntry.fecha.desc())
+                    .first()
+                )
+                if se is not None:
+                    loteser = (se.lote or se.serie or "")
+            except Exception:
+                loteser = ""
+
+            # Fila base
             row = [
                 int(p.id),
                 (p.nombre or ""),
                 (p.sku or ""),
                 (p.unidad_medida or ""),
                 stock,
+                loteser,
             ]
 
             # Agregar columnas de precio segÃºn tipo de reporte (sin barcode)
@@ -260,6 +302,81 @@ class InventoryView(ttk.Frame):
             self.table.set_row_backgrounds(colors)
         except Exception:
             pass
+
+    # ------------------ Barcode helpers ------------------ #
+    def _current_selected_product(self) -> Optional[Product]:
+        tv = getattr(self.table, '_fallback', None)
+        if tv is not None:
+            sel = tv.selection()
+            if sel:
+                try:
+                    idx = tv.index(sel[0])
+                    if 0 <= idx < len(self._last_row_ids):
+                        return self.session.get(Product, int(self._last_row_ids[idx]))
+                except Exception:
+                    return None
+            return None
+        if hasattr(self.table, 'sheet'):
+            try:
+                rows = list(self.table.sheet.get_selected_rows())
+                if rows:
+                    i = sorted(rows)[0]
+                    if 0 <= i < len(self._last_row_ids):
+                        return self.session.get(Product, int(self._last_row_ids[i]))
+            except Exception:
+                return None
+        return None
+
+    def _update_bar_preview(self):
+        p = self._current_selected_product()
+        if not p:
+            self._bar_prev.configure(text="(sin selección)", image="")
+            return
+        # El código de barras se genera SIEMPRE desde el SKU
+        code = (p.sku or '').strip()
+        if not code:
+            self._bar_prev.configure(text="(sin código)", image="")
+            return
+        try:
+            from src.reports.barcode_label import generate_barcode_png
+            text = (p.nombre or '') if self._bar_show_text.get() else None
+            png = generate_barcode_png(code, text=text, symbology='code128', width_mm=50, height_mm=15)
+            # Prefer PIL; si no, usa PhotoImage nativo
+            try:
+                import PIL.Image, PIL.ImageTk  # type: ignore
+                im = PIL.Image.open(png)
+                max_w = 220
+                if im.width > max_w:
+                    im = im.resize((max_w, int(im.height * (max_w / im.width))))
+                self._bar_img = PIL.ImageTk.PhotoImage(im)
+                self._bar_prev.configure(image=self._bar_img, text="")
+            except Exception:
+                try:
+                    self._bar_img = tk.PhotoImage(file=str(png))
+                    self._bar_prev.configure(image=self._bar_img, text="")
+                except Exception:
+                    self._bar_prev.configure(text=str(png), image="")
+        except Exception:
+            self._bar_prev.configure(text="(error)", image="")
+
+    def _print_bar_label(self):
+        p = self._current_selected_product()
+        if not p:
+            messagebox.showwarning('Etiquetas', 'Seleccione un producto en la tabla.')
+            return
+        # El código de barras se genera SIEMPRE desde el SKU
+        code = (p.sku or '').strip()
+        if not code:
+            messagebox.showwarning('Etiquetas', 'El producto no tiene código/SKU.')
+            return
+        copies = max(1, int(self._bar_copies.get() or 1))
+        try:
+            from src.reports.barcode_label import generate_label_pdf
+            text = (p.nombre or '') if self._bar_show_text.get() else None
+            out = generate_label_pdf(code, text=text, symbology='code128', label_w_mm=50, label_h_mm=30, copies=copies, auto_open=True)
+            messagebox.showinfo('Etiquetas', f'PDF generado:\n{out}')
+        except Exception as ex:
+            messagebox.showerror('Etiquetas', f'No se pudo generar etiquetas:\n{ex}')
 
         # 4) Actualizar totales del footer
         self._update_footer_totals(products)
