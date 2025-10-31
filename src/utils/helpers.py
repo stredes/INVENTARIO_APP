@@ -71,7 +71,7 @@ def write_config(cfg: configparser.ConfigParser) -> None:
 # -----------------------------
 def get_next_po_sequence() -> int:
     """Lee la secuencia actual (siguiente) para OC desde ui_state.ini."""
-    cfg = configparser.ConfigParser()
+    cfg = configparser.ConfigParser(strict=False)
     p = _external_ui_state_path()
     if p.exists():
         cfg.read(p, encoding="utf-8")
@@ -85,7 +85,7 @@ def get_next_po_sequence() -> int:
 
 def bump_po_sequence() -> int:
     """Incrementa la secuencia y la guarda; retorna el valor usado."""
-    cfg = configparser.ConfigParser()
+    cfg = configparser.ConfigParser(strict=False)
     p = _external_ui_state_path()
     if p.exists():
         cfg.read(p, encoding="utf-8")
@@ -114,7 +114,7 @@ def make_po_number(prefix: str = "OC-", width: int = 6) -> str:
 # UI STATE (helpers simples)
 # -----------------------------
 def _read_ui_state() -> configparser.ConfigParser:
-    cfg = configparser.ConfigParser()
+    cfg = configparser.ConfigParser(strict=False)
     p = _external_ui_state_path()
     if p.exists():
         cfg.read(p, encoding="utf-8")

@@ -234,7 +234,7 @@ class MainWindow(ttk.Frame):
         self._save_last_tab_index()
 
     def _restore_ui_state(self) -> None:
-        cfg = configparser.ConfigParser()
+        cfg = configparser.ConfigParser(strict=False)
         if UI_STATE_PATH.exists():
             cfg.read(UI_STATE_PATH, encoding="utf-8")
         geom = cfg.get("mainwindow", "geometry", fallback="")
@@ -301,7 +301,7 @@ class MainWindow(ttk.Frame):
 
     def _save_last_tab_index(self) -> None:
         idx = self._safe_current_index()
-        cfg = configparser.ConfigParser()
+        cfg = configparser.ConfigParser(strict=False)
         if UI_STATE_PATH.exists():
             cfg.read(UI_STATE_PATH, encoding="utf-8")
         cfg.setdefault("mainwindow", {})
@@ -315,7 +315,7 @@ class MainWindow(ttk.Frame):
             return
         try:
             geom = self.app_root.winfo_geometry()
-            cfg = configparser.ConfigParser()
+            cfg = configparser.ConfigParser(strict=False)
             if UI_STATE_PATH.exists():
                 cfg.read(UI_STATE_PATH, encoding="utf-8")
             cfg.setdefault("mainwindow", {})
