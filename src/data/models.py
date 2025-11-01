@@ -67,6 +67,8 @@ class Product(Base):
     precio_venta: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     stock_actual: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     unidad_medida: Mapped[Optional[str]] = mapped_column(String)
+    # Familia o categoría del producto (texto libre para filtros)
+    familia: Mapped[Optional[str]] = mapped_column(String)
 
     # Ruta (absoluta o relativa) a la imagen principal del producto
     image_path: Mapped[Optional[str]] = mapped_column(String)

@@ -327,6 +327,9 @@ def _ensure_schema(engine: Engine) -> None:
             index_name='idx_products_id_ubicacion',
         )
 
+        # Familia/categoría para filtros de catálogo
+        _add_column_if_missing(engine, table='products', column='familia', type_sql='TEXT')
+
         # Vinculación OC-Recepción: cantidad recepcionada
         _add_column_if_missing(
             engine,

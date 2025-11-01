@@ -83,11 +83,26 @@ class InventoryView(ttk.Frame):
         # Manager de Código de Barras (top-right)
         bar = ttk.Labelframe(header, text="Código de barras", padding=6)
         bar.pack(side="right", padx=(8,0))
-        self._bar_prev = ttk.Label(bar, text="(sin selección)")
-        self._bar_prev.grid(row=0, column=0, columnspan=2)
+        # Canvas fijo para evitar deformaciones con SKUs de distintas longitudes
+        self._BAR_W, self._BAR_H = 220, 180
+        self._bar_canvas = tk.Canvas(
+            bar,
+            width=self._BAR_W,
+            height=self._BAR_H,
+            background="white",
+            highlightthickness=1,
+            relief="sunken",
+            bd=0,
+        )
+        self._bar_canvas.grid(row=0, column=0, columnspan=2, pady=(2, 4))
         self._bar_img = None
         self._bar_show_text = tk.BooleanVar(value=True)
-        ttk.Checkbutton(bar, text="Texto (nombre)", variable=self._bar_show_text, command=lambda: self._update_bar_preview()).grid(row=1, column=0, columnspan=2, sticky="w")
+        ttk.Checkbutton(
+            bar,
+            text="Texto (nombre)",
+            variable=self._bar_show_text,
+            command=lambda: self._update_bar_preview(),
+        ).grid(row=1, column=0, columnspan=2, sticky="w")
         ttk.Label(bar, text="Copias:").grid(row=2, column=0, sticky="e")
         self._bar_copies = tk.IntVar(value=1)
         ttk.Spinbox(bar, from_=1, to=999, textvariable=self._bar_copies, width=6).grid(row=2, column=1, sticky="w")
@@ -328,36 +343,78 @@ class InventoryView(ttk.Frame):
         return None
 
     def _update_bar_preview(self):
+        # Limpiar área
+        try:
+            self._bar_canvas.delete("all")
+        except Exception:
+            pass
+
         p = self._current_selected_product()
         if not p:
-            self._bar_prev.configure(text="(sin selección)", image="")
+            self._bar_canvas.create_text(
+                self._BAR_W // 2,
+                self._BAR_H // 2,
+                text="(sin selección)",
+                fill="#666",
+                font=("TkDefaultFont", 10),
+            )
             return
-        # El código de barras se genera SIEMPRE desde el SKU
-        code = (p.sku or '').strip()
+
+        code = (p.sku or "").strip()
         if not code:
-            self._bar_prev.configure(text="(sin código)", image="")
+            self._bar_canvas.create_text(
+                self._BAR_W // 2,
+                self._BAR_H // 2,
+                text="(sin código)",
+                fill="#666",
+                font=("TkDefaultFont", 10),
+            )
             return
+
         try:
             from src.reports.barcode_label import generate_barcode_png
-            text = (p.nombre or '') if self._bar_show_text.get() else None
-            png = generate_barcode_png(code, text=text, symbology='code128', width_mm=50, height_mm=15)
-            # Prefer PIL; si no, usa PhotoImage nativo
+
+            text = (p.nombre or "") if self._bar_show_text.get() else None
+            png = generate_barcode_png(
+                code,
+                text=text,
+                symbology="code128",
+                width_mm=50,
+                height_mm=15,
+            )
+
+            # Prefer PIL para escalar al canvas
             try:
-                import PIL.Image, PIL.ImageTk  # type: ignore
+                import PIL.Image  # type: ignore
+                import PIL.ImageTk  # type: ignore
+
                 im = PIL.Image.open(png)
-                max_w = 220
-                if im.width > max_w:
-                    im = im.resize((max_w, int(im.height * (max_w / im.width))))
+                im = im.convert("RGBA")
+                # Escalar proporcionalmente para caber en el canvas
+                max_w, max_h = self._BAR_W, self._BAR_H
+                im.thumbnail((max_w, max_h), resample=getattr(PIL.Image, "LANCZOS", 1))
                 self._bar_img = PIL.ImageTk.PhotoImage(im)
-                self._bar_prev.configure(image=self._bar_img, text="")
+                self._bar_canvas.create_image(
+                    self._BAR_W // 2,
+                    self._BAR_H // 2,
+                    image=self._bar_img,
+                )
             except Exception:
-                try:
-                    self._bar_img = tk.PhotoImage(file=str(png))
-                    self._bar_prev.configure(image=self._bar_img, text="")
-                except Exception:
-                    self._bar_prev.configure(text=str(png), image="")
+                # Fallback: sin escalado si PIL no está disponible
+                self._bar_img = tk.PhotoImage(file=str(png))
+                self._bar_canvas.create_image(
+                    self._BAR_W // 2,
+                    self._BAR_H // 2,
+                    image=self._bar_img,
+                )
         except Exception:
-            self._bar_prev.configure(text="(error)", image="")
+            self._bar_canvas.create_text(
+                self._BAR_W // 2,
+                self._BAR_H // 2,
+                text="(error)",
+                fill="#a00",
+                font=("TkDefaultFont", 10),
+            )
 
     def _print_bar_label(self):
         p = self._current_selected_product()
@@ -377,9 +434,10 @@ class InventoryView(ttk.Frame):
             messagebox.showinfo('Etiquetas', f'PDF generado:\n{out}')
         except Exception as ex:
             messagebox.showerror('Etiquetas', f'No se pudo generar etiquetas:\n{ex}')
+            return
 
         # 4) Actualizar totales del footer
-        self._update_footer_totals(products)
+        # self._update_footer_totals(products)  # removed: handled elsewhere
         # 5) Enlazar selecciÃ³n â†’ actualizar panel lÃ­mites
         try:
             if hasattr(self.table, "sheet"):

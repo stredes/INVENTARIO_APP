@@ -114,6 +114,15 @@ class ProductsView(ttk.Frame):
         bar_actions.grid(row=1, column=2, sticky="nw", padx=(10,0), pady=(4,0))
         # Guarda referencia para sincronizar tamaño con el recuadro de imagen
         self._bar_container = bar
+        # Panel vertical a la derecha para acciones masivas
+        bar_side = ttk.Frame(frm)
+        bar_side.grid(row=0, column=3, sticky="nw", padx=(8,0))
+        side_btn_opts = dict(fill="x", pady=4)
+        ttk.Button(bar_side, text="Aplicar margen selección", command=self._apply_margin_to_selection).pack(**side_btn_opts)
+        ttk.Button(bar_side, text="Aplicar ubicación selección", command=self._apply_location_to_selection).pack(**side_btn_opts)
+        ttk.Button(bar_side, text="Aplicar unidad selección", command=self._apply_unit_to_selection).pack(**side_btn_opts)
+        ttk.Button(bar_side, text="Aplicar proveedor selección", command=self._apply_supplier_to_selection).pack(**side_btn_opts)
+        ttk.Button(bar_side, text="Aplicar familia selección", command=self._apply_family_to_selection).pack(**side_btn_opts)
         # Toggle: si este producto tendrá etiqueta de código de barras (basado en SKU)
         self.var_has_barcode = tk.BooleanVar(value=False)
         ttk.Checkbutton(bar, text="Generar etiqueta (usar SKU)", variable=self.var_has_barcode,
@@ -156,8 +165,8 @@ class ProductsView(ttk.Frame):
             # No desactivar grid_propagate para evitar que el frame colapse
         except Exception:
             pass
-        # Tamaño + copias
-        ttk.Label(bar, text="Tamaño:").grid(row=3, column=0, sticky="e", padx=2, pady=(2,0))
+        # tamaño + copias
+        ttk.Label(bar, text="tamaño:").grid(row=3, column=0, sticky="e", padx=2, pady=(2,0))
         self.var_bar_size = tk.StringVar(value="50x30 mm")
         ttk.Combobox(bar, textvariable=self.var_bar_size, values=["30x20 mm", "50x30 mm", "70x40 mm"], width=12, state="readonly").grid(row=3, column=1, sticky="w")
         ttk.Label(bar, text="Copias:").grid(row=4, column=0, sticky="e", padx=2, pady=(2,0))
@@ -174,8 +183,6 @@ class ProductsView(ttk.Frame):
         bulk.grid(row=1, column=0, sticky="w", pady=(4,0))
         ttk.Button(bulk, text="Marcar selección", command=lambda: self._apply_label_to_selection(True)).grid(row=0, column=0, sticky="w", padx=3)
         ttk.Button(bulk, text="Quitar selección", command=lambda: self._apply_label_to_selection(False)).grid(row=0, column=1, sticky="w", padx=3)
-        ttk.Button(bulk, text="Aplicar margen selección", command=self._apply_margin_to_selection).grid(row=0, column=2, sticky="w", padx=3)
-
 
 
 
@@ -237,6 +244,11 @@ class ProductsView(ttk.Frame):
         ttk.Label(right, text="Precio Venta:").grid(row=4, column=0, sticky="e", padx=4, pady=4)
         ent_pventa = ttk.Entry(right, textvariable=self.var_pventa, width=12)
         ent_pventa.grid(row=4, column=1, sticky="w", padx=4, pady=4)
+
+        # Fila 4 (derecha): Familia
+        ttk.Label(right, text="Familia:").grid(row=4, column=2, sticky="e", padx=4, pady=4)
+        self.var_familia = tk.StringVar()
+        ttk.Entry(right, textvariable=self.var_familia, width=20).grid(row=4, column=3, sticky="w", padx=4, pady=4)
 
         # Fila 5: Proveedor
         ttk.Label(right, text="Proveedor:").grid(row=5, column=0, sticky="e", padx=4, pady=4)
@@ -579,6 +591,90 @@ class ProductsView(ttk.Frame):
             except Exception:
                 pass
             messagebox.showerror("Margen", f"No se pudo aplicar el margen:\n{ex}")
+
+    def _apply_unit_to_selection(self) -> None:
+        try:
+            ids = self._get_selected_product_ids()
+            if not ids:
+                messagebox.showwarning("Unidad", "Seleccione uno o más productos en la tabla.")
+                return
+            unit = (self.var_unidad.get() or "").strip()
+            if not unit:
+                messagebox.showwarning("Unidad", "Seleccione una unidad en el formulario antes de aplicar.")
+                return
+            updated = 0
+            for pid in ids:
+                p = self.session.get(Product, int(pid))
+                if p is None:
+                    continue
+                p.unidad_medida = unit
+                updated += 1
+            self.session.commit()
+            self._load_table()
+            messagebox.showinfo("Unidad", f"Unidad aplicada en {updated} productos.")
+        except Exception as ex:
+            try:
+                self.session.rollback()
+            except Exception:
+                pass
+            messagebox.showerror("Unidad", f"No se pudo aplicar a la selección:\n{ex}")
+
+    def _apply_supplier_to_selection(self) -> None:
+        try:
+            ids = self._get_selected_product_ids()
+            if not ids:
+                messagebox.showwarning("Proveedor", "Seleccione uno o más productos en la tabla.")
+                return
+            idx = self.cmb_supplier.current()
+            if idx is None or idx < 0 or idx >= len(self._suppliers):
+                messagebox.showwarning("Proveedor", "Seleccione un proveedor en el formulario antes de aplicar.")
+                return
+            prov_id = int(self._suppliers[idx].id)
+            updated = 0
+            for pid in ids:
+                p = self.session.get(Product, int(pid))
+                if p is None:
+                    continue
+                p.id_proveedor = prov_id
+                updated += 1
+            self.session.commit()
+            self._load_table()
+            self._select_supplier_for_current_product()
+            messagebox.showinfo("Proveedor", f"Proveedor aplicado en {updated} productos.")
+        except Exception as ex:
+            try:
+                self.session.rollback()
+            except Exception:
+                pass
+            messagebox.showerror("Proveedor", f"No se pudo aplicar a la selección:\n{ex}")
+
+    def _apply_family_to_selection(self) -> None:
+        try:
+            ids = self._get_selected_product_ids()
+            if not ids:
+                messagebox.showwarning("Familia", "Seleccione uno o más productos en la tabla.")
+                return
+            fam = (self.var_familia.get().strip() if hasattr(self, 'var_familia') else '')
+            fam_val = fam or None
+            updated = 0
+            for pid in ids:
+                p = self.session.get(Product, int(pid))
+                if p is None:
+                    continue
+                try:
+                    p.familia = fam_val
+                    updated += 1
+                except Exception:
+                    pass
+            self.session.commit()
+            self._load_table()
+            messagebox.showinfo("Familia", f"Familia aplicada en {updated} productos.")
+        except Exception as ex:
+            try:
+                self.session.rollback()
+            except Exception:
+                pass
+            messagebox.showerror("Familia", f"No se pudo aplicar a la selección:\n{ex}")
 
     # ----------------- Unidad/Empaque prompts ----------------- #
     def _on_unidad_change(self, _evt=None):
@@ -932,6 +1028,7 @@ class ProductsView(ttk.Frame):
             unidad = self.var_unidad.get()
             pc = float(self.var_pc.get())
             pventa = float(self.var_pventa.get())
+            familia = (self.var_familia.get().strip() if hasattr(self, 'var_familia') else '')
             if not nombre or not codigo:
                 messagebox.showwarning("Validación", "Nombre y Código son obligatorios.")
                 return None
@@ -962,6 +1059,7 @@ class ProductsView(ttk.Frame):
                 precio_compra=pc,
                 precio_venta=pventa,
                 unidad_medida=unidad,
+                familia=(familia or None),
                 id_proveedor=proveedor.id,
                 id_ubicacion=location_id,
                 barcode=barcode_val,
@@ -1207,6 +1305,64 @@ class ProductsView(ttk.Frame):
 
 
 
+
+
+
+
+
+    def _apply_location_to_selection(self) -> None:
+        """Aplica la ubicación seleccionada en el combo a los productos marcados."""
+        try:
+            ids = self._get_selected_product_ids()
+            if not ids:
+                messagebox.showwarning("Ubicación", "Seleccione uno o más productos en la tabla.")
+                return
+            # Obtener nombre seleccionado en el combo
+            try:
+                sel_name = (self.cmb_location.get() or "").strip()
+            except Exception:
+                sel_name = ""
+            if not sel_name:
+                messagebox.showwarning("Ubicación", "Seleccione una ubicación en el formulario antes de aplicar.")
+                return
+            # Resolver id de ubicación a partir del nombre
+            loc_id = None
+            try:
+                for l in self._locations:
+                    if (l.nombre or "").strip() == sel_name:
+                        loc_id = int(l.id)
+                        break
+            except Exception:
+                pass
+            if loc_id is None:
+                messagebox.showwarning("Ubicación", "No se pudo determinar la ubicación seleccionada.")
+                return
+            # Aplicar a cada producto
+            updated = 0
+            for pid in ids:
+                p = self.session.get(Product, int(pid))
+                if p is None:
+                    continue
+                try:
+                    p.id_ubicacion = loc_id
+                    updated += 1
+                except Exception:
+                    pass
+            self.session.commit()
+            self._load_table()
+            try:
+                if self._current_product and self._current_product.id in ids:
+                    # Refrescar selección del combo para el producto actual
+                    self._select_supplier_for_current_product()
+            except Exception:
+                pass
+            messagebox.showinfo("Ubicación", f"Ubicación aplicada en {updated} productos.")
+        except Exception as ex:
+            try:
+                self.session.rollback()
+            except Exception:
+                pass
+            messagebox.showerror("Ubicación", f"No se pudo aplicar a la selección:\n{ex}")
 
 
 
