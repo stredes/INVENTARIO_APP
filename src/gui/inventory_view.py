@@ -84,7 +84,7 @@ class InventoryView(ttk.Frame):
         bar = ttk.Labelframe(header, text="Código de barras", padding=6)
         bar.pack(side="right", padx=(8,0))
         # Canvas fijo para evitar deformaciones con SKUs de distintas longitudes
-        self._BAR_W, self._BAR_H = 220, 180
+        self._BAR_W, self._BAR_H = 300,80
         self._bar_canvas = tk.Canvas(
             bar,
             width=self._BAR_W,
