@@ -1233,7 +1233,7 @@ class ProductsView(ttk.Frame):
         def _disp(s: Supplier) -> str:
             rut = (s.rut or "").strip()
             rs = (s.razon_social or "").strip()
-            return f"{rs} â€” {rut}" if rut else rs
+            return f"{rs} — {rut}" if rut else rs
 
         self.cmb_supplier["values"] = [_disp(s) for s in self._suppliers]
         # Selecciona automáticamente si solo hay un proveedor

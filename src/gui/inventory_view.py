@@ -67,7 +67,7 @@ class InventoryView(ttk.Frame):
         header.pack(fill="x", expand=False)
         ttk.Label(
             header,
-            text="Inventario (refresco automÃ¡tico)",
+            text="Inventario (refresco automático)",
             font=("", 11, "bold"),
         ).pack(side="left")
 
@@ -149,15 +149,15 @@ class InventoryView(ttk.Frame):
         self._build_legend()
 
         # --- LÃ­mites por producto seleccionado ---
-        prod_cfg = ttk.Labelframe(self, text="LÃ­mites crÃ­ticos del producto seleccionado", padding=10)
+        prod_cfg = ttk.Labelframe(self, text="Límites críticos del producto seleccionado", padding=10)
         prod_cfg.pack(fill="x", expand=False, pady=(6, 10))
         self._sel_min = tk.IntVar(value=0)
         self._sel_max = tk.IntVar(value=0)
-        ttk.Label(prod_cfg, text="MÃ­nimo:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
+        ttk.Label(prod_cfg, text="Mínimo:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
         ttk.Spinbox(prod_cfg, from_=0, to=999999, textvariable=self._sel_min, width=10).grid(row=0, column=1, sticky="w", padx=4, pady=4)
-        ttk.Label(prod_cfg, text="MÃ¡ximo:").grid(row=0, column=2, sticky="e", padx=4, pady=4)
+        ttk.Label(prod_cfg, text="Máximo:").grid(row=0, column=2, sticky="e", padx=4, pady=4)
         ttk.Spinbox(prod_cfg, from_=0, to=999999, textvariable=self._sel_max, width=10).grid(row=0, column=3, sticky="w", padx=4, pady=4)
-        ttk.Button(prod_cfg, text="Guardar lÃ­mites del producto", command=self._on_save_selected_limits).grid(row=0, column=4, padx=8)
+        ttk.Button(prod_cfg, text="Guardar límites del producto", command=self._on_save_selected_limits).grid(row=0, column=4, padx=8)
 
         # Primera carga + auto
         self.refresh_table()
@@ -168,10 +168,10 @@ class InventoryView(ttk.Frame):
         """Define columnas del Treeview. Incluye todos los datos relevantes del producto."""
         comunes = ["ID", "Producto", "SKU", "Unidad", "Stock", "Lote/Serie"]
         if report_type == "venta":
-            return comunes + ["P. Venta", "Proveedor", "UbicaciÃ³n"]
+            return comunes + ["P. Venta", "Proveedor", "Ubicación"]
         if report_type == "compra":
-            return comunes + ["P. Compra", "Proveedor", "UbicaciÃ³n"]
-        return comunes + ["P. Compra", "P. Venta", "Proveedor", "UbicaciÃ³n"]
+            return comunes + ["P. Compra", "Proveedor", "Ubicación"]
+        return comunes + ["P. Compra", "P. Venta", "Proveedor", "Ubicación"]
 
     def _rows_from_products(self, products: List[Product], report_type: str):
         """
@@ -258,7 +258,7 @@ class InventoryView(ttk.Frame):
     # ======================= helpers de totales / formato ======================= #
     @staticmethod
     def _fmt_money(value) -> str:
-        """Formatea nÃºmeros a '$ 1,234.56'. (Cambiar si prefieres es-CL exacto)."""
+        """Formatea números a '$ 1,234.56'. (Cambiar si prefieres es-CL exacto)."""
         try:
             return f"$ {float(value or 0):,.2f}"
         except Exception:
@@ -298,8 +298,8 @@ class InventoryView(ttk.Frame):
 
     def _populate_table(self, products: List[Product]) -> None:
         """
-        Pinta la tabla con productos y aplica colores crÃ­ticos.
-        TambiÃ©n actualiza el footer de totales con base en 'products'.
+        Pinta la tabla con productos y aplica colores críticos.
+        También actualiza el footer de totales con base en 'products'.
         """
         cols = self._columns_for(self._current_filter.report_type)
         rows, colors, ids = self._rows_from_products(products, self._current_filter.report_type)
@@ -438,7 +438,7 @@ class InventoryView(ttk.Frame):
 
         # 4) Actualizar totales del footer
         # self._update_footer_totals(products)  # removed: handled elsewhere
-        # 5) Enlazar selecciÃ³n â†’ actualizar panel lÃ­mites
+        # 5) Enlazar selección → actualizar panel límites
         try:
             if hasattr(self.table, "sheet"):
                 self.table.sheet.extra_bindings([("cell_select", lambda e: self._update_selected_limits_panel())])
@@ -472,7 +472,7 @@ class InventoryView(ttk.Frame):
         # Ajustar ancho del canvas a los parches dibujados
         canvas.config(width=x)
 
-    # ---------------- LÃ­mites por producto (panel) ---------------- #
+    # ---------------- Límites por producto (panel) ---------------- #
     def _update_selected_limits_panel(self) -> None:
         ids = self._selected_ids()
         if not ids:
@@ -494,13 +494,13 @@ class InventoryView(ttk.Frame):
         try:
             mn = int(self._sel_min.get()); mx = int(self._sel_max.get())
         except Exception:
-            messagebox.showwarning("Inventario", "Valores invÃ¡lidos para mÃ­nimo/mÃ¡ximo.")
+            messagebox.showwarning("Inventario", "Valores inválidos para mínimo/máximo.")
             return
         if mn < 0 or mx < 0:
-            messagebox.showwarning("Inventario", "Los lÃ­mites deben ser â‰¥ 0.")
+            messagebox.showwarning("Inventario", "Los límites deben ser ≥ 0.")
             return
         if mx and mn and mx < mn:
-            messagebox.showwarning("Inventario", "MÃ¡ximo no puede ser menor que MÃ­nimo.")
+            messagebox.showwarning("Inventario", "Máximo no puede ser menor que Mínimo.")
             return
         _set_prod_limits(pid, mn, mx)
         self.refresh_table()
@@ -531,7 +531,7 @@ class InventoryView(ttk.Frame):
                 pass
             self._auto_job = None
 
-    # ---------------------- Filtros, exportaciÃ³n, impresiÃ³n ---------------------- #
+    # ---------------------- Filtros, exportación, impresión ---------------------- #
     def _selected_ids(self) -> List[int]:
         """IDs de filas seleccionadas (tksheet o fallback Treeview)."""
         # tksheet backend
@@ -559,7 +559,7 @@ class InventoryView(ttk.Frame):
         return ids
 
     def _on_filters(self):
-        """Abre diÃ¡logo de filtros, aplica y actualiza tabla + totales."""
+        """Abre diálogo de filtros, aplica y actualiza tabla + totales."""
         dlg = InventoryFiltersDialog(self, initial=self._current_filter)
         self.wait_window(dlg)
         if dlg.result:
@@ -572,7 +572,7 @@ class InventoryView(ttk.Frame):
                 messagebox.showerror("Error", f"No se pudo aplicar filtros:\n{e}")
 
     def _on_export_xlsx(self):
-        """Exporta XLSX con filtro actual (o con selecciÃ³n de IDs si la hay)."""
+        """Exporta XLSX con filtro actual (o con selección de IDs si la hay)."""
         ids = self._selected_ids()
         flt = self._current_filter
         if ids:
@@ -585,7 +585,7 @@ class InventoryView(ttk.Frame):
             messagebox.showerror("Error", f"No se pudo exportar:\n{e}")
 
     def _on_print(self):
-        """Imprime con filtro actual (o con selecciÃ³n de IDs si la hay)."""
+        """Imprime con filtro actual (o con selección de IDs si la hay)."""
         ids = self._selected_ids()
         flt = self._current_filter
         if ids:
@@ -599,7 +599,7 @@ class InventoryView(ttk.Frame):
         printer_name = dlg.result
         try:
             path = print_inventory_report(self.session, flt, "Listado de Inventario", printer_name=printer_name)
-            messagebox.showinfo("ImpresiÃ³n", f"Enviado a '{printer_name}'.\nArchivo: {path}")
+            messagebox.showinfo("Impresión", f"Enviado a '{printer_name}'.\nArchivo: {path}")
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo imprimir:\n{e}")
 

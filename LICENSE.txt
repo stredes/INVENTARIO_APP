@@ -1,0 +1,15 @@
+Proprietary Software License — All Rights Reserved
+
+Copyright (c) [AÑO] [NOMBRE LEGAL DE LA EMPRESA]. Todos los derechos reservados.
+
+Este software y su documentación son propiedad de [NOMBRE LEGAL DE LA EMPRESA] y se suministran bajo licencia. 
+Queda prohibida su reproducción, distribución, comunicación pública, alquiler, préstamo, ingeniería inversa, 
+o cualquier uso no autorizado, salvo en la medida permitida por una licencia escrita y vigente (EULA/Contrato 
+de Licencia) suscrita con [NOMBRE LEGAL DE LA EMPRESA].
+
+En caso de conflicto, rigen los términos del “EULA” aplicable (ver legal/EULA-ES.md) y/o la Orden de Compra 
+correspondiente (legal/ORDER-FORM-ES.md). Si usted no dispone de un contrato firmado que conceda licencia, 
+usted no tiene permiso para usar este software.
+
+Contacto: [EMAIL SOPORTE] | [SITIO WEB]
+

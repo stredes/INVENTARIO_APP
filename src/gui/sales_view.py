@@ -62,10 +62,40 @@ class SalesView(ttk.Frame):
         self.cmb_estado.grid(row=0, column=4, sticky="w", padx=4)
 
         ttk.Label(top, text="Pago:").grid(row=0, column=5, sticky="e", padx=4)
-        self.PAGOS = ("Contado", "DÃ©bito", "Transferencia", "CrÃ©dito 30 dÃ­as")
+        self.PAGOS = ("Contado", "Débito", "Transferencia", "Crédito 30 días")
         self.cmb_pago = ttk.Combobox(top, state="readonly", width=18, values=self.PAGOS)
         self.cmb_pago.set("Contado")
         self.cmb_pago.grid(row=0, column=6, sticky="w", padx=4)
+
+        # ---------- Modo Cajero de ventas (POS) ----------
+        self._cashier_mode = tk.BooleanVar(value=False)
+        cashier_bar = ttk.Frame(self)
+        cashier_bar.pack(fill="x", expand=False, pady=(8, 0))
+        ttk.Checkbutton(
+            cashier_bar,
+            text="Modo cajero de ventas",
+            variable=self._cashier_mode,
+            command=lambda: self._toggle_cashier_ui(),
+        ).pack(side="left")
+
+        self._cashier_frame = ttk.Labelframe(self, text="Cajero de ventas", padding=8)
+        # Oculto por defecto; se muestra al activar el modo
+        self._cashier_frame.pack_forget()
+
+        ttk.Label(self._cashier_frame, text="Escanear SKU:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
+        self.ent_scan = ttk.Entry(self._cashier_frame, width=28)
+        self.ent_scan.grid(row=0, column=1, sticky="w", padx=4, pady=4)
+        self.ent_scan.bind("<Return>", lambda _e: self._on_scan_enter())
+
+        ttk.Button(self._cashier_frame, text="Agregar", command=self._on_scan_enter).grid(row=0, column=2, padx=6)
+        ttk.Button(self._cashier_frame, text="Cobrar (F12)", command=self._on_quick_checkout).grid(row=0, column=3, padx=6)
+
+        # Atajos de teclado útiles en cajero
+        try:
+            self.bind_all("<F12>", lambda _e: self._on_quick_checkout())
+            self.bind_all("<Control-l>", lambda _e: self._focus_scan())
+        except Exception:
+            pass
 
         # ---------- Detalle ----------
         det = ttk.Labelframe(self, text="Detalle de venta", padding=10)
@@ -170,7 +200,7 @@ class SalesView(ttk.Frame):
         tree_frame.rowconfigure(0, weight=1)
         tree_frame.columnconfigure(0, weight=1)
 
-        # Soporte de rueda del ratÃ³n (Windows/macOS/Linux)
+        # Soporte de rueda del ratón (Windows/macOS/Linux)
         self.tree.bind("<MouseWheel>", self._on_mousewheel)
         self.tree.bind("<Button-4>", self._on_mousewheel)   # Linux scroll up
         self.tree.bind("<Button-5>", self._on_mousewheel)   # Linux scroll down
@@ -187,13 +217,13 @@ class SalesView(ttk.Frame):
         self.lbl_total = ttk.Label(bottom, text="Total: 0.00", font=("", 11, "bold"))
         self.lbl_total.pack(side="left")
 
-        # Estado ya estÃ¡ en el encabezado; no lo repetimos en el footer
+        # Estado ya está en el encabezado; no lo repetimos en el footer
 
-        ttk.Button(bottom, text="Eliminar Ã­tem", command=self._on_delete_item)\
+        ttk.Button(bottom, text="Eliminar ítem", command=self._on_delete_item)\
             .pack(side="right", padx=6)
         ttk.Button(bottom, text="Limpiar tabla", command=self._on_clear_table)\
             .pack(side="right", padx=6)
-        ttk.Button(bottom, text="Generar CotizaciÃ³n (PDF)", command=self._on_generate_sales_quote)\
+        ttk.Button(bottom, text="Generar Cotización (PDF)", command=self._on_generate_sales_quote)\
             .pack(side="right", padx=6)
         ttk.Button(bottom, text="Generar OV (PDF en Descargas)", command=self._on_generate_so_downloads)\
             .pack(side="right", padx=6)
@@ -202,6 +232,175 @@ class SalesView(ttk.Frame):
 
         # (Se removieron los paneles de Administración e Informe de Ventas)
         self.refresh_lookups()
+        
+    # ==================== Modo Cajero (POS) ==================== #
+    def _toggle_cashier_ui(self) -> None:
+        try:
+            if self._cashier_mode.get():
+                self._cashier_frame.pack(fill="x", expand=False, pady=(6, 0))
+                # Sugerir estado Pagada y pago Contado, sin forzarlo
+                try:
+                    if self.cmb_estado.get() == "" or self.cmb_estado.get() == "Confirmada":
+                        self.cmb_estado.set("Pagada")
+                    if hasattr(self, "cmb_pago") and not self.cmb_pago.get():
+                        self.cmb_pago.set("Contado")
+                except Exception:
+                    pass
+                self.after(10, self._focus_scan)
+            else:
+                self._cashier_frame.pack_forget()
+        except Exception:
+            pass
+
+    def _focus_scan(self) -> None:
+        try:
+            self.ent_scan.focus_set()
+            self.ent_scan.select_range(0, "end")
+        except Exception:
+            pass
+
+    def _on_scan_enter(self) -> None:
+        code = (self.ent_scan.get() or "").strip()
+        if not code:
+            return
+        try:
+            p = self.repo_prod.get_by_sku(code)
+            if not p:
+                self._warn(f"SKU no encontrado: {code}")
+                self._focus_scan()
+                return
+            # Precio base desde producto; si no existe, usar 0 (con validación más abajo)
+            price = D(getattr(p, "precio_venta", 0) or 0)
+            if price <= 0:
+                self._warn(f"El producto '{p.nombre}' no tiene precio de venta definido.")
+                self._focus_scan()
+                return
+
+            # ¿Ya existe en la tabla? -> incrementa cantidad
+            iid_found = None
+            for iid in self.tree.get_children():
+                try:
+                    if str(self.tree.item(iid, "values")[0]) == str(p.id):
+                        iid_found = iid
+                        break
+                except Exception:
+                    pass
+
+            if iid_found:
+                vals = list(self.tree.item(iid_found, "values"))
+                try:
+                    qty = int(float(vals[2])) + 1
+                except Exception:
+                    qty = 1
+                try:
+                    unit_price = D(vals[3])
+                except Exception:
+                    unit_price = price
+                disc_pct = 0.0
+                subtotal = fmt_2(q2(D(qty) * q2(unit_price)))
+                self.tree.item(iid_found, values=(p.id, p.nombre, qty, fmt_2(unit_price), f"{disc_pct:.1f}", subtotal))
+            else:
+                qty = 1
+                disc_pct = 0.0
+                subtotal = fmt_2(q2(D(qty) * q2(price)))
+                self.tree.insert("", "end", values=(p.id, p.nombre, qty, fmt_2(price), f"{disc_pct:.1f}", subtotal))
+
+            self._update_total()
+        finally:
+            # Limpiar y volver a enfocar
+            try:
+                self.ent_scan.delete(0, "end")
+                self._focus_scan()
+            except Exception:
+                pass
+
+    def _on_quick_checkout(self) -> None:
+        """Confirma venta como 'Pagada' y genera boleta PDF (Descargas).
+        Requiere cliente seleccionado.
+        """
+        try:
+            # 1) Tomar snapshot de ítems y cliente
+            items = self._collect_items()
+            if not items:
+                self._warn("Agregue al menos un ítem.")
+                return
+            cust = self._get_selected_customer()
+            if not cust:
+                self._warn("Seleccione un cliente.")
+                return
+
+            # 2) Construir items para SalesManager
+            sm_items = [
+                SaleItem(product_id=it["id"], cantidad=it["cantidad"], precio_unitario=it["precio"])
+                for it in items
+            ]
+
+            # 3) Crear venta como 'Pagada'
+            estado = "Pagada"
+            apply_to_stock = self.var_apply.get()  # Pagada descuenta stock si está activo
+            create_fn = self._resolve_create_sale()
+            sale = create_fn(
+                customer_id=cust.id,
+                items=sm_items,
+                estado=estado,
+                apply_to_stock=apply_to_stock,
+            )
+
+            # 4) Generar Boleta POS (ticket 80mm) en Descargas
+            try:
+                from datetime import datetime
+                from src.reports.pos_receipt import generate_pos_ticket_to_downloads
+
+                row_items = []
+                for it in items:
+                    # Intentar SKU (código) para mostrar
+                    try:
+                        pid = int(it["id"])  # para buscar SKU
+                        p = self.repo_prod.get(pid)
+                        sku = getattr(p, "sku", "") if p else ""
+                    except Exception:
+                        sku = ""
+                    row_items.append({
+                        "codigo": sku,
+                        "descripcion": it["nombre"],
+                        "cantidad": it["cantidad"],
+                        "precio": float(it["precio"]),
+                        "subtotal": float(it["subtotal"]),
+                    })
+
+                sale_dt = getattr(sale, "fecha_venta", None) or datetime.now()
+                folio = f"VENTA-{getattr(sale, 'id', '')}"
+                # Estructura de cliente compacta para el ticket
+                cust_min = {
+                    "id": getattr(cust, "id", None),
+                    "razon_social": getattr(cust, "razon_social", "") or "",
+                    "rut": getattr(cust, "rut", "") or "",
+                }
+                pago = None
+                try:
+                    pago = self.cmb_pago.get()
+                except Exception:
+                    pago = None
+
+                out = generate_pos_ticket_to_downloads(
+                    folio=folio,
+                    fecha=sale_dt,
+                    customer=cust_min,
+                    items=row_items,
+                    payment=pago,
+                    width_mm=80.0,
+                    iva_percent=19.0,
+                    auto_open=True,
+                )
+                self._info(f"Venta registrada y boleta generada:\n{out}")
+            except Exception:
+                # Si el PDF falla, al menos informar venta creada
+                self._info("Venta registrada (Pagada). No se pudo generar la boleta.")
+
+            # 5) Limpiar UI
+            self._on_clear_table()
+        except Exception as e:
+            self._error(f"No se pudo finalizar la venta:\n{e}")
 
     # -------------------- Lookups --------------------
     def refresh_lookups(self):
@@ -305,7 +504,7 @@ class SalesView(ttk.Frame):
 
     # -------------------- Ãtems --------------------
     def _on_add_item(self):
-        """Agrega un Ã­tem validando duplicados y valores."""
+        """Agrega un ítem validando duplicados y valores."""
         try:
             p = self._selected_product()
             if not p:
@@ -316,13 +515,13 @@ class SalesView(ttk.Frame):
             try:
                 qty = int(float(self.ent_qty.get()))
             except Exception:
-                self._warn("Cantidad invÃ¡lida.")
+                self._warn("Cantidad inválida.")
                 return
             if qty <= 0:
                 self._warn("La cantidad debe ser > 0.")
                 return
 
-            # Precio: si no se indicÃ³, usar precio_venta del producto
+            # Precio: si no se indicó, usar precio_venta del producto
             try:
                 price = D(self.ent_price.get())
             except Exception:
@@ -330,7 +529,7 @@ class SalesView(ttk.Frame):
             if price <= 0:
                 price = D(getattr(p, "precio_venta", 0) or 0)
             if price <= 0:
-                self._warn("Ingrese un precio vÃ¡lido (> 0).")
+                self._warn("Ingrese un precio válido (> 0).")
                 return
 
             # Descuento: por monto o porcentaje
@@ -352,7 +551,7 @@ class SalesView(ttk.Frame):
             # Evita duplicados
             for iid in self.tree.get_children():
                 if str(p.id) == str(self.tree.item(iid, "values")[0]):
-                    self._warn("Este producto ya estÃ¡ en la tabla.")
+                    self._warn("Este producto ya está en la tabla.")
                     return
 
             subtotal = q2(D(qty) * eff_price)
@@ -377,7 +576,7 @@ class SalesView(ttk.Frame):
                 pass
 
         except Exception as e:
-            self._error(f"No se pudo agregar el Ã­tem:\n{e}")
+            self._error(f"No se pudo agregar el ítem:\n{e}")
 
     def _on_delete_item(self):
         for item in self.tree.selection():
@@ -468,13 +667,13 @@ class SalesView(ttk.Frame):
         for name in ("create_sale", "create", "register_sale", "add_sale"):
             if hasattr(self.sm, name):
                 return getattr(self.sm, name)
-        raise AttributeError("SalesManager no expone un mÃ©todo para crear ventas (create_sale/create/...)")
+        raise AttributeError("SalesManager no expone un método para crear ventas (create_sale/create/...)")
 
     def _on_confirm_sale(self):
         try:
             items = self._collect_items()
             if not items:
-                self._warn("Agregue al menos un Ã­tem.")
+                self._warn("Agregue al menos un ítem.")
                 return
             cust = self._get_selected_customer()
             if not cust:
@@ -507,7 +706,7 @@ class SalesView(ttk.Frame):
         try:
             items = self._collect_items()
             if not items:
-                self._warn("Agregue al menos un Ã­tem.")
+                self._warn("Agregue al menos un ítem.")
                 return
             cust = self._get_selected_customer_dict()
             try:
@@ -530,10 +729,10 @@ class SalesView(ttk.Frame):
     def _on_generate_sales_quote(self):
         try:
             items = self._collect_items()
+            items = self._collect_items()
             if not items:
-                self._warn("Agregue al menos un Ã­tem.")
+                self._warn("Agregue al menos un ítem.")
                 return
-            cust = self._get_selected_customer_dict()
             cust.setdefault("nombre", cust.get("razon_social") or "")
             try:
                 cust["pago"] = self.cmb_pago.get()
@@ -548,9 +747,9 @@ class SalesView(ttk.Frame):
                 notes=None,
                 auto_open=True,
             )
-            self._info(f"CotizaciÃ³n de venta creada en Descargas:\n{out}")
+            self._info(f"Cotización de venta creada en Descargas:\n{out}")
         except Exception as e:
-            self._error(f"No se pudo generar la cotizaciÃ³n:\n{e}")
+            self._error(f"No se pudo generar la cotización:\n{e}")
 
     def _on_cancel_sale(self):
         try:
@@ -563,7 +762,7 @@ class SalesView(ttk.Frame):
     def _on_delete_sale(self):
         try:
             sid = int(self.ent_sale_id.get())
-            if not messagebox.askyesno("Confirmar", f"Â¿Marcar venta {sid} como Eliminada? Se revertirÃ¡ stock si corresponde."):
+            if not messagebox.askyesno("Confirmar", f"¿Marcar venta {sid} como Eliminada? Se revertirá stock si corresponde."):
                 return
             self.sm.delete_sale(sid, revert_stock=True)
             self._info(f"Venta {sid} marcada como Eliminada.")
@@ -736,8 +935,8 @@ class SalesView(ttk.Frame):
                 "Cliente": filtro_cliente or "Todos",
                 "Producto": filtro_producto or "Todos",
                 "Estado": (self.flt_estado.get() or "").strip() or "Todos",
-                "Total â‰¥": self.flt_total_min.get() or "-",
-                "Total â‰¤": self.flt_total_max.get() or "-",
+                "Total ≥": self.flt_total_min.get() or "-",
+                "Total ≤": self.flt_total_max.get() or "-",
             }
 
             date_from = self.ent_from.get().strip()
@@ -806,7 +1005,7 @@ class SalesView(ttk.Frame):
 
     # -------------------- Mensajes --------------------
     def _warn(self, msg: str):
-        messagebox.showwarning("ValidaciÃ³n", msg)
+        messagebox.showwarning("Validación", msg)
 
     def _error(self, msg: str):
         messagebox.showerror("Error", msg)
@@ -818,3 +1017,4 @@ class SalesView(ttk.Frame):
     def _stamp() -> str:
         from datetime import datetime
         return datetime.now().strftime("%Y%m%d-%H%M%S")
+
