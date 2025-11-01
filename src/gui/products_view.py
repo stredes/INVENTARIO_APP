@@ -13,6 +13,7 @@ from src.gui.widgets.product_image_box import ProductImageBox  # <-- recuadro im
 
 # Grilla tipo hoja (tksheet si está, o fallback Treeview)
 from src.gui.widgets.grid_table import GridTable
+from sqlalchemy import func  # para filtros (like case-insensitive)
 
 
 def calcular_precios(pc: float, iva: float, margen: float) -> tuple[float, float, float]:
@@ -36,6 +37,30 @@ class ProductsView(ttk.Frame):
     COLS = ["ID", "Nombre", "Código", "P. Compra", "IVA %", "Monto IVA", "P. + IVA", "Margen %", "P. Venta", "Unidad", "Etiqueta"]
     COL_WIDTHS = [50, 220, 120, 90, 70, 90, 90, 90, 90, 90, 80]
 
+    @staticmethod
+    def _num(val) -> float:
+        """Convierte un valor de celda a float de forma tolerante.
+        Acepta números o strings con separadores/moneda ("$ 1.234,56").
+        """
+        try:
+            if isinstance(val, (int, float)):
+                return float(val)
+            s = str(val).strip()
+            if not s:
+                return 0.0
+            import re
+            s = re.sub(r"[^0-9,\.\-]", "", s)
+            if "," in s and "." in s:
+                if s.rfind(",") > s.rfind("."):
+                    s = s.replace(".", "").replace(",", ".")
+                else:
+                    s = s.replace(",", "")
+            elif "," in s:
+                s = s.replace(",", ".")
+            return float(s or 0)
+        except Exception:
+            return 0.0
+
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
         self.session = get_session()
@@ -51,6 +76,10 @@ class ProductsView(ttk.Frame):
         # cache tabla (para doble click en tksheet / tree)
         self._rows_cache: List[List[str]] = []
         self._id_by_index: List[int] = []
+        # filtros rápidos de la grilla
+        self.var_q_id = tk.StringVar()
+        self.var_q_code = tk.StringVar()
+        self.var_q_name = tk.StringVar()
 
         # ---------- estádo (variables UI) ----------
         self.var_nombre = tk.StringVar()
@@ -78,8 +107,13 @@ class ProductsView(ttk.Frame):
         right.grid(row=0, column=1, sticky="nw")
 
         # Panel extremo derecho: Manager de Código de Barras
-        bar = ttk.Labelframe(frm, text="Código de barras", padding=8)
-        bar.grid(row=0, column=2, sticky="ne", padx=(12,0))
+        bar = ttk.Labelframe(frm, text="Código de barras", padding=4)
+        bar.grid(row=0, column=2, sticky="nw", padx=(10,0))
+        # Contenedor externo para botones (queda por fuera del labelframe)
+        bar_actions = ttk.Frame(frm)
+        bar_actions.grid(row=1, column=2, sticky="nw", padx=(10,0), pady=(4,0))
+        # Guarda referencia para sincronizar tamaño con el recuadro de imagen
+        self._bar_container = bar
         # Toggle: si este producto tendrá etiqueta de código de barras (basado en SKU)
         self.var_has_barcode = tk.BooleanVar(value=False)
         ttk.Checkbutton(bar, text="Generar etiqueta (usar SKU)", variable=self.var_has_barcode,
@@ -91,29 +125,62 @@ class ProductsView(ttk.Frame):
         # Preview
         self._bar_img_obj = None
         self._bar_preview = ttk.Label(bar, text="(sin código)")
-        self._bar_preview.grid(row=2, column=0, columnspan=2, pady=(6,4))
+        self._bar_preview.grid(row=2, column=0, columnspan=2, pady=(2,2))
+        # Canvas de preview para limitar tamaño (oculta label)
+        try:
+            # Mismo aspecto que el recuadro de imagen, pero más compacto (ej. 70%)
+            _box_w = int(getattr(self.img_box, "_box_w", 200))
+            _box_h = int(getattr(self.img_box, "_box_h", 200))
+            _scale = 0.7
+            self._BAR_CANVAS_W = max(120, int(_box_w * _scale))
+            self._BAR_CANVAS_H = max(100, int(_box_h * _scale))
+            self._bar_canvas = tk.Canvas(
+                bar,
+                width=self._BAR_CANVAS_W,
+                height=self._BAR_CANVAS_H,
+                background="#f4f4f4",
+                highlightthickness=1,
+                relief="sunken",
+                bd=0,
+            )
+            self._bar_canvas.grid(row=2, column=0, columnspan=2, pady=(2,2), sticky="nwe")
+            # Mantener el label oculto, pero permitir que el frame calcule su tamaño normalmente
+            self._bar_preview.grid_remove()
+            # Reservar espacio mínimo para el canvas dentro del frame
+            try:
+                bar.grid_columnconfigure(0, minsize=self._BAR_CANVAS_W, weight=1)
+                bar.grid_columnconfigure(1, weight=1)
+                bar.grid_rowconfigure(2, minsize=self._BAR_CANVAS_H)
+            except Exception:
+                pass
+            # No desactivar grid_propagate para evitar que el frame colapse
+        except Exception:
+            pass
         # Tamaño + copias
-        ttk.Label(bar, text="Tamaño:").grid(row=3, column=0, sticky="e", padx=2)
+        ttk.Label(bar, text="Tamaño:").grid(row=3, column=0, sticky="e", padx=2, pady=(2,0))
         self.var_bar_size = tk.StringVar(value="50x30 mm")
         ttk.Combobox(bar, textvariable=self.var_bar_size, values=["30x20 mm", "50x30 mm", "70x40 mm"], width=12, state="readonly").grid(row=3, column=1, sticky="w")
         ttk.Label(bar, text="Copias:").grid(row=4, column=0, sticky="e", padx=2, pady=(2,0))
         self.var_bar_copies = tk.IntVar(value=1)
         ttk.Spinbox(bar, from_=1, to=999, textvariable=self.var_bar_copies, width=6).grid(row=4, column=1, sticky="w", pady=(2,0))
+        btns_bar = ttk.Frame(bar_actions)
+        btns_bar.grid(row=0, column=0, sticky="w")
         # Botones
-        btns_bar = ttk.Frame(bar)
-        btns_bar.grid(row=5, column=0, columnspan=2, pady=(6,0))
-        ttk.Button(btns_bar, text="Actualizar", command=self._refresh_barcode_preview).pack(side="left", padx=3)
-        ttk.Button(btns_bar, text="Imprimir", command=self._print_barcode_label).pack(side="left", padx=3)
-        ttk.Button(btns_bar, text="Impresoras…", command=self._choose_printer).pack(side="left", padx=3)
+        # (btns en contenedor externo)
+        # (btns en contenedor externo)
+        ttk.Button(btns_bar, text="Actualizar", command=self._refresh_barcode_preview).grid(row=0, column=0, sticky="w", padx=3)
+        ttk.Button(btns_bar, text="Imprimir", command=self._print_barcode_label).grid(row=0, column=1, sticky="w", padx=3)
+        bulk = ttk.Frame(bar_actions)
+        bulk.grid(row=1, column=0, sticky="w", pady=(4,0))
+        ttk.Button(bulk, text="Marcar selección", command=lambda: self._apply_label_to_selection(True)).grid(row=0, column=0, sticky="w", padx=3)
+        ttk.Button(bulk, text="Quitar selección", command=lambda: self._apply_label_to_selection(False)).grid(row=0, column=1, sticky="w", padx=3)
+        ttk.Button(bulk, text="Aplicar margen selección", command=self._apply_margin_to_selection).grid(row=0, column=2, sticky="w", padx=3)
 
-        # Acciones masivas sobre la selección de la tabla
-        bulk = ttk.Frame(bar)
-        bulk.grid(row=6, column=0, columnspan=2, pady=(6,0))
-        ttk.Button(bulk, text="Marcar selección", command=lambda: self._apply_label_to_selection(True)).pack(side="left", padx=3)
-        ttk.Button(bulk, text="Quitar selección", command=lambda: self._apply_label_to_selection(False)).pack(side="left", padx=3)
 
-        # Fila 0: Nombre / Código
-        ttk.Label(right, text="Nombre:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
+
+
+
+
         ent_nombre = ttk.Entry(right, textvariable=self.var_nombre, width=35)
         ent_nombre.grid(row=0, column=1, sticky="w", padx=4, pady=4)
         self.ent_nombre = ent_nombre  # para foco
@@ -196,9 +263,20 @@ class ProductsView(ttk.Frame):
         self.btn_delete.pack(side="left", padx=4)
         self.btn_clear.pack(side="left", padx=4)
 
+        # ---------- Filtros rápidos (ID / Código / Nombre) ----------
+        filt = ttk.Frame(self)
+        filt.pack(fill="x", expand=False, pady=(8, 0))
+        ttk.Label(filt, text="ID:").grid(row=0, column=0, padx=(0,4), sticky="w")
+        ttk.Entry(filt, textvariable=self.var_q_id, width=8).grid(row=0, column=1, padx=(0,12), sticky="w")
+        ttk.Label(filt, text="Código:").grid(row=0, column=2, padx=(0,4), sticky="w")
+        ttk.Entry(filt, textvariable=self.var_q_code, width=16).grid(row=0, column=3, padx=(0,12), sticky="w")
+        ttk.Label(filt, text="Nombre:").grid(row=0, column=4, padx=(0,4), sticky="w")
+        ttk.Entry(filt, textvariable=self.var_q_name, width=28).grid(row=0, column=5, padx=(0,12), sticky="w")
+        ttk.Button(filt, text="Aplicar filtro", command=self._apply_table_filter).grid(row=0, column=6, padx=(4,0))
+
         # ---------- Tabla (GridTable) ----------
         self.table = GridTable(self, height=14)
-        self.table.pack(fill="both", expand=True, pady=(10, 0))
+        self.table.pack(fill="both", expand=True, pady=(6, 0))
 
         # Doble click para editar (tksheet + fallback)
         if hasattr(self.table, "sheet"):
@@ -209,6 +287,7 @@ class ProductsView(ttk.Frame):
         tv = getattr(self.table, "_fallback", None)
         if tv is not None:
             tv.bind("<Double-1>", lambda e: self._on_row_dblclick())
+            tv.bind("<<TreeviewSelect>>", lambda e: self._on_tree_select())
             # Limpia formulario si clic en encabezado
             tv.bind("<Button-1>", self._on_tree_click)
 
@@ -225,10 +304,64 @@ class ProductsView(ttk.Frame):
         self._load_table()
         self._recalc_prices()
         self.ent_nombre.focus_set()
+        # Ajustar tamaño del panel de código de barras para igualarlo al recuadro de imagen
+        try:
+            self._setup_bar_same_size_as_image()
+        except Exception:
+            pass
 
     # --------- Barcode manager logic --------- #
     def _refresh_barcode_preview(self):
         try:
+            # Render sobre Canvas si existe (evita deformar la UI)
+            if hasattr(self, "_bar_canvas"):
+                try:
+                    self._bar_canvas.delete("all")
+                except Exception:
+                    pass
+                # Medidas reales del canvas (si ya está mapeado); fallback a valores base
+                try:
+                    self._bar_canvas.update_idletasks()
+                except Exception:
+                    pass
+                cw = max(getattr(self, "_BAR_CANVAS_W", 260), int(self._bar_canvas.winfo_width() or 0))
+                ch = max(getattr(self, "_BAR_CANVAS_H", 220), int(self._bar_canvas.winfo_height() or 0))
+                if not bool(self.var_has_barcode.get()):
+                    self._bar_canvas.create_text(cw//2, ch//2, text="(etiqueta desactivada)", fill="#666", font=("TkDefaultFont", 10))
+                    return
+                code = (self.var_codigo.get() or "").strip()
+                if not code:
+                    self._bar_canvas.create_text(cw//2, ch//2, text="(sin codigo)", fill="#666", font=("TkDefaultFont", 10))
+                    return
+                from src.reports.barcode_label import generate_barcode_png
+                text = (self.var_nombre.get().strip() if self.var_bar_text.get() else None) or None
+                png = generate_barcode_png(code, text=text, symbology="code128", width_mm=50, height_mm=15)
+                try:
+                    import PIL.Image, PIL.ImageTk  # type: ignore
+                    im = PIL.Image.open(png)
+                    max_w, max_h = cw - 16, ch - 16
+                    # Escalar para cubrir todo el ancho del canvas
+                    scale_w = float(max_w) / float(im.width) if im.width else 1.0
+                    new_w = int(im.width * scale_w)
+                    new_h = int(im.height * scale_w)
+                    if new_w > 0 and new_h > 0 and (new_w != im.width or new_h != im.height):
+                        try:
+                            im = im.resize((new_w, new_h))
+                        except Exception:
+                            im = im.resize((new_w, new_h))
+                    # Si la altura supera el alto disponible, recortar verticalmente centrado
+                    if new_h > max_h:
+                        top = max(0, (new_h - max_h) // 2)
+                        im = im.crop((0, top, max_w, top + max_h))
+                    self._bar_img_obj = PIL.ImageTk.PhotoImage(im)
+                    self._bar_canvas.create_image(cw//2, ch//2, image=self._bar_img_obj)
+                except Exception:
+                    try:
+                        self._bar_img_obj = tk.PhotoImage(file=str(png))
+                        self._bar_canvas.create_image(cw//2, ch//2, image=self._bar_img_obj)
+                    except Exception:
+                        self._bar_canvas.create_text(cw//2, ch//2, text=str(png), fill="#666", font=("TkDefaultFont", 9))
+                return
             # Si no está habilitada la etiqueta para este producto, mostrar desactivado
             if not bool(self.var_has_barcode.get()):
                 self._bar_preview.configure(text="(etiqueta desactivada)", image="")
@@ -239,7 +372,15 @@ class ProductsView(ttk.Frame):
                 return
             from src.reports.barcode_label import generate_barcode_png
             text = (self.var_nombre.get().strip() if self.var_bar_text.get() else None) or None
-            png = generate_barcode_png(code, text=text, symbology="code128", width_mm=50, height_mm=15)
+            # Ajustar tamaño de preview según selección de etiqueta
+            try:
+                size = (self.var_bar_size.get() or "50x30 mm").replace("mm"," ").strip().split("x")
+                w_mm = float(size[0]); h_mm = float(size[1])
+            except Exception:
+                w_mm, h_mm = 50.0, 30.0
+            img_w = max(20.0, w_mm - 10.0)
+            img_h = max(10.0, h_mm - 12.0)
+            png = generate_barcode_png(code, text=text, symbology="code128", width_mm=img_w, height_mm=img_h)
             # Prefer PIL para mejor escalado; si no está, usa PhotoImage nativo
             try:
                 import PIL.Image, PIL.ImageTk  # type: ignore
@@ -319,35 +460,45 @@ class ProductsView(ttk.Frame):
             self._refresh_barcode_preview()
 
     # --------- Selección múltiple: aplicar/quitar etiqueta --------- #
-    def _get_selected_row_indices(self) -> list[int]:
-        idxs: list[int] = []
+    def _get_selected_product_ids(self) -> list[int]:
+        """Obtiene IDs de producto de las filas seleccionadas (independiente del orden/ordenamiento)."""
         tv = getattr(self.table, "_fallback", None)
+        ids: list[int] = []
         if tv is not None:
             try:
                 for iid in tv.selection():
+                    vals = list(tv.item(iid, "values"))
+                    if not vals:
+                        continue
                     try:
-                        idxs.append(int(tv.index(iid)))
+                        ids.append(int(vals[0]))
                     except Exception:
                         pass
             except Exception:
                 pass
-            return sorted(set(i for i in idxs if 0 <= i < len(self._id_by_index)))
-        # tksheet (si algún día se habilita)
+            return sorted(set(ids))
+        # tksheet (si en el futuro se activa)
         if hasattr(self.table, "sheet"):
             try:
                 rows = list(self.table.sheet.get_selected_rows())
-                return sorted(set(r for r in rows if 0 <= r < len(self._id_by_index)))
+                out: list[int] = []
+                for r in rows:
+                    if 0 <= r < len(self._rows_cache):
+                        try:
+                            out.append(int(self._rows_cache[r][0]))
+                        except Exception:
+                            pass
+                return sorted(set(out))
             except Exception:
                 return []
         return []
 
     def _apply_label_to_selection(self, enable: bool) -> None:
         try:
-            idxs = self._get_selected_row_indices()
-            if not idxs:
+            ids = self._get_selected_product_ids()
+            if not ids:
                 messagebox.showwarning("Etiquetas", "Seleccione uno o más productos en la tabla.")
                 return
-            ids = [self._id_by_index[i] for i in idxs]
             ok = 0
             for pid in ids:
                 p = self.session.get(Product, int(pid))
@@ -377,6 +528,57 @@ class ProductsView(ttk.Frame):
             except Exception:
                 pass
             messagebox.showerror("Etiquetas", f"No se pudo aplicar a la selección:\n{ex}")
+
+    def _apply_margin_to_selection(self) -> None:
+        """Aplica el % de ganancia actual a los productos seleccionados recalculando Precio Venta.
+        Usa IVA% de la UI como referencia para calcular P + IVA y luego aplica margen.
+        """
+        try:
+            ids = self._get_selected_product_ids()
+            if not ids:
+                messagebox.showwarning("Margen", "Seleccione uno o más productos en la tabla.")
+                return
+            iva = float(self.var_iva.get() or 19.0)
+            margen = float(self.var_margen.get() or 0.0)
+            updated = 0
+            for pid in ids:
+                p = self.session.get(Product, int(pid))
+                if p is None:
+                    continue
+                try:
+                    pc = float(getattr(p, 'precio_compra', 0) or 0)
+                except Exception:
+                    pc = 0.0
+                if pc <= 0:
+                    continue
+                monto_iva = pc * (iva / 100.0)
+                pmasiva = pc + monto_iva
+                pventa = (pmasiva * (1.0 + margen / 100.0))
+                # Redondeo a 2 decimales para compatibilidad con Numeric(12,2)
+                try:
+                    p.precio_venta = round(float(pventa), 2)
+                except Exception:
+                    p.precio_venta = float(pventa)
+                updated += 1
+            self.session.commit()
+            self._load_table()
+            try:
+                if self._current_product and self._current_product.id in ids:
+                    # refrescar campo Precio Venta del formulario con el nuevo cálculo
+                    pv = self.session.get(Product, int(self._current_product.id)).precio_venta
+                    try:
+                        self.var_pventa.set(float(pv or 0))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            messagebox.showinfo("Margen", f"Precio de venta recalculado en {updated} productos.")
+        except Exception as ex:
+            try:
+                self.session.rollback()
+            except Exception:
+                pass
+            messagebox.showerror("Margen", f"No se pudo aplicar el margen:\n{ex}")
 
     # ----------------- Unidad/Empaque prompts ----------------- #
     def _on_unidad_change(self, _evt=None):
@@ -574,33 +776,120 @@ class ProductsView(ttk.Frame):
             messagebox.showerror("Error", f"No se pudo eliminar:\n{e}")
 
     def _on_row_dblclick(self, _event=None):
-        """Carga la fila seleccionada al formulario."""
+        """Carga la fila seleccionada al formulario (doble clic)."""
+        tv = getattr(self.table, "_fallback", None)
+        if tv is not None:
+            try:
+                sel = tv.selection()
+                if sel:
+                    vals = list(tv.item(sel[0], "values"))
+                    if vals:
+                        self._load_form_from_row_values(vals)
+                        return
+            except Exception:
+                pass
+        # Fallback a caché (tksheet)
         idx = self._selected_row_index()
         if idx is None or idx < 0 or idx >= len(self._rows_cache):
             return
         vals = self._rows_cache[idx]
-        # 0 id, 1 nombre, 2 Código, 3 pcompra, 4 iva, 5 iva_monto, 6 pmasiva, 7 margen, 8 pventa, 9 unidad
-        self._editing_id = int(vals[0])
-        self._current_product = self.repo.get(self._editing_id)
-        self.var_nombre.set(vals[1])
-        self.var_codigo.set(vals[2])
-        try: self.var_pc.set(float(vals[3] or 0))
-        except Exception: self.var_pc.set(0.0)
-        try: self.var_iva.set(float(vals[4] or 19.0))
-        except Exception: self.var_iva.set(19.0)
-        try: self.var_iva_monto.set(float(vals[5] or 0))
-        except Exception: self.var_iva_monto.set(0.0)
-        try: self.var_pmasiva.set(float(vals[6] or 0))
-        except Exception: self.var_pmasiva.set(0.0)
-        try: self.var_margen.set(float(vals[7] or 30.0))
-        except Exception: self.var_margen.set(30.0)
-        try: self.var_pventa.set(float(vals[8] or 0))
-        except Exception: self.var_pventa.set(0.0)
+        self._load_form_from_row_values(vals)
+
+    def _on_tree_select(self, _event=None):
+        """Carga al formulario el primer elemento seleccionado (un clic)."""
+        tv = getattr(self.table, "_fallback", None)
+        if tv is None:
+            return
         try:
-            unidad_val = vals[9] or "unidad"
-            self._ensure_unidad_value(unidad_val)
-            self.var_unidad.set(unidad_val)
-        except Exception: self.var_unidad.set("unidad")
+            sel = tv.selection()
+            if not sel:
+                return
+            vals = list(tv.item(sel[0], "values"))
+            if not vals:
+                return
+            self._load_form_from_row_values(vals)
+        except Exception:
+            pass
+
+    def _load_form_from_row_values(self, vals: list[str]) -> None:
+        """Rellena el formulario desde una fila de la tabla (lista de valores).
+        Evita desincronización con _rows_cache tras ordenar columnas.
+        """
+        # 0 id, 1 nombre, 2 Código, 3 pcompra, 4 iva, 5 iva_monto, 6 pmasiva, 7 margen, 8 pventa, 9 unidad
+        try:
+            self._editing_id = int(vals[0])
+        except Exception:
+            return
+        try:
+            self._current_product = self.repo.get(self._editing_id)
+        except Exception:
+            self._current_product = None
+        # Preferir valores reales desde la BD para evitar errores de formateo (miles/decimales)
+        if self._current_product is not None:
+            p = self._current_product
+            self.var_nombre.set(getattr(p, 'nombre', '') or '')
+            self.var_codigo.set(getattr(p, 'sku', '') or '')
+            pc = 0.0
+            pv = 0.0
+            try:
+                pc = float(getattr(p, 'precio_compra', 0) or 0)
+            except Exception:
+                pc = 0.0
+            try:
+                pv = float(getattr(p, 'precio_venta', 0) or 0)
+            except Exception:
+                pv = 0.0
+            self.var_pc.set(pc)
+            # Mantener IVA actual (usuario puede ajustar). Si quieres guardar por-producto, habría que extender el modelo.
+            iva = 0.0
+            try:
+                iva = float(self.var_iva.get() or 19.0)
+            except Exception:
+                iva = 19.0
+            # Derivados
+            try:
+                monto_iva = pc * (iva / 100.0)
+                pmasiva = pc + monto_iva
+                self.var_iva_monto.set(round(monto_iva))
+                self.var_pmasiva.set(round(pmasiva))
+                try:
+                    margen = max(0.0, (pv / max(1.0, pmasiva) - 1.0) * 100.0)
+                except Exception:
+                    margen = 0.0
+                self.var_margen.set(round(margen))
+            except Exception:
+                self.var_iva_monto.set(0.0)
+                self.var_pmasiva.set(0.0)
+                self.var_margen.set(30.0)
+            self.var_pventa.set(pv)
+            # Unidad
+            try:
+                unidad_val = getattr(p, 'unidad_medida', None) or 'unidad'
+                self._ensure_unidad_value(unidad_val)
+                self.var_unidad.set(unidad_val)
+            except Exception:
+                self.var_unidad.set('unidad')
+        else:
+            # Fallback a los valores del row si algo falló
+            self.var_nombre.set(vals[1])
+            self.var_codigo.set(vals[2])
+            try: self.var_pc.set(self._num(vals[3]))
+            except Exception: self.var_pc.set(0.0)
+            try: self.var_iva.set(self._num(vals[4]) or 19.0)
+            except Exception: self.var_iva.set(19.0)
+            try: self.var_iva_monto.set(self._num(vals[5]))
+            except Exception: self.var_iva_monto.set(0.0)
+            try: self.var_pmasiva.set(self._num(vals[6]))
+            except Exception: self.var_pmasiva.set(0.0)
+            try: self.var_margen.set(self._num(vals[7]) or 30.0)
+            except Exception: self.var_margen.set(30.0)
+            try: self.var_pventa.set(self._num(vals[8]))
+            except Exception: self.var_pventa.set(0.0)
+            try:
+                unidad_val = vals[9] or "unidad"
+                self._ensure_unidad_value(unidad_val)
+                self.var_unidad.set(unidad_val)
+            except Exception: self.var_unidad.set("unidad")
 
         if self._current_product and self._current_product.id:
             self.img_box.set_product(self._current_product.id, on_image_changed=self._on_image_changed)
@@ -720,6 +1009,36 @@ class ProductsView(ttk.Frame):
             pass
         self.after(100, lambda: self.ent_nombre.focus_set())
 
+    # ---- Utilidad: igualar tamaño del panel de código de barras al recuadro de imagen ----
+    def _setup_bar_same_size_as_image(self) -> None:
+        def _sync(_evt=None) -> None:
+            try:
+                # Calcular tamaño real del panel izquierdo (imagen + botones)
+                self.update_idletasks()
+                lw = self.img_box.winfo_toplevel()  # ensure mapped
+            except Exception:
+                pass
+            try:
+                left_parent = self.img_box.master  # el frame 'left'
+                left_parent.update_idletasks()
+                w = left_parent.winfo_width() or left_parent.winfo_reqwidth()
+                h = left_parent.winfo_height() or left_parent.winfo_reqheight()
+                # Aplicar dimensiones al Labelframe de código de barras
+                self._bar_container.configure(width=w, height=h)
+                try:
+                    self._bar_container.grid_propagate(False)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+        # Ejecutar una vez y al reconfigurar el panel izquierdo
+        _sync()
+        try:
+            self.img_box.master.bind('<Configure>', _sync, add='+')
+        except Exception:
+            pass
+
     def _load_table(self):
         """Carga los productos y calcula columnas derivadas para mostrar."""
         prods: List[Product] = self.session.query(Product).order_by(Product.id.desc()).all()
@@ -754,6 +1073,58 @@ class ProductsView(ttk.Frame):
             self._rows_cache.append(row)
             self._id_by_index.append(int(p.id))
 
+        self._set_table_data(self._rows_cache)
+
+    def _apply_table_filter(self) -> None:
+        """Aplica filtro por ID, Código (SKU) y Nombre (aproximación)."""
+        id_q = (self.var_q_id.get() or "").strip()
+        code_q = (self.var_q_code.get() or "").strip().lower()
+        name_q = (self.var_q_name.get() or "").strip().lower()
+
+        q = self.session.query(Product)
+        # ID exacto si es numérico
+        if id_q:
+            try:
+                q = q.filter(Product.id == int(id_q))
+            except Exception:
+                # si no es número, ignorar ID para evitar errores
+                pass
+        if code_q:
+            q = q.filter(func.lower(Product.sku).like(f"%{code_q}%"))
+        if name_q:
+            q = q.filter(func.lower(Product.nombre).like(f"%{name_q}%"))
+
+        prods: List[Product] = q.order_by(Product.id.desc()).all()
+
+        # Reutiliza el mismo formato de filas
+        iva_ref = float(self.var_iva.get() or 19.0)
+        self._rows_cache = []
+        self._id_by_index = []
+        for p in prods:
+            pc = float(p.precio_compra or 0)
+            iva_monto, pmasiva, _ = calcular_precios(pc, iva_ref, 0)
+            try:
+                pv = float(p.precio_venta or 0)
+                margen = max(0.0, (pv / max(1.0, pmasiva) - 1.0) * 100.0)
+            except Exception:
+                pv = float(p.precio_venta or 0)
+                margen = 0.0
+            etiqueta = "V" if getattr(p, 'barcode', None) else ""
+            row = [
+                p.id,
+                p.nombre or "",
+                p.sku or "",
+                f"{pc:.0f}",
+                f"{iva_ref:.1f}",
+                f"{iva_monto:.0f}",
+                f"{pmasiva:.0f}",
+                f"{round(margen):.0f}",
+                f"{pv:.0f}",
+                p.unidad_medida or "",
+                etiqueta,
+            ]
+            self._rows_cache.append(row)
+            self._id_by_index.append(int(p.id))
         self._set_table_data(self._rows_cache)
 
     def refresh_lookups(self):
@@ -832,6 +1203,11 @@ class ProductsView(ttk.Frame):
         if region == "heading":
             tv.selection_remove(tv.selection())
             self._clear_form()
+
+
+
+
+
 
 
 

@@ -93,12 +93,13 @@ def generate_barcode_png(
         BC = get_barcode_class(cls_name)
         writer = ImageWriter()
         options = {
+            "module_width": 0.22,
             # px/mm ≈ 72/25.4
-            "module_height": max(8.0, float(height_mm)) * (72.0 / 25.4),
-            "font_size": 10,
-            "text_distance": 1,
+            "module_height": max(8.0, float(height_mm)),
+            "font_size": 9,
+            "text_distance": 1.0,
             "write_text": True,
-            "quiet_zone": 3.0,
+            "quiet_zone": 1.5,
         }
         out = Path(tempfile.gettempdir()) / f"barcode_{abs(hash((code, symbology, width_mm, height_mm)))}.png"
         BC(payload, writer=writer).write(out.open("wb"), options=options)
@@ -162,4 +163,3 @@ def generate_label_pdf(
         except Exception:
             pass
     return out_path
-

@@ -141,6 +141,45 @@ def _to_val(v):
         return v
 
 
+def _to_float(v) -> Optional[float]:
+    """Coerce Excel cell value into float robustly.
+    - Accepts Python numbers/Decimal
+    - Parses strings with currency symbols, thousands separators and decimal comma
+      Examples accepted: "1.234,56" → 1234.56, "1,234.56" → 1234.56, "$ 1.234" → 1234.0
+    Returns None if cannot parse.
+    """
+    try:
+        from decimal import Decimal
+        if v is None:
+            return None
+        if isinstance(v, (int, float)):
+            return float(v)
+        if isinstance(v, Decimal):
+            return float(v)
+        s = str(v).strip()
+        if not s:
+            return None
+        import re
+        # keep only digits, separators, minus
+        s = re.sub(r"[^0-9,\.\-]", "", s)
+        if not s:
+            return None
+        # Determine decimal separator strategy
+        if "," in s and "." in s:
+            # If last comma is after last dot -> comma is decimal sep
+            if s.rfind(",") > s.rfind("."):
+                s = s.replace(".", "").replace(",", ".")
+            else:
+                s = s.replace(",", "")
+        elif "," in s:
+            # treat comma as decimal separator
+            s = s.replace(",", ".")
+        # else: dot is decimal separator or integer
+        return float(s)
+    except Exception:
+        return None
+
+
 def export_app_backup_to_xlsx(out_path: Optional[Path] = None, *, auto_open: bool = True) -> Path:
     """Exporta 5 hojas: productos, clientes, proveedores, ordenes, inventario."""
     sess = get_session()
@@ -408,13 +447,27 @@ def import_app_backup_from_xlsx(xlsx_path: Path, *, reset: bool = True) -> None:
                 pass
         sess.flush()
 
-        # Proveedores
+        # Proveedores (garantizar unicidad por id y rut)
+        seen_sup_ids: set[int] = set()
+        seen_sup_ruts: set[str] = set()
         for r in _read("proveedores"):
             try:
+                sid = int(r.get("id"))
+                if sid in seen_sup_ids:
+                    continue
+                seen_sup_ids.add(sid)
+
+                rs = str(r.get("razon_social") or "")
+                rut_raw = str(r.get("rut") or "").strip()
+                rut_val = rut_raw if rut_raw else f"FAKE-{sid}"
+                if rut_val in seen_sup_ruts:
+                    rut_val = f"{rut_val}-{sid}"
+                seen_sup_ruts.add(rut_val)
+
                 sup = Supplier(
-                    id=int(r.get("id")),
-                    razon_social=str(r.get("razon_social") or ""),
-                    rut=str(r.get("rut") or f"FAKE-{r.get('id')}") or f"FAKE-{r.get('id')}",
+                    id=sid,
+                    razon_social=rs,
+                    rut=rut_val,
                     contacto=r.get("contacto"), telefono=r.get("telefono"),
                     email=r.get("email"), direccion=r.get("direccion"),
                 )
@@ -441,8 +494,25 @@ def import_app_backup_from_xlsx(xlsx_path: Path, *, reset: bool = True) -> None:
         # Cache de ubicaciones existentes (ids)
         existing_locations = {int(l.id) for l in sess.query(Location.id).all()} if sess.bind else set()
 
-        # Productos
+        # Productos (asegurando unicidad de SKU/Barcode)
         default_sup_id: Optional[int] = None
+        seen_skus: set[str] = set()
+        try:
+            # si existen productos previos (cuando reset=False)
+            for s in sess.query(Product.sku).all():
+                if s[0]:
+                    seen_skus.add(str(s[0]).strip())
+        except Exception:
+            pass
+
+        seen_barcodes: set[str] = set()
+        try:
+            for b in sess.query(Product.barcode).all():
+                if b[0]:
+                    seen_barcodes.add(str(b[0]).strip())
+        except Exception:
+            pass
+
         for r in _read("productos"):
             try:
                 # Resolver proveedor: garantizar FK válido
@@ -474,18 +544,36 @@ def import_app_backup_from_xlsx(xlsx_path: Path, *, reset: bool = True) -> None:
                 if loc_id is not None and loc_id not in existing_locations:
                     loc_id = None
 
+                # SKU único
+                raw_sku = str(r.get("sku") or f"SKU-{r.get('id')}")
+                base_sku = raw_sku.strip() or f"SKU-{r.get('id')}"
+                sku_val = base_sku
+                dup_i = 2
+                while sku_val in seen_skus:
+                    sku_val = f"{base_sku}-{dup_i}"
+                    dup_i += 1
+                seen_skus.add(sku_val)
+
+                # Barcode único opcional
+                bc_val = None
+                if "barcode" in r and r.get("barcode"):
+                    cand = str(r.get("barcode")).strip()
+                    if cand and cand not in seen_barcodes:
+                        bc_val = cand
+                        seen_barcodes.add(cand)
+
                 prod = Product(
                     id=int(r.get("id")),
                     nombre=str(r.get("nombre") or ""),
-                    sku=str(r.get("sku") or f"SKU-{r.get('id')}") or f"SKU-{r.get('id')}",
-                    precio_compra=_to_val(r.get("precio_compra")) or 0,
-                    precio_venta=_to_val(r.get("precio_venta")) or 0,
+                    sku=sku_val,
+                    precio_compra=_to_float(r.get("precio_compra")) or 0,
+                    precio_venta=_to_float(r.get("precio_venta")) or 0,
                     stock_actual=int(r.get("stock_actual") or 0),
                     unidad_medida=r.get("unidad_medida") or None,
                     id_proveedor=int(prov_id),
                     id_ubicacion=loc_id,
                     image_path=r.get("image_path") or None,
-                    barcode=r.get("barcode") if "barcode" in r else None,
+                    barcode=bc_val,
                 )
                 sess.add(prod)
             except Exception:

@@ -27,15 +27,41 @@ function Write-Err($msg)  { Write-Host "[ERR]  $msg" -ForegroundColor Red }
 # Ir a la carpeta del script
 Set-Location -Path $PSScriptRoot
 
-# Verificar PyInstaller
-Write-Info "Verificando PyInstaller..."
-$pyi = (Get-Command pyinstaller -ErrorAction SilentlyContinue)
-if (-not $pyi) {
-  Write-Err "PyInstaller no esta instalado. Instala con: pip install pyinstaller"
+# Resolver el intérprete de Python a usar para el build
+# 1) Prioriza venv local del proyecto (./.venv)
+# 2) Luego 'python' del PATH
+# 3) Luego 'py' launcher
+$py = $null
+$venvPy = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
+if (Test-Path $venvPy) { $py = $venvPy }
+if (-not $py) { $py = (Get-Command python -ErrorAction SilentlyContinue) }
+if (-not $py) { $py = (Get-Command py -ErrorAction SilentlyContinue) }
+if (-not $py) {
+  Write-Err "No se encontró 'python'. Activa tu entorno virtual (.venv) o instala Python."
+  exit 1
+}
+
+# Verificar PyInstaller en ese mismo Python
+Write-Info "Verificando PyInstaller en el mismo intérprete..."
+& $py "-c" "import sys; import importlib.util as i; sys.exit(0 if i.find_spec('PyInstaller') else 1)" | Out-Null
+if ($LASTEXITCODE -ne 0) {
+  Write-Err "PyInstaller no está instalado en este entorno. Instala con: $py -m pip install -U pyinstaller pyinstaller-hooks-contrib"
+  exit 1
+}
+
+# Verificar dependencias Python requeridas en el mismo entorno del build
+Write-Info "Verificando dependencias de Python (sqlalchemy, reportlab, pillow, openpyxl, python-barcode)..."
+
+$mods = "'sqlalchemy','reportlab','PIL','openpyxl','barcode'"
+& $py "-c" "import importlib.util,sys;mods=[$mods];missing=[m for m in mods if importlib.util.find_spec(m) is None];
+print('Faltan:', missing) if missing else print('OK deps');sys.exit(1 if missing else 0)" | Out-Null
+if ($LASTEXITCODE -ne 0) {
+  Write-Err "Faltan paquetes de Python en el entorno actual. Instala: pip install sqlalchemy reportlab pillow openpyxl python-barcode"
   exit 1
 }
 
 # Limpiar build previo
+
 Write-Info "Limpiando carpetas build/dist previas..."
 Remove-Item -Recurse -Force build, dist -ErrorAction SilentlyContinue | Out-Null
 
@@ -58,14 +84,20 @@ if ($Icon -and (Test-Path $Icon)) { $argsList += @("--icon", $Icon) }
 # Hidden imports necesarios en runtime
 $argsList += @("--hidden-import=sqlite3")
 $argsList += @("--hidden-import=sqlalchemy.dialects.sqlite")
+$argsList += @("--hidden-import=sqlalchemy")
 $argsList += @("--hidden-import=win32com.client")
 $argsList += @("--hidden-import=reportlab")
+$argsList += @("--hidden-import=openpyxl")
+$argsList += @("--hidden-import=barcode")
 $argsList += @("--hidden-import=scripts.seed_surt_ventas")
  $argsList += @("--hidden-import=src.gui.sql_importer_dialog")
 
 # Recolectar paquetes (si PyInstaller moderno)
 $argsList += @("--collect-all", "reportlab")
 $argsList += @("--collect-all", "PIL")
+$argsList += @("--collect-all", "openpyxl")
+$argsList += @("--collect-all", "barcode")
+$argsList += @("--collect-all", "sqlalchemy")
 
 # Datos adicionales: settings.ini y otros dentro de config/
 if (Test-Path (Join-Path $PSScriptRoot "config")) {
@@ -75,10 +107,10 @@ if (Test-Path (Join-Path $PSScriptRoot "app_data")) {
   $argsList += @("--add-data", "app_data;app_data")
 }
 
-Write-Info "Ejecutando PyInstaller..."
-Write-Host ("pyinstaller " + ($argsList -join ' '))
+Write-Info "Ejecutando PyInstaller con el intérprete seleccionado..."
+Write-Host (("" + $py + " -m PyInstaller ") + ($argsList -join ' '))
 
-pyinstaller @argsList
+& $py -m PyInstaller @argsList
 if ($LASTEXITCODE -ne 0) {
   Write-Err "Fallo el empaquetado (exit code $LASTEXITCODE)"
   exit $LASTEXITCODE

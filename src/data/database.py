@@ -293,6 +293,10 @@ def _ensure_schema(engine: Engine) -> None:
         # Asegurar columna de imagen en productos
         _add_column_if_missing(engine, table="products", column="image_path", type_sql="TEXT")
 
+        # Asegurar columna de código de barras opcional en productos
+        # Se utiliza para almacenar una etiqueta simple (en esta app suele igualarse al SKU)
+        _add_column_if_missing(engine, table="products", column="barcode", type_sql="TEXT")
+
         # Asegurar columna de proveedor en productos (FK suave)
         _add_column_if_missing(
             engine,
