@@ -28,6 +28,12 @@ export default function EditProductPage() {
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
+  const [suppliers, setSuppliers] = useState<Array<{id:number; razon_social:string}>>([]);
+  const [locations, setLocations] = useState<Array<{id:number; nombre:string}>>([]);
+  useEffect(()=>{ (async()=>{ try{
+    const s = await fetch(`${apiBase}/suppliers`); if(s.ok) setSuppliers(await s.json());
+    const l = await fetch(`${apiBase}/locations`); if(l.ok) setLocations(await l.json());
+  }catch{}})(); },[apiBase]);
 
   useEffect(() => {
     (async () => {
@@ -128,8 +134,19 @@ export default function EditProductPage() {
           </div>
         </div>
         <input name="barcode" placeholder="Código de barras" value={form.barcode} onChange={onChange} />
-        <input required name="id_proveedor" placeholder="ID Proveedor" value={form.id_proveedor} onChange={onChange} />
-        <input name="id_ubicacion" placeholder="ID Ubicación (opcional)" value={form.id_ubicacion} onChange={onChange} />
+        <label>Proveedor
+          <select name="id_proveedor" value={form.id_proveedor} onChange={onChange} required>
+            <option value="">(elige)</option>
+            {suppliers.map(s => (<option key={s.id} value={s.id}>{s.razon_social}</option>))}
+          </select>
+        </label>
+        <label>Ubicación
+          <select name="id_ubicacion" value={form.id_ubicacion} onChange={onChange}>
+            <option value="">(ninguna)</option>
+            {locations.map(l => (<option key={l.id} value={l.id}>{l.nombre}</option>))}
+          </select>
+        </label>
+        <a className="btn" href="/locations">Admin. ubicaciones…</a>
         <div style={{ display: 'flex', gap: 8 }}>
           <button disabled={loading} type="submit">Guardar</button>
           <button type="button" onClick={onDelete} style={{ color: 'crimson' }}>Eliminar</button>

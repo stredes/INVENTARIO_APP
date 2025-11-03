@@ -21,6 +21,7 @@ export default function HomePage() {
                 <Link href="/products">Listado</Link>
                 <Link href="/products/new">Nuevo producto</Link>
                 <a href={`${apiBase}/reports/catalog.pdf`} target="_blank">Catálogo PDF</a>
+                <Link href="/import/products">Importar CSV</Link>
               </div>
             </details>
 
@@ -62,6 +63,7 @@ export default function HomePage() {
           <summary><IconTile className="icon-inline"><Icon name="inventory" size={16} /></IconTile> Inventario</summary>
           <div className="content link-list">
             <Link href="/inventory">Ver inventario</Link>
+            <Link href="/import/stock">Importar stock CSV</Link>
             <Link href="/inventory/entries/new">+ Entrada de stock</Link>
             <Link href="/inventory/exits/new">- Salida de stock</Link>
             <Link href="/locations">Ubicaciones</Link>

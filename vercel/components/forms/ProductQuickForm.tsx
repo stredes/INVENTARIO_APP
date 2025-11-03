@@ -15,6 +15,12 @@ export default function ProductQuickForm() {
   const [unitBase, setUnitBase] = React.useState('');
   const [unitValue, setUnitValue] = React.useState('');
   const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
+  const [suppliers, setSuppliers] = React.useState<Array<{id:number; razon_social:string}>>([]);
+  const [locations, setLocations] = React.useState<Array<{id:number; nombre:string}>>([]);
+  React.useEffect(()=>{ (async()=>{ try{
+    const s = await fetch(`${apiBase}/suppliers`); if(s.ok) setSuppliers(await s.json());
+    const l = await fetch(`${apiBase}/locations`); if(l.ok) setLocations(await l.json());
+  }catch{}})(); },[apiBase]);
   const toNum = (v: string) => parseFloat(v || '0') || 0;
   const computeSuggested = React.useMemo(() => {
     const cost = toNum(form.precio_compra);
@@ -64,7 +70,12 @@ export default function ProductQuickForm() {
     <form onSubmit={onSubmit} className="grid-3" style={{ alignItems: 'end' }}>
       <label>Nombre<input name="nombre" value={form.nombre} onChange={onChange} required /></label>
       <label>SKU<input name="sku" value={form.sku} onChange={onChange} required /></label>
-      <label>ID Proveedor<input name="id_proveedor" value={form.id_proveedor} onChange={onChange} required /></label>
+      <label>Proveedor
+        <select name="id_proveedor" value={form.id_proveedor} onChange={onChange} required>
+          <option value="">(elige)</option>
+          {suppliers.map(s => (<option key={s.id} value={s.id}>{s.razon_social}</option>))}
+        </select>
+      </label>
       <label>Precio compra<input name="precio_compra" value={form.precio_compra} onChange={onChange} /></label>
       <label>Precio venta<input name="precio_venta" value={form.precio_venta} onChange={onChange} /></label>
       <label>Stock<input name="stock_actual" value={form.stock_actual} onChange={onChange} /></label>
@@ -80,7 +91,15 @@ export default function ProductQuickForm() {
       <label>Imagen (archivo)
         <input type="file" accept="image/*" onChange={(e)=> setImgFile(e.target.files && e.target.files[0] ? e.target.files[0] : null)} />
       </label>
-      <label>ID Ubicación<input name="id_ubicacion" value={form.id_ubicacion} onChange={onChange} /></label>
+      <label>Ubicación
+        <select name="id_ubicacion" value={form.id_ubicacion} onChange={onChange}>
+          <option value="">(ninguna)</option>
+          {locations.map(l => (<option key={l.id} value={l.id}>{l.nombre}</option>))}
+        </select>
+      </label>
+      <div style={{ display:'flex', gap:8 }}>
+        <a className="btn" href="/locations">Admin. ubicaciones…</a>
+      </div>
       <div className="grid-3" style={{ gridColumn: '1 / -1', alignItems: 'center' }}>
         <div>
           <div className="muted">Preview imagen</div>
@@ -89,6 +108,10 @@ export default function ProductQuickForm() {
           ) : (
             form.image_path ? <img className="thumb" src={`${apiBase}/files/${form.image_path}`} alt="preview" /> : <div className="muted">Sin imagen</div>
           )}
+          <div style={{ display:'flex', gap:8, marginTop:6 }}>
+            {form.image_path && <a className="btn" href={`${apiBase}/files/${form.image_path}`} target="_blank" rel="noreferrer">Ver</a>}
+            {(form.image_path || imgFile) && <button type="button" className="btn" onClick={()=>{ setImgFile(null); setForm({ ...form, image_path:'' }); }}>Quitar</button>}
+          </div>
         </div>
         <div>
           <div className="muted">Código de barras</div>

@@ -110,7 +110,12 @@ def health() -> Message:
 
 
 @app.get("/products", response_model=list[ProductOut])
-def list_products(q: str | None = None, supplier_id: int | None = None, db: Session = Depends(get_db)):
+def list_products(
+    q: str | None = None,
+    supplier_id: int | None = None,
+    product_id: int | None = None,
+    db: Session = Depends(get_db),
+):
     repo = ProductRepository(db)
     query = repo.query()
     if q:
@@ -124,6 +129,9 @@ def list_products(q: str | None = None, supplier_id: int | None = None, db: Sess
         from src.data.models import Product
 
         query = query.filter(Product.id_proveedor == supplier_id)
+    if product_id is not None:
+        from src.data.models import Product
+        query = query.filter(Product.id == product_id)
     return list(query.order_by("id").all())
 
 
@@ -1183,6 +1191,126 @@ def get_file(path: str):
 
 
 # -----------------------------
+# Importadores CSV
+# -----------------------------
+
+
+@app.post("/import/products")
+def import_products(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Importa/actualiza productos por CSV. Columnas esperadas (cabecera):
+    sku,nombre,precio_compra,precio_venta,stock_actual,id_proveedor,[unidad_medida,familia,barcode,id_ubicacion]
+    Si el SKU existe, actualiza; si no, crea.
+    """
+    import csv, io
+    try:
+      raw = file.file.read()
+      text = raw.decode('utf-8-sig')
+      rdr = csv.DictReader(io.StringIO(text))
+      created = 0; updated = 0; errors: list[str] = []
+      from src.data.repository import ProductRepository
+      repo = ProductRepository(db)
+      for i, row in enumerate(rdr, start=2):  # line numbers including header
+        try:
+          sku = (row.get('sku') or '').strip()
+          nombre = (row.get('nombre') or '').strip()
+          if not sku or not nombre:
+            errors.append(f"L{i}: sku/nombre requerido"); continue
+          precio_compra = float(row.get('precio_compra') or 0)
+          precio_venta = float(row.get('precio_venta') or 0)
+          stock_actual = int(float(row.get('stock_actual') or 0))
+          id_proveedor = int(float(row.get('id_proveedor') or 0))
+          unidad_medida = (row.get('unidad_medida') or None)
+          familia = (row.get('familia') or None)
+          barcode = (row.get('barcode') or None)
+          id_ubicacion = row.get('id_ubicacion'); id_ubicacion = int(float(id_ubicacion)) if id_ubicacion else None
+          # Existe?
+          prod = repo.get_by_sku(sku)
+          if prod:
+            prod.nombre = nombre
+            prod.precio_compra = precio_compra
+            prod.precio_venta = precio_venta
+            prod.stock_actual = stock_actual
+            prod.id_proveedor = id_proveedor
+            prod.unidad_medida = unidad_medida
+            prod.familia = familia
+            prod.barcode = barcode
+            prod.id_ubicacion = id_ubicacion
+            updated += 1
+          else:
+            prod = repo.model(
+              nombre=nombre, sku=sku, precio_compra=precio_compra, precio_venta=precio_venta,
+              stock_actual=stock_actual, id_proveedor=id_proveedor, unidad_medida=unidad_medida,
+              familia=familia, barcode=barcode, id_ubicacion=id_ubicacion,
+            )
+            repo.add(prod); created += 1
+        except Exception as ex:
+          errors.append(f"L{i}: {ex}")
+      db.commit()
+      return {"created": created, "updated": updated, "errors": errors}
+    except Exception as e:
+      raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/import/stock")
+def import_stock(file: UploadFile = File(...), mode: str = 'set', db: Session = Depends(get_db)):
+    """Importa stock por CSV. Columnas: sku o id, stock.
+    mode='set' fija el stock_actual; mode='add' suma a stock_actual.
+    """
+    import csv, io
+    from src.data.repository import ProductRepository
+    try:
+      raw = file.file.read(); text = raw.decode('utf-8-sig')
+      rdr = csv.DictReader(io.StringIO(text))
+      repo = ProductRepository(db)
+      changed = 0; errors: list[str] = []
+      for i, row in enumerate(rdr, start=2):
+        try:
+          sku = (row.get('sku') or '').strip()
+          pid = (row.get('id') or '').strip()
+          stock = int(float(row.get('stock') or 0))
+          prod = None
+          if sku:
+            prod = repo.get_by_sku(sku)
+          elif pid:
+            prod = repo.get(int(pid))
+          if not prod:
+            errors.append(f"L{i}: producto no encontrado (sku/id)"); continue
+          if mode == 'add':
+            prod.stock_actual = int(prod.stock_actual or 0) + stock
+          else:
+            prod.stock_actual = stock
+          changed += 1
+        except Exception as ex:
+          errors.append(f"L{i}: {ex}")
+      db.commit()
+      return {"changed": changed, "errors": errors}
+    except Exception as e:
+      raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/import/products/sample.csv")
+def import_products_sample_csv():
+    from io import StringIO
+    buf = StringIO()
+    buf.write("sku,nombre,precio_compra,precio_venta,stock_actual,id_proveedor,unidad_medida,familia,barcode,id_ubicacion\n")
+    buf.write("SKU-001,Producto A,1000,1500,10,1,unidad,General,1234567890123,\n")
+    buf.write("SKU-002,Producto B,2500,3990,5,1,caja x 12,Bebidas,,2\n")
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=productos_ejemplo.csv"})
+
+
+@app.get("/import/stock/sample.csv")
+def import_stock_sample_csv():
+    from io import StringIO
+    buf = StringIO()
+    buf.write("sku,id,stock\n")
+    buf.write("SKU-001,,25\n")
+    buf.write(",2,100\n")
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=stock_ejemplo.csv"})
+
+
+# -----------------------------
 # Products: bulk operations (unidad/proveedor/familia)
 # -----------------------------
 
@@ -1242,6 +1370,53 @@ def bulk_set_family(payload: _BulkFamilyIn, db: Session = Depends(get_db)):
         updated += 1
     db.commit()
     return Message(message=f"Familia aplicada en {updated} productos")
+
+
+class _BulkMarginIn(BaseModel):
+    ids: list[int]
+    iva_percent: float = 19.0
+    margin_percent: float
+
+
+@app.post("/products/bulk/margin", response_model=Message)
+def bulk_set_margin(payload: _BulkMarginIn, db: Session = Depends(get_db)):
+    from src.data.models import Product
+    iva = float(payload.iva_percent) / 100.0
+    mrg = float(payload.margin_percent) / 100.0
+    updated = 0
+    for pid in payload.ids:
+        p = db.query(Product).get(pid)
+        if not p:
+            continue
+        try:
+            cost = float(p.precio_compra or 0)
+            net = cost * (1.0 + mrg)
+            gross = net * (1.0 + iva)
+            p.precio_venta = round(gross, 2)
+            updated += 1
+        except Exception:
+            continue
+    db.commit()
+    return Message(message=f"Precio recalculado en {updated} productos")
+
+
+class _BulkLocationIn(BaseModel):
+    ids: list[int]
+    location_id: int
+
+
+@app.post("/products/bulk/location", response_model=Message)
+def bulk_set_location(payload: _BulkLocationIn, db: Session = Depends(get_db)):
+    from src.data.models import Product
+    updated = 0
+    for pid in payload.ids:
+        p = db.query(Product).get(pid)
+        if not p:
+            continue
+        p.id_ubicacion = payload.location_id
+        updated += 1
+    db.commit()
+    return Message(message=f"Ubicación aplicada en {updated} productos")
 
 
 # -----------------------------

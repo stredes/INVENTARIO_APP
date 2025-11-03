@@ -6,6 +6,9 @@ export default function ProductBulkActions() {
   const [unidad, setUnidad] = React.useState('');
   const [supplier, setSupplier] = React.useState('');
   const [family, setFamily] = React.useState('');
+  const [locationId, setLocationId] = React.useState('');
+  const [ivaPct, setIvaPct] = React.useState('19');
+  const [marginPct, setMarginPct] = React.useState('');
   const [msg, setMsg] = React.useState<string | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
@@ -33,6 +36,13 @@ export default function ProductBulkActions() {
         <button className="btn" disabled={loading} onClick={()=> doPost('/products/bulk/unit', { ids: parseIds(), unidad })}>Aplicar Unidad</button>
       </div>
       <div />
+      <label>Ubicación ID
+        <input value={locationId} onChange={(e)=> setLocationId(e.target.value)} placeholder="Ej. 1" />
+      </label>
+      <div style={{ display:'flex', gap:8 }}>
+        <button className="btn" disabled={loading} onClick={()=> doPost('/products/bulk/location', { ids: parseIds(), location_id: parseInt(locationId||'0') })}>Aplicar Ubicación</button>
+      </div>
+      <div />
       <label>Proveedor ID
         <input value={supplier} onChange={(e)=> setSupplier(e.target.value)} placeholder="Ej. 1" />
       </label>
@@ -46,6 +56,16 @@ export default function ProductBulkActions() {
       <div style={{ display:'flex', gap:8 }}>
         <button className="btn" disabled={loading} onClick={()=> doPost('/products/bulk/family', { ids: parseIds(), family: family.trim() || null })}>Aplicar Familia</button>
       </div>
+      <div />
+      <label>IVA %
+        <input value={ivaPct} onChange={(e)=> setIvaPct(e.target.value)} placeholder="19" />
+      </label>
+      <label>Margen %
+        <input value={marginPct} onChange={(e)=> setMarginPct(e.target.value)} placeholder="p.ej. 30" />
+      </label>
+      <div style={{ display:'flex', gap:8 }}>
+        <button className="btn" disabled={loading} onClick={()=> doPost('/products/bulk/margin', { ids: parseIds(), iva_percent: parseFloat(ivaPct||'19'), margin_percent: parseFloat(marginPct||'0') })}>Aplicar margen selección</button>
+      </div>
       <div style={{ gridColumn: '1 / -1' }}>
         {msg && <span className="muted">{msg}</span>}
         {err && <span style={{ color: 'crimson' }}>{err}</span>}
@@ -53,4 +73,3 @@ export default function ProductBulkActions() {
     </div>
   );
 }
-
