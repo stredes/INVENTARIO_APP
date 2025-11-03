@@ -95,6 +95,7 @@ def generate_products_catalog(
     show_stock: bool = True,
     show_price_net: bool = True,
     show_price_gross: bool = False,
+    family: Optional[str] = None,
     auto_open: bool = True,
 ) -> Path:
     """
@@ -109,7 +110,7 @@ def generate_products_catalog(
     session = session or get_session()
     products: List[Product] = session.query(Product).order_by(Product.nombre.asc()).all()
     try:
-        fam = (os.getenv('CATALOG_FAMILY', '') or '').strip()
+        fam = (family or os.getenv('CATALOG_FAMILY', '') or '').strip()
         if fam:
             lf = fam.lower()
             products = [p for p in products if ((getattr(p, 'familia', None) or '').lower().find(lf) != -1)]
@@ -254,7 +255,7 @@ def generate_products_catalog(
         if show_price_net:
             lines.append(Paragraph(f"Precio (sin IVA): <b>{int(price_net):,}</b>".replace(",", "."), styles["tiny"]))
         if show_price_gross:
-            lines.append(Paragraph(f"Precio (con IVA): <b>{int(price_raw):,}</b>".replace(",", "."), styles["tiny"]))
+            lines.append(Paragraph(f"Precio: <b>{int(price_raw):,}</b>".replace(",", "."), styles["tiny"]))
 
         text_block = KeepInFrame(col_w-8*mm, row_h*0.4, content=lines, mode='truncate', mergeSpace=True)
         card_tbl = Table([

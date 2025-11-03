@@ -88,6 +88,19 @@ class Product(Base):
 
 
 # ====================================================
+# FAMILIAS (catálogo simple de nombres)
+# ====================================================
+class Family(Base):
+    __tablename__ = "families"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    nombre: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+
+    def __repr__(self) -> str:
+        return f"<Family id={self.id} nombre={self.nombre}>"
+
+
+# ====================================================
 # PRODUCTOS DE PROVEEDORES (LEGACY - ya no se usa para el flujo nuevo)
 # ====================================================
 class SupplierProduct(Base):

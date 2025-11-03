@@ -187,7 +187,7 @@ class ProductsView(ttk.Frame):
 
 
 
-
+        ttk.Label(right, text="Nombre:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
         ent_nombre = ttk.Entry(right, textvariable=self.var_nombre, width=35)
         ent_nombre.grid(row=0, column=1, sticky="w", padx=4, pady=4)
         self.ent_nombre = ent_nombre  # para foco
@@ -245,10 +245,16 @@ class ProductsView(ttk.Frame):
         ent_pventa = ttk.Entry(right, textvariable=self.var_pventa, width=12)
         ent_pventa.grid(row=4, column=1, sticky="w", padx=4, pady=4)
 
-        # Fila 4 (derecha): Familia
+        # Fila 4 (derecha): Familia (combobox + admin)
         ttk.Label(right, text="Familia:").grid(row=4, column=2, sticky="e", padx=4, pady=4)
         self.var_familia = tk.StringVar()
-        ttk.Entry(right, textvariable=self.var_familia, width=20).grid(row=4, column=3, sticky="w", padx=4, pady=4)
+        self.cmb_familia = ttk.Combobox(right, textvariable=self.var_familia, width=20)
+        self.cmb_familia.grid(row=4, column=3, sticky="w", padx=4, pady=4)
+        try:
+            self.cmb_familia.bind('<<ComboboxSelected>>', lambda *_: None)
+        except Exception:
+            pass
+        ttk.Button(right, text="Admin. familias...", command=self._open_families_manager).grid(row=4, column=4, sticky="w", padx=(4, 0))
 
         # Fila 5: Proveedor
         ttk.Label(right, text="Proveedor:").grid(row=5, column=0, sticky="e", padx=4, pady=4)
@@ -1229,6 +1235,22 @@ class ProductsView(ttk.Frame):
         """Carga proveedores y ubicaciones a los combobox."""
         self._suppliers = self.session.query(Supplier).order_by(Supplier.razon_social.asc()).all()
         self._locations = self.session.query(Location).order_by(Location.nombre.asc()).all()
+        # Familias: desde tabla families (si existe) + valores distintos en productos
+        try:
+            from src.data.models import Family
+            fams = [ (f.nombre or '').strip() for f in self.session.query(Family).order_by(Family.nombre.asc()).all() ]
+        except Exception:
+            fams = []
+        try:
+            from sqlalchemy import func as _f
+            extra = [ (s or '').strip() for (s,) in self.session.query(_f.distinct(Product.familia)).filter(Product.familia.isnot(None)).all() ]
+        except Exception:
+            extra = []
+        fam_set = sorted([x for x in set([*fams, *extra]) if x])
+        try:
+            self.cmb_familia["values"] = fam_set
+        except Exception:
+            pass
 
         def _disp(s: Supplier) -> str:
             rut = (s.rut or "").strip()
@@ -1291,6 +1313,17 @@ class ProductsView(ttk.Frame):
         # Refrescar lista tras cerrar
         self.refresh_lookups()
         self._select_supplier_for_current_product()
+
+    def _open_families_manager(self):
+        try:
+            from src.gui.families_manager import FamiliesManager
+        except Exception:
+            messagebox.showerror("Familias", "No se pudo cargar el administrador de familias.")
+            return
+        dlg = FamiliesManager(self.session, parent=self)
+        self.wait_window(dlg)
+        # Refrescar lista tras cerrar
+        self.refresh_lookups()
 
     # ---------- Solo fallback: limpiar selección al click de encabezado ----------
     def _on_tree_click(self, event):

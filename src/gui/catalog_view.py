@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 import tkinter as tk
@@ -15,15 +15,15 @@ from src.reports.catalog_generator import generate_products_catalog
 
 
 class CatalogView(ttk.Frame):
-    """Vista para generar el catálogo de productos en PDF (con preview)."""
+    """Vista para generar el catÃ¡logo de productos en PDF (con preview)."""
 
     def __init__(self, master: tk.Misc, session: Optional[Session] = None):
         super().__init__(master, padding=10)
         self.session: Session = session or get_session()
 
-        ttk.Label(self, text="Generador de Catálogo de Productos", font=("", 12, "bold")).pack(anchor="w")
+        ttk.Label(self, text="Generador de CatÃ¡logo de Productos", font=("", 12, "bold")).pack(anchor="w")
 
-        actions = ttk.LabelFrame(self, text="Acciones de catálogo", padding=8)
+        actions = ttk.LabelFrame(self, text="Acciones de catÃ¡logo", padding=8)
         actions.pack(fill="x", pady=(6, 8))
 
         ttk.Label(actions, text="Copias:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
@@ -34,12 +34,12 @@ class CatalogView(ttk.Frame):
         self.var_iva = tk.DoubleVar(value=19.0)
         ttk.Spinbox(actions, from_=0, to=100, increment=0.5, textvariable=self.var_iva, width=6).grid(row=0, column=3, sticky="w")
 
-        ttk.Label(actions, text="Diseño:").grid(row=0, column=4, sticky="e", padx=8)
+        ttk.Label(actions, text="DiseÃ±o:").grid(row=0, column=4, sticky="e", padx=8)
         self.var_layout = tk.StringVar(value="3 x 4")
         ttk.Combobox(actions, textvariable=self.var_layout, values=["3 x 4", "2 x 3", "4 x 5"], state="readonly", width=8).grid(row=0, column=5, sticky="w")
 
-        ttk.Label(actions, text="Título:").grid(row=1, column=0, sticky="e", padx=4, pady=4)
-        self.var_title = tk.StringVar(value="Catálogo de Productos")
+        ttk.Label(actions, text="TÃ­tulo:").grid(row=1, column=0, sticky="e", padx=4, pady=4)
+        self.var_title = tk.StringVar(value="CatÃ¡logo de Productos")
         ttk.Entry(actions, textvariable=self.var_title, width=36).grid(row=1, column=1, columnspan=3, sticky="we")
 
         # Filtro por familia (opcional)
@@ -47,11 +47,9 @@ class CatalogView(ttk.Frame):
         self.var_family = tk.StringVar(value="(todas)")
         self.cmb_family = ttk.Combobox(actions, textvariable=self.var_family, values=["(todas)"], width=18)
         self.cmb_family.grid(row=1, column=5, sticky="w")
+        ttk.Button(actions, text="Admin. familias...", command=self._open_families_manager).grid(row=1, column=6, sticky="w", padx=(6,0))
         try:
-            from src.data.models import Product
-            fams = sorted(set(((getattr(p, "familia", "") or "").strip() for p in self.session.query(Product).all() if (getattr(p, "familia", None) or "").strip())))
-            if fams:
-                self.cmb_family["values"] = ["(todas)"] + list(fams)
+            self._refresh_family_list()
         except Exception:
             pass
 
@@ -70,7 +68,7 @@ class CatalogView(ttk.Frame):
         ttk.Button(actions, text="Vista previa", command=self._on_preview).grid(row=2, column=5, padx=(12, 4))
         ttk.Button(actions, text="Imprimir (PDF)", command=self._on_generate).grid(row=2, column=6, padx=4)
 
-        # Área de vista previa con scroll
+        # Ãrea de vista previa con scroll
         host = ttk.Frame(self)
         host.pack(fill="both", expand=True)
         self.canvas = tk.Canvas(host, highlightthickness=0, bg="#f2f2f2")
@@ -93,6 +91,7 @@ class CatalogView(ttk.Frame):
         try:
             cols, rows = self._layout()
             fam = (self.var_family.get() or "").strip()
+            fam_param = fam if fam and fam != "(todas)" else None
             if fam and fam != "(todas)":
                 os.environ["CATALOG_FAMILY"] = fam
             else:
@@ -100,19 +99,20 @@ class CatalogView(ttk.Frame):
             out = generate_products_catalog(
                 self.session,
                 auto_open=True,
-                iva=float(self.var_iva.get() or 19.0),
+                iva=float(self.var_iva.get() or 19.0) / 100.0,
                 copies=max(1, int(self.var_copies.get() or 1)),
-                title=self.var_title.get().strip() or "Catálogo de Productos",
+                title=self.var_title.get().strip() or "CatÃ¡logo de Productos",
                 cols=cols, rows=rows,
                 show_company=self.var_show_company.get(),
                 show_sku=self.var_show_sku.get(),
                 show_stock=self.var_show_stock.get(),
                 show_price_net=self.var_show_net.get(),
                 show_price_gross=self.var_show_gross.get(),
+                family=fam_param,
             )
-            messagebox.showinfo("Catálogo", f"Catálogo generado:\n{out}")
+            messagebox.showinfo("CatÃ¡logo", f"CatÃ¡logo generado:\n{out}")
         except Exception as e:
-            messagebox.showerror("Catálogo", f"No se pudo generar el catálogo:\n{e}")
+            messagebox.showerror("CatÃ¡logo", f"No se pudo generar el catÃ¡logo:\n{e}")
 
     def _on_preview(self) -> None:
         try:
@@ -157,7 +157,7 @@ class CatalogView(ttk.Frame):
 
         if self.var_show_company.get():
             comp = self._read_company_cfg()
-            title = self.var_title.get().strip() or "Catálogo de Productos"
+            title = self.var_title.get().strip() or "CatÃ¡logo de Productos"
             draw.text((margin, 4), f"{comp.get('name', '')}", fill=(0, 0, 0), font=font_t)
             draw.text((W//2 - 120, 4), title, fill=(0, 0, 0), font=font_t)
 
@@ -255,7 +255,7 @@ class CatalogView(ttk.Frame):
             if self.var_show_net.get():
                 draw.text((tx, ty), f"Precio (sin IVA): {format(neto,',').replace(',', '.')}", fill=(0, 0, 0), font=font_s); ty += 18
             if self.var_show_gross.get():
-                draw.text((tx, ty), f"Precio (con IVA): {format(int(price),',').replace(',', '.')}", fill=(0, 0, 0), font=font_s)
+                draw.text((tx, ty), f"Precio: {format(int(price),',').replace(',', '.')}", fill=(0, 0, 0), font=font_s)
 
         return im
 
@@ -287,6 +287,39 @@ class CatalogView(ttk.Frame):
                 data["address"] = sec.get("direccion", data["address"]) or data["address"]
                 data["phone"] = sec.get("telefono", data["phone"]) or data["phone"]
         return data
+
+    # ---- Familias ----
+    def _refresh_family_list(self) -> None:
+        try:
+            from src.data.models import Product, Family
+            fams_tbl = [ (f.nombre or '').strip() for f in self.session.query(Family).order_by(Family.nombre.asc()).all() ]
+        except Exception:
+            fams_tbl = []
+        try:
+            from sqlalchemy import func as _f
+            fams_prod = [ (s or '').strip() for (s,) in self.session.query(_f.distinct(Product.familia)).filter(Product.familia.isnot(None)).all() ]
+        except Exception:
+            fams_prod = []
+        vals = ["(todas)"] + [x for x in sorted({*(x for x in fams_tbl if x), *(x for x in fams_prod if x)})]
+        try:
+            self.cmb_family["values"] = vals
+        except Exception:
+            pass
+        if (self.var_family.get() or "") not in vals:
+            self.var_family.set("(todas)")
+
+    def _open_families_manager(self) -> None:
+        try:
+            from src.gui.families_manager import FamiliesManager
+        except Exception:
+            messagebox.showerror("Familias", "No se pudo abrir el administrador de familias.")
+            return
+        dlg = FamiliesManager(self.session, parent=self)
+        self.wait_window(dlg)
+        try:
+            self._refresh_family_list()
+        except Exception:
+            pass
 
     # Scroll helpers
     def _on_mousewheel(self, event):

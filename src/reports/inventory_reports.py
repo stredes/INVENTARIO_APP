@@ -38,6 +38,8 @@ class InventoryFilter:
     # Precios (sobre el precio que corresponda al tipo de informe; en 'completo' se ignoran)
     precio_min: Optional[float] = None
     precio_max: Optional[float] = None
+    # Familia (texto contiene)
+    familia_contains: Optional[str] = None
     # Orden
     order_by: str = "nombre"   # nombre | sku | stock | p_compra | p_venta
     order_asc: bool = True
@@ -81,6 +83,9 @@ class InventoryReportService:
             q = q.filter(Product.sku.ilike(f"%{flt.sku_contains}%"))
         if flt.unidad_equals:
             q = q.filter(Product.unidad_medida == flt.unidad_equals)
+        # Familia
+        if flt.familia_contains:
+            q = q.filter(Product.familia.ilike(f"%{flt.familia_contains}%"))
 
         # Stock
         crit_min, crit_max = get_inventory_limits()
