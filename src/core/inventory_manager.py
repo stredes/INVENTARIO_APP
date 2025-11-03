@@ -57,6 +57,11 @@ class InventoryManager:
         cantidad: int,
         motivo: Optional[str] = None,
         when: Optional[datetime] = None,
+        lote: Optional[str] = None,
+        serie: Optional[str] = None,
+        fecha_vencimiento: Optional[datetime] = None,
+        reception_id: Optional[int] = None,
+        location_id: Optional[int] = None,
     ) -> MovementResult:
         """
         Suma stock y registra en stock_entries.
@@ -71,8 +76,13 @@ class InventoryManager:
 
         entry = StockEntry(
             id_producto=p.id,
+            id_recepcion=reception_id,
+            id_ubicacion=location_id,
             cantidad=int(cantidad),
             motivo=motivo,
+            lote=(lote or None),
+            serie=(serie or None),
+            fecha_vencimiento=fecha_vencimiento,
             fecha=when or datetime.utcnow(),  # <--- campo correcto
         )
         self.entries.add(entry)

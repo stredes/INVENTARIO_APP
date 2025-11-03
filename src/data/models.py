@@ -67,6 +67,8 @@ class Product(Base):
     precio_venta: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     stock_actual: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     unidad_medida: Mapped[Optional[str]] = mapped_column(String)
+    # Familia o categoría del producto (texto libre para filtros)
+    familia: Mapped[Optional[str]] = mapped_column(String)
 
     # Ruta (absoluta o relativa) a la imagen principal del producto
     image_path: Mapped[Optional[str]] = mapped_column(String)
@@ -204,14 +206,23 @@ class StockEntry(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     id_producto: Mapped[int] = mapped_column(ForeignKey("products.id"), nullable=False)
+    # Ubicación donde entra el stock (opcional; puede diferir del default del producto)
+    id_ubicacion: Mapped[Optional[int]] = mapped_column(ForeignKey("locations.id"), nullable=True)
+    # Recepción opcional a la que pertenece este ingreso
+    id_recepcion: Mapped[Optional[int]] = mapped_column(ForeignKey("receptions.id"), nullable=True)
     cantidad: Mapped[int] = mapped_column(Integer, nullable=False)
     motivo: Mapped[Optional[str]] = mapped_column(String)
+    # Trazabilidad opcional: lote o serie (exclusivos) y vencimiento
+    lote: Mapped[Optional[str]] = mapped_column(String)
+    serie: Mapped[Optional[str]] = mapped_column(String)
+    fecha_vencimiento: Mapped[Optional[dt]] = mapped_column(DateTime, nullable=True)
     fecha: Mapped[dt] = mapped_column(DateTime, nullable=False, default=dt.utcnow)
 
     product: Mapped["Product"] = relationship()
+    location: Mapped[Optional["Location"]] = relationship()
 
     def __repr__(self) -> str:
-        return f"<StockEntry prod={self.id_producto} +{self.cantidad}>"
+        return f"<StockEntry prod={self.id_producto} +{self.cantidad} lote={getattr(self,'lote',None)} serie={getattr(self,'serie',None)}>"
 
 
 class StockExit(Base):

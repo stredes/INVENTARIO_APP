@@ -243,7 +243,8 @@ class ThemeManager:
             pass
 
         # Cargar configuración previa
-        cfg = configparser.ConfigParser()
+        # Usa strict=False para tolerar claves duplicadas en ui_state.ini y normalizar en _persist
+        cfg = configparser.ConfigParser(strict=False)
         # 1) ui_state.ini (preferido)
         ui_path = _external_ui_state_path()
         if ui_path.exists():
@@ -641,7 +642,7 @@ class ThemeManager:
 
     @classmethod
     def _persist(cls) -> None:
-        cfg = configparser.ConfigParser()
+        cfg = configparser.ConfigParser(strict=False)
         cfg_path = _external_ui_state_path()
         if cfg_path.exists():
             cfg.read(cfg_path, encoding="utf-8")

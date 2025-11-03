@@ -1,7 +1,10 @@
 ﻿# -*- coding: utf-8 -*-
+
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 from pathlib import Path
 from typing import Optional, List
+import os
 import webbrowser
 
 from reportlab.lib.pagesizes import A4
@@ -105,6 +108,13 @@ def generate_products_catalog(
     """
     session = session or get_session()
     products: List[Product] = session.query(Product).order_by(Product.nombre.asc()).all()
+    try:
+        fam = (os.getenv('CATALOG_FAMILY', '') or '').strip()
+        if fam:
+            lf = fam.lower()
+            products = [p for p in products if ((getattr(p, 'familia', None) or '').lower().find(lf) != -1)]
+    except Exception:
+        pass
 
     out_path = out_path or (_downloads_dir() / "catalogo_productos.pdf")
     doc = SimpleDocTemplate(str(out_path), pagesize=A4, leftMargin=14 * mm, rightMargin=14 * mm,
@@ -289,6 +299,7 @@ def generate_products_catalog(
         except Exception:
             pass
     return out_path
+
 
 
 

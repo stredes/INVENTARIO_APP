@@ -46,8 +46,8 @@ class OrdersAdminView(ttk.Frame):
     # Recepciones (vinculaciones OC ← documento de proveedor)
     RECV_COLS = ["ID", "N° OC", "Proveedor", "Tipo", "N° doc", "Fecha", "Estado OC", "Total OC"]
     RECV_W    = [70, 110, 260, 90, 130, 140, 120, 120]
-    RECV_DET_COLS = ["ID Prod", "Producto", "Cant. OC", "Recibido", "Pendiente"]
-    RECV_DET_W    = [80, 320, 90, 90, 100]
+    RECV_DET_COLS = ["ID Prod", "Producto", "Recibido", "Ubicación", "Lote/Serie", "Vence"]
+    RECV_DET_W    = [80, 300, 90, 150, 150, 110]
 
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
@@ -63,6 +63,12 @@ class OrdersAdminView(ttk.Frame):
 
         nb = ttk.Notebook(self)
         nb.pack(fill="both", expand=True)
+        self._nb = nb
+
+        # --- TAB TODAS (Resumen de todas las órdenes) ---
+        self.tab_all = ttk.Frame(nb, padding=8)
+        nb.add(self.tab_all, text="Todas")
+        self._init_all_tab(self.tab_all)
 
         # --- TAB COMPRAS ---
         self.tab_compra = ttk.Frame(nb, padding=8)
@@ -84,6 +90,149 @@ class OrdersAdminView(ttk.Frame):
         self._load_purchases()
         self._load_sales()
         self._load_receptions()
+        self._load_all()
+
+    # =================== Inicialización pestaña TODAS ================== #
+    ALL_COLS = ["Tipo", "ID", "Fecha", "Tercero", "Estado", "Total", "Ref"]
+    ALL_W    = [90, 70, 130, 280, 120, 120, 200]
+
+    def _init_all_tab(self, parent):
+        top = ttk.Frame(parent); top.pack(fill="x")
+        ttk.Button(top, text="Actualizar", command=self._load_all).pack(side="left", padx=4)
+
+        self.tbl_all = GridTable(parent, height=12)
+        self.tbl_all.pack(fill="both", expand=True, pady=(6, 4))
+        if hasattr(self.tbl_all, "sheet"):
+            try:
+                self.tbl_all.sheet.extra_bindings([("double_click", lambda e: self._on_all_open())])
+            except Exception:
+                pass
+        tv = getattr(self.tbl_all, "_fallback", None)
+        if tv is not None:
+            tv.bind("<Double-1>", lambda _e: self._on_all_open())
+
+        self._all_rows_meta: List[tuple[str, int]] = []  # (tipo, id)
+        self._set_table_data(self.tbl_all, self.ALL_COLS, self.ALL_W, [])
+
+    def _load_all(self):
+        rows: List[List] = []
+        self._all_rows_meta = []
+        # Compras
+        q_p = (
+            self.session.query(Purchase, Supplier)
+            .join(Supplier, Supplier.id == Purchase.id_proveedor)
+            .order_by(Purchase.id.desc())
+        )
+        for pur, sup in q_p:
+            rows.append([
+                "Compra",
+                pur.id,
+                pur.fecha_compra.strftime("%Y-%m-%d %H:%M") if getattr(pur, 'fecha_compra', None) else "",
+                getattr(sup, 'razon_social', '') or '',
+                getattr(pur, 'estado', '') or '',
+                f"{float(getattr(pur,'total_compra',0) or 0):.2f}",
+                getattr(pur, 'referencia', '') or '',
+            ])
+            self._all_rows_meta.append(("compra", int(pur.id)))
+        # Ventas
+        q_s = (
+            self.session.query(Sale, Customer)
+            .join(Customer, Customer.id == Sale.id_cliente, isouter=True)
+            .order_by(Sale.id.desc())
+        )
+        for sale, cust in q_s:
+            rows.append([
+                "Venta",
+                sale.id,
+                sale.fecha_venta.strftime("%Y-%m-%d %H:%M") if getattr(sale, 'fecha_venta', None) else "",
+                getattr(cust, 'razon_social', '') or getattr(cust, 'rut', '') or '',
+                getattr(sale, 'estado', '') or '',
+                f"{float(getattr(sale,'total_venta',0) or 0):.2f}",
+                "",
+            ])
+            self._all_rows_meta.append(("venta", int(sale.id)))
+        # Recepciones (se muestran como vínculos de OC)
+        q_r = (
+            self.session.query(Reception, Purchase, Supplier)
+            .join(Purchase, Purchase.id == Reception.id_compra)
+            .join(Supplier, Supplier.id == Purchase.id_proveedor)
+            .order_by(Reception.id.desc())
+        )
+        for rec, pur, sup in q_r:
+            ref = f"{getattr(rec,'tipo_doc','') or ''} {getattr(rec,'numero_documento','') or ''}".strip()
+            rows.append([
+                "Recepción",
+                rec.id,
+                rec.fecha.strftime("%Y-%m-%d %H:%M") if getattr(rec, 'fecha', None) else "",
+                getattr(sup, 'razon_social', '') or '',
+                getattr(pur, 'estado', '') or '',
+                f"{float(getattr(pur,'total_compra',0) or 0):.2f}",
+                f"OC-{pur.id} {ref}".strip(),
+            ])
+            self._all_rows_meta.append(("recepcion", int(rec.id)))
+
+        # Opcional: ordenar por fecha descendente (requiere parse)
+        try:
+            rows.sort(key=lambda r: r[2], reverse=True)
+        except Exception:
+            pass
+        self._set_table_data(self.tbl_all, self.ALL_COLS, self.ALL_W, rows)
+
+    def _on_all_open(self):
+        idx = self._selected_row_index(self.tbl_all)
+        if idx is None or idx < 0 or idx >= len(self._all_rows_meta):
+            return
+        tipo, idv = self._all_rows_meta[idx]
+        # Navega a la pestaña correspondiente y selecciona
+        # Simpler approach: switch tab by calling MainWindow controls is not accessible here.
+        # We just switch within this Notebook to the specific tab and load details.
+        try:
+            nb = getattr(self, '_nb', None)
+            if nb is None:
+                return
+            if tipo == "compra":
+                nb.select(self.tab_compra)
+                # Select row matching purchase id
+                self._select_row_by_id(self.tbl_pur, self._pur_ids, idv)
+                self._load_purchase_details(idv)
+            elif tipo == "venta":
+                nb.select(self.tab_venta)
+                self._select_row_by_id(self.tbl_sale, self._sale_ids, idv)
+                self._on_sale_selected()
+            elif tipo == "recepcion":
+                nb.select(self.tab_recv)
+                # Select row by reception id
+                self._select_reception_row(idv)
+                self._on_reception_selected()
+        except Exception:
+            pass
+
+    def _select_row_by_id(self, table: GridTable, ids: List[int], target_id: int) -> None:
+        tv = getattr(table, "_fallback", None)
+        if tv is None:
+            return
+        for i, iid in enumerate(tv.get_children("")):
+            if i < len(ids) and int(ids[i]) == int(target_id):
+                try:
+                    tv.selection_set(iid)
+                    tv.see(iid)
+                except Exception:
+                    pass
+                break
+
+    def _select_reception_row(self, rid: int) -> None:
+        tv = getattr(self.tbl_recv, "_fallback", None)
+        if tv is None:
+            return
+        # RECV rows are tracked in self._recv_ids
+        for i, iid in enumerate(tv.get_children("")):
+            if i < len(self._recv_ids) and int(self._recv_ids[i]) == int(rid):
+                try:
+                    tv.selection_set(iid)
+                    tv.see(iid)
+                except Exception:
+                    pass
+                break
 
     # ----------------- Utilidades de grilla -----------------
     def _apply_col_widths(self, table: GridTable, widths: List[int]) -> None:
@@ -262,6 +411,7 @@ class OrdersAdminView(ttk.Frame):
         ttk.Button(top, text="Actualizar", command=self._load_receptions).pack(side="left", padx=4)
         ttk.Button(top, text="Abrir en Compras", command=self._reception_open_in_purchases).pack(side="left", padx=4)
         ttk.Button(top, text="Reimprimir OC (PDF)", command=self._reception_print_po).pack(side="left", padx=4)
+        ttk.Button(top, text="Informe de recepción (PDF)", command=self._reception_report_pdf).pack(side="left", padx=4)
 
         self.tbl_recv = GridTable(parent, height=10)
         self.tbl_recv.pack(fill="both", expand=True, pady=(6, 4))
@@ -386,18 +536,44 @@ class OrdersAdminView(ttk.Frame):
         pid = self._recv_to_purchase.get(int(rid))
         if not pid:
             return
-        # Preview de la OC vinculada: productos con cant OC / recibido / pendiente
+        # Preview de la recepción seleccionada: líneas recibidas (stock_entries)
         rows: List[List] = []
-        q = (
-            self.session.query(PurchaseDetail, Product)
-            .join(Product, Product.id == PurchaseDetail.id_producto)
-            .filter(PurchaseDetail.id_compra == pid)
-        )
-        for det, prod in q:
-            cant = int(getattr(det, "cantidad", 0) or 0)
-            rec = int(getattr(det, "received_qty", 0) or 0)
-            pen = max(0, cant - rec)
-            rows.append([prod.id, prod.nombre, cant, rec, pen])
+        try:
+            from src.data.models import StockEntry, Location
+            q = (
+                self.session.query(StockEntry, Product)
+                .join(Product, Product.id == StockEntry.id_producto)
+                .filter(StockEntry.id_recepcion == rid)
+                .order_by(StockEntry.id.asc())
+            )
+            for se, prod in q:
+                loc_name = ""
+                try:
+                    if getattr(se, 'id_ubicacion', None):
+                        loc = self.session.get(Location, int(getattr(se, 'id_ubicacion', 0) or 0))
+                        loc_name = getattr(loc, 'nombre', '') or ''
+                except Exception:
+                    loc_name = ""
+                lote_serie = (se.lote or se.serie or "")
+                fv = getattr(se, 'fecha_vencimiento', None)
+                fv_s = fv.strftime("%Y-%m-%d") if fv else ""
+                rows.append([prod.id, prod.nombre, int(se.cantidad or 0), loc_name, lote_serie, fv_s])
+        except Exception:
+            rows = []
+        # Fallback (datos antiguos sin id_recepcion): mostrar recibidos totales por ítem de la OC
+        if not rows:
+            try:
+                from src.data.models import PurchaseDetail
+                q2 = (
+                    self.session.query(PurchaseDetail, Product)
+                    .join(Product, Product.id == PurchaseDetail.id_producto)
+                    .filter(PurchaseDetail.id_compra == int(pid))
+                )
+                for det, prod in q2:
+                    rec_total = int(getattr(det, 'received_qty', 0) or 0)
+                    rows.append([prod.id, prod.nombre, rec_total, "", ""])  # sin lote/serie/vence disponibles
+            except Exception:
+                pass
         self._set_table_data(self.tbl_recv_det, self.RECV_DET_COLS, self.RECV_DET_W, rows)
 
     def _reception_open_in_purchases(self):
@@ -408,13 +584,14 @@ class OrdersAdminView(ttk.Frame):
         pid = self._recv_to_purchase.get(int(rid))
         if not pid:
             return
-        # Abrir pestaña Compras y seleccionar la OC
+        # Abrir pestaña Compras y abrir la recepción para edición
         try:
             mw = self.master.master
             if hasattr(mw, 'show_purchases'):
                 mw.show_purchases()
-            # Cargar detalles de la OC en la pestaña Compras (selección visual opcional)
-            # Si se desea efectuar más recepciones desde aquí, el flujo ya existe vía Vincular recepción.
+            pv = getattr(mw, 'purchases_tab', None)
+            if pv and hasattr(pv, 'load_reception_for_edit'):
+                pv.load_reception_for_edit(int(rid))
         except Exception:
             pass
 
@@ -469,6 +646,105 @@ class OrdersAdminView(ttk.Frame):
             messagebox.showinfo("Recepciones", f"OC generada nuevamente:\n{out}")
         except Exception as ex:
             messagebox.showerror("Recepciones", f"No se pudo generar el PDF:\n{ex}")
+
+    def _reception_report_pdf(self):
+        rid = self._get_selected_reception_id()
+        if rid is None:
+            messagebox.showwarning("Recepciones", "Seleccione una recepción.")
+            return
+        pid = self._recv_to_purchase.get(int(rid))
+        if not pid:
+            return
+        try:
+            from src.data.models import Reception
+            rec = self.session.get(Reception, int(rid))
+            pur = self.session.get(Purchase, int(pid))
+            sup = self.session.get(Supplier, pur.id_proveedor) if pur else None
+            if not rec or not pur or not sup:
+                messagebox.showerror("Recepciones", "Faltan datos para generar el informe.")
+                return
+            # Header supplier
+            supplier_dict = {
+                "id": str(getattr(sup, "id", "")),
+                "nombre": getattr(sup, "razon_social", "") or "",
+                "contacto": getattr(sup, "contacto", "") or "",
+                "telefono": getattr(sup, "telefono", "") or "",
+                "email": getattr(sup, "email", "") or "",
+                "direccion": getattr(sup, "direccion", "") or "",
+            }
+            reception_dict = {
+                "id": int(getattr(rec, 'id', 0) or 0),
+                "fecha": getattr(rec, 'fecha', None),
+                "tipo_doc": getattr(rec, 'tipo_doc', '') or '',
+                "numero_documento": getattr(rec, 'numero_documento', '') or '',
+            }
+            purchase_hdr = {
+                "moneda": getattr(pur, 'moneda', None),
+                "tasa_cambio": getattr(pur, 'tasa_cambio', None),
+                "fecha_documento": getattr(pur, 'fecha_documento', None),
+                "fecha_contable": getattr(pur, 'fecha_contable', None),
+                "fecha_vencimiento": getattr(pur, 'fecha_vencimiento', None),
+                "unidad_negocio": getattr(pur, 'unidad_negocio', None),
+                "proporcionalidad": getattr(pur, 'proporcionalidad', None),
+                "stock_policy": getattr(pur, 'stock_policy', None),
+            }
+            # Lines from stock_entries (preferido)
+            from src.data.models import StockEntry, Product, PurchaseDetail, Location
+            q = (
+                self.session.query(StockEntry, Product)
+                .join(Product, Product.id == StockEntry.id_producto)
+                .filter(StockEntry.id_recepcion == int(rid))
+                .order_by(StockEntry.id.asc())
+            )
+            lines = []
+            for se, prod in q:
+                loc_name = ''
+                try:
+                    if getattr(se, 'id_ubicacion', None):
+                        loc = self.session.get(Location, int(getattr(se, 'id_ubicacion', 0) or 0))
+                        loc_name = getattr(loc, 'nombre', '') or ''
+                except Exception:
+                    loc_name = ''
+                lines.append({
+                    'id': int(getattr(prod, 'id', 0) or 0),
+                    'nombre': getattr(prod, 'nombre', '') or '',
+                    'unidad': getattr(prod, 'unidad_medida', None) or 'U',
+                    'cantidad': int(getattr(se, 'cantidad', 0) or 0),
+                    'ubicacion': loc_name,
+                    'lote_serie': (getattr(se, 'lote', None) or getattr(se, 'serie', None) or ''),
+                    'vence': getattr(se, 'fecha_vencimiento', None),
+                })
+            # Fallback: si no hay registros por id_recepcion (recepciones antiguas), usar totales recibidos por ítem
+            if not lines:
+                q2 = (
+                    self.session.query(PurchaseDetail, Product)
+                    .join(Product, Product.id == PurchaseDetail.id_producto)
+                    .filter(PurchaseDetail.id_compra == int(pid))
+                )
+                for det, prod in q2:
+                    qty = int(getattr(det, 'received_qty', 0) or 0)
+                    if qty <= 0:
+                        continue
+                    lines.append({
+                        'id': int(getattr(prod, 'id', 0) or 0),
+                        'nombre': getattr(prod, 'nombre', '') or '',
+                        'unidad': getattr(prod, 'unidad_medida', None) or 'U',
+                        'cantidad': qty,
+                        'lote_serie': '',
+                        'vence': None,
+                    })
+            from src.reports.reception_report_pdf import generate_reception_report_to_downloads
+            out = generate_reception_report_to_downloads(
+                oc_number=f"OC-{pur.id}",
+                supplier=supplier_dict,
+                reception=reception_dict,
+                purchase_header=purchase_hdr,
+                lines=lines,
+                auto_open=True,
+            )
+            messagebox.showinfo("Recepciones", f"Informe generado:\n{out}")
+        except Exception as ex:
+            messagebox.showerror("Recepciones", f"No se pudo generar el informe:\n{ex}")
 
     def _on_purchase_selected(self, _evt: object | None = None):
         pid = self._get_selected_purchase_id()
@@ -535,7 +811,12 @@ class OrdersAdminView(ttk.Frame):
                     mw.show_purchases()
                 pv = getattr(mw, 'purchases_tab', None)
                 if pv and hasattr(pv, 'load_purchase_for_reception'):
-                    pv.load_purchase_for_reception(int(pur.id), tipo_doc=data.get('tipo_doc'), numero_doc=data.get('numero_documento'))
+                    pv.load_purchase_for_reception(
+                        int(pur.id),
+                        rec_id=int(r.id),
+                        tipo_doc=data.get('tipo_doc'),
+                        numero_doc=data.get('numero_documento'),
+                    )
             except Exception:
                 pass
         except Exception as ex:

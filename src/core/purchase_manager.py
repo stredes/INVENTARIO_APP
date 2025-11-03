@@ -206,6 +206,14 @@ class PurchaseManager:
                     motivo=f"Reversa compra {purchase_id}",
                     when=datetime.utcnow(),
                 )
+        # Eliminar movimientos de recepciones asociadas antes de borrar recepciones
+        try:
+            from src.data.models import StockEntry
+            rec_ids = [rid for (rid,) in self.session.query(Reception.id).filter(Reception.id_compra == purchase_id).all()]
+            if rec_ids:
+                self.session.query(StockEntry).filter(StockEntry.id_recepcion.in_(rec_ids)).delete(synchronize_session=False)
+        except Exception:
+            pass
         # Elimina recepciones vinculadas (para evitar FK constraint)
         try:
             self.session.query(Reception).filter(Reception.id_compra == purchase_id).delete(synchronize_session=False)

@@ -72,7 +72,7 @@ class GridTable(ttk.Frame):
             except Exception:
                 pass
 
-            tv = self._fallback = ttk.Treeview(self, show="headings", height=height)
+            tv = self._fallback = ttk.Treeview(self, show="headings", height=height, selectmode="extended")
             vs = ttk.Scrollbar(self, orient="vertical", command=tv.yview)
             hs = ttk.Scrollbar(self, orient="horizontal", command=tv.xview)
             tv.configure(yscrollcommand=vs.set, xscrollcommand=hs.set)

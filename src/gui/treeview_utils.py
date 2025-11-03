@@ -49,7 +49,7 @@ def apply_default_treeview_styles():
     style.configure(
         "Treeview.Heading",
         anchor="center",
-        font=("Segoe UI", 16, "bold"),
+        font=("Segoe UI", 14, "bold"),
         padding=(4, 6),
         relief="flat",
         background="#D5EAF7",
@@ -57,7 +57,7 @@ def apply_default_treeview_styles():
     # Rows: slightly larger height for readability
     style.configure(
         "Treeview",
-        font=("Segoe UI", 16),
+        font=("Segoe UI", 14),
         rowheight=28,
     )
 

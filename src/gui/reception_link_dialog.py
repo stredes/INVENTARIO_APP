@@ -48,4 +48,3 @@ class ReceptionLinkDialog(tk.Toplevel):
     def _cancel(self):
         self.result = None
         self.destroy()
-

@@ -1,0 +1,12 @@
+# Dependencias
+node_modules/
+
+# Builds
+.next/
+.vercel/
+out/
+
+# Env
+.env
+.env.*
+
