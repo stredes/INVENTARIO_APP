@@ -2,60 +2,59 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { apiGet, apiPost } from '../../../../lib/api';
 
-export default function ThresholdEditPage() {
+type Threshold = { product_id: number; min_value: number; max_value: number };
+
+export default function ThresholdEditorPage() {
   const { id } = useParams() as { id: string };
   const r = useRouter();
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
-  const [form, setForm] = useState<{ min_value: string; max_value: string }>({ min_value: '0', max_value: '0' });
+  const [data, setData] = useState<Threshold | null>(null);
+  const [minV, setMinV] = useState('');
+  const [maxV, setMaxV] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${apiBase}/inventory/thresholds/${id}`, { cache: 'no-store' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        setForm({ min_value: String(data.min_value ?? 0), max_value: String(data.max_value ?? 0) });
-      } catch (e: any) {
-        setErr(e?.message || 'Error');
-      }
+        const t = await apiGet<Threshold>(`/inventory/thresholds/${id}`);
+        setData(t);
+        setMinV(String(t.min_value ?? 0));
+        setMaxV(String(t.max_value ?? 0));
+      } catch (e: any) { setErr(e?.message || 'Error cargando umbrales'); }
     })();
   }, [id]);
 
-  const onChange = (e: any) => setForm({ ...form, [e.target.name]: e.target.value });
   const onSubmit = async (e: any) => {
     e.preventDefault(); setErr(null); setLoading(true);
     try {
-      const res = await fetch(`${apiBase}/inventory/thresholds/${id}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ min_value: parseInt(form.min_value || '0'), max_value: parseInt(form.max_value || '0') }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const payload = { min_value: parseInt(minV || '0'), max_value: parseInt(maxV || '0') };
+      if (payload.min_value < 0 || payload.max_value < 0) throw new Error('Valores no pueden ser negativos');
+      if (payload.max_value && payload.min_value && payload.max_value < payload.min_value) throw new Error('Max debe ser >= Min');
+      await apiPost(`/inventory/thresholds/${id}`, payload);
       r.push('/inventory');
-    } catch (e: any) {
-      setErr(e?.message || 'Error');
-    } finally { setLoading(false); }
+    } catch (e: any) { setErr(e?.message || 'Error al guardar'); }
+    finally { setLoading(false); }
   };
 
+  if (!data) return <p>Cargando...</p>;
   return (
     <div>
-      <h1>Umbral de Inventario (Producto #{id})</h1>
+      <h1>Umbrales de Inventario – Prod #{id}</h1>
       {err && <p style={{ color: 'crimson' }}>Error: {err}</p>}
-      <form onSubmit={onSubmit} style={{ display: 'grid', gap: 8, maxWidth: 360 }}>
+      <form onSubmit={onSubmit} className="grid-3" style={{ maxWidth: 520, alignItems: 'end' }}>
         <label>
           Mínimo
-          <input name="min_value" value={form.min_value} onChange={onChange} />
+          <input type="number" value={minV} onChange={(e) => setMinV(e.target.value)} />
         </label>
         <label>
           Máximo
-          <input name="max_value" value={form.max_value} onChange={onChange} />
+          <input type="number" value={maxV} onChange={(e) => setMaxV(e.target.value)} />
         </label>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button disabled={loading} type="submit">Guardar</button>
-          <Link href="/inventory">Cancelar</Link>
+          <button className="btn btn-primary" disabled={loading} type="submit">Guardar</button>
+          <Link className="btn" href="/inventory">Cancelar</Link>
         </div>
       </form>
     </div>

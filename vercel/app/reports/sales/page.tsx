@@ -61,7 +61,8 @@ export default async function SalesReportPage({ searchParams }: { searchParams?:
         <a href={pdfUrl} target="_blank" rel="noreferrer">Exportar PDF</a>
       </form>
       {error && <p style={{ color: 'crimson' }}>Error: {error}</p>}
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div className="table-wrap">
+      <table>
         <thead>
           <tr>
             <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>ID</th>
@@ -94,6 +95,7 @@ export default async function SalesReportPage({ searchParams }: { searchParams?:
           </tr>
         </tfoot>
       </table>
+      </div>
       <p style={{ marginTop: 24 }}>
         <Link href="/">Volver</Link>
       </p>

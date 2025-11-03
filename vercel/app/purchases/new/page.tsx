@@ -74,7 +74,13 @@ export default function NewPurchasePage() {
             <option value="sku">SKU</option>
             <option value="id">ID</option>
           </select>
-          <input value={adding.key} onChange={(e) => setAdding({ ...adding, key: e.target.value })} placeholder={adding.by === 'sku' ? 'SKU' : 'ID'} />
+          <input
+            value={adding.key}
+            onChange={(e) => setAdding({ ...adding, key: e.target.value })}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addItem(); } }}
+            placeholder={adding.by === 'sku' ? 'SKU' : 'ID'}
+            autoFocus
+          />
           <input value={adding.qty} onChange={(e) => setAdding({ ...adding, qty: e.target.value })} placeholder="Cant." />
           <button onClick={addItem}>Agregar</button>
         </div>

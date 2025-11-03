@@ -129,6 +129,26 @@ class PurchaseOut(BaseModel):
     from_attributes = True
 
 
+class PurchaseUpdate(BaseModel):
+  # Cabecera y metadatos (todos opcionales para PATCH/PUT flexible)
+  numero_documento: str | None = None
+  fecha_documento: datetime | None = None
+  fecha_contable: datetime | None = None
+  fecha_vencimiento: datetime | None = None
+  moneda: str | None = None
+  tasa_cambio: Decimal | None = None
+  unidad_negocio: str | None = None
+  proporcionalidad: str | None = None
+  atencion: str | None = None
+  tipo_descuento: str | None = None  # 'Monto' | 'Porcentaje'
+  descuento: Decimal | None = None
+  ajuste_iva: Decimal | None = None
+  stock_policy: str | None = None   # 'Mueve' | 'No Mueve'
+  referencia: str | None = None
+  ajuste_impuesto: Decimal | None = None
+  estado: str | None = None
+
+
 # ---------- Sales ----------
 
 class SaleItemIn(BaseModel):
@@ -154,6 +174,11 @@ class SaleOut(BaseModel):
 
   class Config:
     from_attributes = True
+
+
+class SaleUpdate(BaseModel):
+  estado: str | None = None
+  fecha_venta: datetime | None = None
 
 
 # ---------- Details for nested views ----------

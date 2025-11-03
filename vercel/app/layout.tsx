@@ -1,3 +1,6 @@
+import './globals.css';
+import SiteHeader from '../components/SiteHeader';
+
 export const metadata = {
   title: 'Inventario App',
   description: 'Landing y esqueleto web para Inventario App',
@@ -6,24 +9,16 @@ export const metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es">
-      <body style={{ fontFamily: 'system-ui, Arial, sans-serif', margin: 0 }}>
-        <header style={{ padding: '16px 24px', borderBottom: '1px solid #eee', display: 'flex', gap: 16, alignItems: 'center' }}>
-          <strong>Inventario App</strong>
-          <nav style={{ display: 'flex', gap: 12, fontSize: 14 }}>
-            <a href="/">Inicio</a>
-            <a href="/products">Productos</a>
-            <a href="/suppliers">Proveedores</a>
-            <a href="/customers">Clientes</a>
-            <a href="/purchases">Compras</a>
-            <a href="/sales">Ventas</a>
-            <a href="/inventory">Inventario</a>
-            <a href="/receptions">Recepciones</a>
-            <a href="/reports/sales">Reporte Ventas</a>
-          </nav>
-        </header>
-        <main style={{ padding: '24px', maxWidth: 960, margin: '0 auto' }}>{children}</main>
-        <footer style={{ padding: '24px', borderTop: '1px solid #eee', color: '#666' }}>
-          © {new Date().getFullYear()} Inventario App
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+      </head>
+      <body>
+        <SiteHeader />
+        <main className="container">{children}</main>
+        <footer className="site-footer">
+          <div className="site-footer-inner">© {new Date().getFullYear()} Inventario App</div>
         </footer>
       </body>
     </html>

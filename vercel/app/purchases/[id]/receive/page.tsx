@@ -19,6 +19,7 @@ export default function ReceivePurchasePage() {
   const [updateStatus, setUpdateStatus] = useState(true);
   const [defaultLocation, setDefaultLocation] = useState('');
   const [lines, setLines] = useState<Record<number, { qty: string; id_ubicacion?: string; lote?: string; serie?: string; fecha_vencimiento?: string }>>({});
+  const [scan, setScan] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -70,6 +71,20 @@ export default function ReceivePurchasePage() {
       m[d.id_producto] = cur;
     }
     setLines(m);
+  };
+
+  const onScan = () => {
+    if (!pur) return;
+    const code = scan.trim(); if (!code) return;
+    setScan('');
+    const found = pur.details.find(d => (d.product?.sku || '').toLowerCase() === code.toLowerCase());
+    if (!found) return;
+    const remaining = Math.max(0, (found.cantidad || 0) - (found.received_qty || 0));
+    if (remaining <= 0) return;
+    const current = lines[found.id_producto] || {};
+    const currQty = parseInt(current.qty || '0') || 0;
+    const newQty = Math.min(remaining, currQty + 1);
+    setLines({ ...lines, [found.id_producto]: { ...current, qty: String(newQty) } });
   };
 
   const validate = () => {
@@ -129,6 +144,21 @@ export default function ReceivePurchasePage() {
       <h1>Recepcionar Compra #{pur.id}</h1>
       {err && <p style={{ color: 'crimson' }}>Error: {err}</p>}
 
+      <div className="card pad" style={{ marginBottom: 12 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, alignItems:'end' }}>
+          <label>Escáner SKU
+            <input value={scan} onChange={(e)=> setScan(e.target.value)} onKeyDown={(e)=>{ if(e.key==='Enter'){ e.preventDefault(); onScan(); } }} placeholder="Escanee SKU y Enter" />
+          </label>
+          <label>Ubicación por defecto
+            <input value={defaultLocation} onChange={(e)=> setDefaultLocation(e.target.value)} placeholder="ID ubicación" />
+          </label>
+          <div style={{ display:'flex', gap:8 }}>
+            <button className="btn" onClick={applyDefaultLocation}>Aplicar ubicación</button>
+            <button className="btn" onClick={fillAllRemaining}>Llenar restantes</button>
+          </div>
+        </div>
+      </div>
+
       <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
         <label>Tipo doc
           <select value={header.tipo_doc} onChange={(e) => setHeader({ ...header, tipo_doc: e.target.value })}>
@@ -160,7 +190,8 @@ export default function ReceivePurchasePage() {
         <span style={{ marginLeft: 'auto' }}>Restante total: <b>{totals.remaining}</b> | A recepcionar: <b>{totals.toReceive}</b></span>
       </div>
 
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div className="table-wrap">
+      <table>
         <thead>
           <tr>
             <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>Producto</th>
@@ -206,6 +237,7 @@ export default function ReceivePurchasePage() {
           })}
         </tbody>
       </table>
+      </div>
 
       <div style={{ marginTop: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
         <button disabled={loading} onClick={onSubmit}>Registrar Recepción</button>
@@ -216,7 +248,8 @@ export default function ReceivePurchasePage() {
       {recs.length > 0 && (
         <div style={{ marginTop: 24 }}>
           <h3>Recepciones Anteriores</h3>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className="table-wrap">
+          <table>
             <thead>
               <tr>
                 <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>ID</th>
@@ -236,6 +269,7 @@ export default function ReceivePurchasePage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>

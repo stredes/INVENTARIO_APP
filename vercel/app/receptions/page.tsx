@@ -22,7 +22,8 @@ export default async function ReceptionsPage() {
     <div>
       <h1 style={{ marginTop: 0 }}>Recepciones</h1>
       {error && <p style={{ color: 'crimson' }}>Error: {error}</p>}
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div className="table-wrap">
+      <table>
         <thead>
           <tr>
             <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>ID</th>
@@ -31,6 +32,7 @@ export default async function ReceptionsPage() {
             <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>N°</th>
             <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>Fecha</th>
             <th style={{ textAlign: 'center', borderBottom: '1px solid #ddd', padding: 8 }}>OC PDF</th>
+            <th style={{ textAlign: 'center', borderBottom: '1px solid #ddd', padding: 8 }}>Recepción PDF</th>
           </tr>
         </thead>
         <tbody>
@@ -44,6 +46,9 @@ export default async function ReceptionsPage() {
               <td style={{ borderBottom: '1px solid #eee', padding: 8, textAlign: 'center' }}>
                 <a href={`${apiBase}/purchases/${r.id_compra}/pdf`} target="_blank">Ver</a>
               </td>
+              <td style={{ borderBottom: '1px solid #eee', padding: 8, textAlign: 'center' }}>
+                <a href={`${apiBase}/receptions/${r.id}/pdf`} target="_blank">Ver</a>
+              </td>
             </tr>
           ))}
           {!items.length && !error && (
@@ -53,10 +58,10 @@ export default async function ReceptionsPage() {
           )}
         </tbody>
       </table>
+      </div>
       <p style={{ marginTop: 24 }}>
         <Link href="/">Volver</Link>
       </p>
     </div>
   );
 }
-

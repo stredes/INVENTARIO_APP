@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import { apiGet } from '../../lib/api';
+import Accordion from '../../components/Accordion';
+import SupplierQuickForm from '../../components/forms/SupplierQuickForm';
 
 type Supplier = {
   id: number;
@@ -10,20 +12,36 @@ type Supplier = {
   email?: string;
 };
 
-export default async function SuppliersPage() {
+export default async function SuppliersPage({ searchParams }: { searchParams?: Record<string, string> }) {
+  const sp = searchParams || {};
+  const qs = new URLSearchParams(); if (sp.q) qs.set('q', sp.q);
   let items: Supplier[] = [];
   let error: string | null = null;
-  try {
-    items = await apiGet<Supplier[]>(`/suppliers`);
-  } catch (e: any) {
-    error = e?.message || 'Error cargando proveedores';
-  }
+  try { items = await apiGet<Supplier[]>(`/suppliers?${qs.toString()}`); }
+  catch (e: any) { error = e?.message || 'Error cargando proveedores'; }
   return (
     <div>
       <h1 style={{ marginTop: 0 }}>Proveedores</h1>
-      <p><Link href="/suppliers/new">+ Nuevo proveedor</Link></p>
+      <div className="accordion">
+        <Accordion title="Proveedor (rápido)" defaultOpen>
+          <SupplierQuickForm />
+        </Accordion>
+      </div>
+      <div className="accordion" style={{ marginTop: 12 }}>
+        <Accordion title="Filtros">
+          <form method="get" className="grid-3" style={{ alignItems: 'end' }}>
+            <label>Búsqueda<input name="q" defaultValue={sp.q || ''} placeholder="Nombre o RUT" /></label>
+            <div />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-primary" type="submit">Aplicar</button>
+              <a className="btn" href="/suppliers">Limpiar</a>
+            </div>
+          </form>
+        </Accordion>
+      </div>
       {error && <p style={{ color: 'crimson' }}>Error: {error}</p>}
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div className="table-wrap">
+      <table>
         <thead>
           <tr>
             <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>ID</th>
@@ -50,6 +68,7 @@ export default async function SuppliersPage() {
           )}
         </tbody>
       </table>
+      </div>
       <p style={{ marginTop: 24 }}>
         <Link href="/">Volver</Link>
       </p>

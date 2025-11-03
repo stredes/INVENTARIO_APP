@@ -1,5 +1,8 @@
 import Link from 'next/link';
 import { apiGet } from '../../lib/api';
+import Accordion from '../../components/Accordion';
+import ProductQuickForm from '../../components/forms/ProductQuickForm';
+import ProductBulkActions from '../../components/forms/ProductBulkActions';
 
 type Product = {
   id: number;
@@ -7,31 +10,51 @@ type Product = {
   sku: string;
   stock_actual: number;
   precio_venta: string | number;
+  image_path?: string | null;
 };
 
-export default async function ProductsPage() {
+export default async function ProductsPage({ searchParams }: { searchParams?: Record<string, string> }) {
+  const sp = searchParams || {};
+  const qs = new URLSearchParams();
+  if (sp.q) qs.set('q', sp.q);
+  if (sp.supplier_id) qs.set('supplier_id', sp.supplier_id);
   let items: Product[] = [];
   let error: string | null = null;
-  try {
-    const data = await apiGet<Product[]>(`/products`);
-    items = data;
-  } catch (e: any) {
-    error = e?.message || 'Error cargando productos';
-  }
+  try { items = await apiGet<Product[]>(`/products?${qs.toString()}`); }
+  catch (e: any) { error = e?.message || 'Error cargando productos'; }
 
   return (
     <div>
       <h1 style={{ marginTop: 0 }}>Productos</h1>
-      <p><Link href="/products/new">+ Nuevo producto</Link></p>
+      <div className="accordion">
+        <Accordion title="Producto (rápido)" defaultOpen>
+          <ProductQuickForm />
+        </Accordion>
+        <Accordion title="Acciones masivas">
+          <ProductBulkActions />
+        </Accordion>
+        <Accordion title="Filtros">
+          <form method="get" className="grid-3" style={{ alignItems: 'end' }}>
+            <label>Búsqueda<input name="q" defaultValue={sp.q || ''} placeholder="Nombre o SKU" /></label>
+            <label>Proveedor ID<input name="supplier_id" defaultValue={sp.supplier_id || ''} placeholder="Ej. 1" /></label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-primary" type="submit">Aplicar</button>
+              <a className="btn" href="/products">Limpiar</a>
+            </div>
+          </form>
+        </Accordion>
+      </div>
       <p>
         Origen API: <code>{process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}</code>
       </p>
       {error && (
         <p style={{ color: 'crimson' }}>Error: {error}</p>
       )}
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div className="table-wrap">
+      <table>
         <thead>
           <tr>
+            <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>Imagen</th>
             <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>ID</th>
             <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>Nombre</th>
             <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>SKU</th>
@@ -42,6 +65,9 @@ export default async function ProductsPage() {
         <tbody>
           {items.map((p) => (
             <tr key={p.id}>
+              <td style={{ borderBottom: '1px solid #eee', padding: 8 }}>
+                {p.image_path ? <img className="thumb" src={`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000'}/files/${p.image_path}`} alt="thumb" /> : null}
+              </td>
               <td style={{ borderBottom: '1px solid #eee', padding: 8 }}>{p.id}</td>
               <td style={{ borderBottom: '1px solid #eee', padding: 8 }}>{p.nombre}</td>
               <td style={{ borderBottom: '1px solid #eee', padding: 8 }}>{p.sku}</td>
@@ -58,6 +84,7 @@ export default async function ProductsPage() {
           )}
         </tbody>
       </table>
+      </div>
       <p style={{ marginTop: 24 }}>
         <Link href="/">Volver</Link>
       </p>
