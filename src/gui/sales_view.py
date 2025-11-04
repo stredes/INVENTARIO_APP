@@ -19,13 +19,13 @@ from src.gui.treeview_utils import apply_default_treeview_styles, enable_auto_ce
 class SalesView(ttk.Frame):
     """
     Crear ventas + Generar OV + ADMIN (cancelar / marcar eliminada).
-    Selector de estado y lÃ³gica de stock:
+    Selector de estado y lógica de stock:
       - Pagada -> puede descontar stock (si checkbox activo)
       - Reservada / Cancelada -> no descuenta
-    Informe de Ventas con filtros + exportaciÃ³n CSV/PDF a Descargas.
+    Informe de Ventas con filtros + exportación CSV/PDF a Descargas.
     """
 
-    ESTADOS = ["Confirmada", "Pendiente", "Cancelada", "Eliminada"]
+    ESTADOS = ["Pagada", "Confirmada", "Pendiente", "Cancelada", "Eliminada"]
 
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
@@ -64,6 +64,10 @@ class SalesView(ttk.Frame):
         ttk.Label(top, text="Pago:").grid(row=0, column=5, sticky="e", padx=4)
         self.PAGOS = ("Contado", "Débito", "Transferencia", "Crédito 30 días")
         self.cmb_pago = ttk.Combobox(top, state="readonly", width=18, values=self.PAGOS)
+        try:
+            self.cmb_pago["values"] = ("Contado", "Débito", "Transferencia", "Crédito 30 días")
+        except Exception:
+            pass
         self.cmb_pago.set("Contado")
         self.cmb_pago.grid(row=0, column=6, sticky="w", padx=4)
 
@@ -129,11 +133,11 @@ class SalesView(ttk.Frame):
         self.var_tasa = tk.DoubleVar(value=1.0)
         self.var_monto_neto = tk.DoubleVar(value=0.0)
 
-        ttk.Label(det, text="Numero detalle").grid(row=1, column=0, sticky="e", padx=4, pady=4)
+        ttk.Label(det, text="Número detalle").grid(row=1, column=0, sticky="e", padx=4, pady=4)
         ttk.Entry(det, textvariable=self.var_det_nro, width=10, state="readonly").grid(row=1, column=1, sticky="w", padx=4, pady=4)
-        ttk.Label(det, text="Codigo de producto").grid(row=1, column=2, sticky="e", padx=4, pady=4)
+        ttk.Label(det, text="Código de producto").grid(row=1, column=2, sticky="e", padx=4, pady=4)
         ttk.Entry(det, textvariable=self.var_prod_code, width=18, state="readonly").grid(row=1, column=3, sticky="w", padx=4, pady=4)
-        ttk.Label(det, text="Descripcion").grid(row=1, column=4, sticky="e", padx=4, pady=4)
+        ttk.Label(det, text="Descripción").grid(row=1, column=4, sticky="e", padx=4, pady=4)
         ttk.Entry(det, textvariable=self.var_prod_desc, width=36, state="readonly").grid(row=1, column=5, columnspan=3, sticky="we", padx=4, pady=4)
 
         ttk.Label(det, text="Unidad").grid(row=2, column=0, sticky="e", padx=4, pady=4)
@@ -231,6 +235,10 @@ class SalesView(ttk.Frame):
         ttk.Label(top, text="Pago:").grid(row=0, column=5, sticky="e", padx=4)
         self.PAGOS = ("Contado", "Débito", "Transferencia", "Crédito 30 días")
         self.cmb_pago = ttk.Combobox(top, state="readonly", width=18, values=self.PAGOS)
+        try:
+            self.cmb_pago["values"] = ("Contado", "Débito", "Transferencia", "Crédito 30 días")
+        except Exception:
+            pass
         self.cmb_pago.set("Contado")
         self.cmb_pago.grid(row=0, column=6, sticky="w", padx=4)
 
@@ -301,12 +309,12 @@ class SalesView(ttk.Frame):
         self.var_tasa = tk.DoubleVar(value=1.0)
         self.var_monto_neto = tk.DoubleVar(value=0.0)
 
-        # Fila 1: Numero detalle / Codigo de producto / Descripcion
-        ttk.Label(det, text="Numero detalle").grid(row=1, column=0, sticky="e", padx=4, pady=4)
+        # Fila 1: Número detalle / Código de producto / Descripción
+        ttk.Label(det, text="Número detalle").grid(row=1, column=0, sticky="e", padx=4, pady=4)
         ttk.Entry(det, textvariable=self.var_det_nro, width=10, state="readonly").grid(row=1, column=1, sticky="w", padx=4, pady=4)
-        ttk.Label(det, text="Codigo de producto").grid(row=1, column=2, sticky="e", padx=4, pady=4)
+        ttk.Label(det, text="Código de producto").grid(row=1, column=2, sticky="e", padx=4, pady=4)
         ttk.Entry(det, textvariable=self.var_prod_code, width=18, state="readonly").grid(row=1, column=3, sticky="w", padx=4, pady=4)
-        ttk.Label(det, text="Descripcion").grid(row=1, column=4, sticky="e", padx=4, pady=4)
+        ttk.Label(det, text="Descripción").grid(row=1, column=4, sticky="e", padx=4, pady=4)
         ttk.Entry(det, textvariable=self.var_prod_desc, width=36, state="readonly").grid(row=1, column=5, columnspan=3, sticky="we", padx=4, pady=4)
 
         # Fila 2: Unidad / Tipo desc / Descuento / Monto neto unitario
@@ -624,8 +632,8 @@ class SalesView(ttk.Frame):
         rut = getattr(c, "rut", "") or ""
         rs = getattr(c, "razon_social", "") or ""
         if rut and rs:
-            return f"{rut} â€” {rs}"
-        return rs or rut or f"Cliente {c.id}"
+            return f"{rs} — {rut}"
+        return rs or rut or f"Cliente {getattr(c, 'id', '')}"
 
     def _get_selected_customer(self) -> Optional[Customer]:
         idx = self.cmb_customer.current()
@@ -633,7 +641,7 @@ class SalesView(ttk.Frame):
             return None
         return self.customers[idx]
 
-    # -------------------- SelecciÃ³n de producto --------------------
+    # -------------------- Selección de producto --------------------
     def _selected_product(self) -> Optional[Product]:
         it = self.cmb_product.get_selected_item()
         if it is not None:
@@ -858,7 +866,7 @@ class SalesView(ttk.Frame):
             ]
 
             estado = (self.cmb_estado.get() or "Confirmada").strip()
-            # Descontar stock solo si estÃ¡ Confirmada o Pagada (compatibilidad)
+            # Descontar stock solo si está Confirmada o Pagada (compatibilidad)
             apply_to_stock = self.var_apply.get() and (estado in ("Confirmada", "Pagada"))
 
             create_fn = self._resolve_create_sale()
@@ -941,7 +949,7 @@ class SalesView(ttk.Frame):
         except Exception as e:
             self._error(f"No se pudo eliminar:\n{e}")
 
-    # ==================== Informe de Ventas (LÃ³gica) ====================
+    # ==================== Informe de Ventas (Lógica) ====================
     @staticmethod
     def _parse_ddmmyyyy(s: str):
         from datetime import datetime as _dt

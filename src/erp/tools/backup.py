@@ -243,7 +243,7 @@ def export_app_backup_to_xlsx(out_path: Optional[Path] = None, *, auto_open: boo
             getattr(s,'direccion',None) or "",
         ])
 
-    # 6) Ordenes (todas: compras, ventas y recepciones)
+    # 6) Órdenes (todas: compras, ventas y recepciones)
     ws = wb.create_sheet("ordenes")
     order_cols = [
         # genéricos

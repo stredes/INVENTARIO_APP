@@ -78,6 +78,11 @@ class PurchasesView(ttk.Frame):
         ttk.Label(head, text="Pago:").grid(row=0, column=5, sticky="e", padx=4)
         self.PAGOS = ("Crédito 30 días", "Efectivo", "Débito", "Transferencia", "Cheque")
         self.cmb_pago = ttk.Combobox(head, state="readonly", width=18, values=self.PAGOS)
+        # Corrección visual de acentos en opciones de pago
+        try:
+            self.cmb_pago["values"] = ("Crédito 30 días", "Efectivo", "Débito", "Transferencia", "Cheque")
+        except Exception:
+            pass
         self.cmb_pago.set(get_po_payment_method())
         self.cmb_pago.grid(row=0, column=6, sticky="w", padx=4)
         # Modo: Compra vs Recepcion
@@ -416,7 +421,7 @@ class PurchasesView(ttk.Frame):
         except Exception:
             est = ''
         try:
-            if est in ('Completada', 'Por pagar', 'Incompleta'):
+            if est in ('Completada', 'Por pagar'):
                 self.var_apply.set(True)
                 try:
                     self.var_stockpol.set('Mueve')
@@ -691,7 +696,7 @@ class PurchasesView(ttk.Frame):
                 "precio": q2(_num(sprice) * (D(1) + iva_rate)),          # con IVA (precio bruto)
                 "subtotal": D(ssub),          # con IVA y descuento ya aplicado
                 "dcto_pct": disc_pct,         # usado por OC
-                "descuento_porcentaje": disc_pct,  # compat para cotizaciÃ³n
+                "descuento_porcentaje": disc_pct,  # compat para cotización
                 "dcto": disc_pct,             # compat alternativa
                 "unidad": unidad,
             })
@@ -758,8 +763,8 @@ class PurchasesView(ttk.Frame):
                         loc_id = None
                     if lote and serie:
                         serie = None
-                    self.inv.register_entry(
-                        product_id=prod_id, cantidad=qty, motivo=f"Recepcion {self._stamp()}",
+                self.inv.register_entry(
+                    product_id=prod_id, cantidad=qty, motivo=f"Recepción {self._stamp()}",
                         lote=str(lote) if lote else None, serie=str(serie) if serie else None, fecha_vencimiento=venc,
                         reception_id=getattr(self, '_current_reception_id', None),
                         location_id=loc_id
@@ -781,8 +786,8 @@ class PurchasesView(ttk.Frame):
                     return
 
             estado = (getattr(self, 'cmb_estado', None).get() if hasattr(self, 'cmb_estado') else "Completada") or "Completada"
-            sp = (self.var_stockpol.get() if hasattr(self, 'var_stockpol') else "No Mueve") or "No Mueve"
-            apply_to_stock = (sp.lower() != "no mueve") and (estado in ("Completada", "Por pagar"))
+            # Unifica política de movimiento de stock: usa el checkbox var_apply
+            apply_to_stock = bool(getattr(self, 'var_apply', tk.BooleanVar(value=True)).get()) and (estado in ("Completada", "Por pagar"))
 
             pur = self.pm.create_purchase(
                 supplier_id=sup.id,
@@ -815,6 +820,7 @@ class PurchasesView(ttk.Frame):
                     pur.ajuste_iva = D(getattr(self, 'var_ajiva', tk.StringVar(value='0')).get() or '0')
                 except Exception:
                     pur.ajuste_iva = D(0)
+                sp = (getattr(self, 'var_stockpol', tk.StringVar(value='No Mueve')).get() or 'No Mueve')
                 pur.stock_policy = sp
                 pur.referencia = (getattr(self, 'var_ref', tk.StringVar()).get() or None)
                 try:
@@ -927,7 +933,7 @@ class PurchasesView(ttk.Frame):
             try:
                 notes_lines = []
                 nd = (getattr(self, 'var_numdoc', tk.StringVar()).get() or '').strip()
-                if nd: notes_lines.append(f"N� Doc: {nd}")
+                if nd: notes_lines.append(f"N° Doc: {nd}")
                 fd = (getattr(self, 'var_fdoc', tk.StringVar()).get() or '').strip()
                 if fd: notes_lines.append(f"F. Documento: {fd}")
                 fc = (getattr(self, 'var_fcont', tk.StringVar()).get() or '').strip()
@@ -1131,6 +1137,17 @@ class PurchasesView(ttk.Frame):
                                 se.lote = str(lote) if lote else None
                                 se.serie = str(serie) if serie else None
                                 se.fecha_vencimiento = venc
+                                # También actualiza ubicación si viene en la trazabilidad;
+                                # si no, usa la ubicación por defecto del producto.
+                                try:
+                                    loc_id = tr.get('loc_id') if isinstance(tr, dict) else None
+                                    if not loc_id:
+                                        p = self.session.get(Product, int(pid))
+                                        if p and getattr(p, 'id_ubicacion', None):
+                                            loc_id = int(getattr(p, 'id_ubicacion'))
+                                    se.id_ubicacion = int(loc_id) if loc_id else None
+                                except Exception:
+                                    pass
                         self.session.commit()
                         self._info('Recepción actualizada.')
                         return
@@ -1183,14 +1200,24 @@ class PurchasesView(ttk.Frame):
                     except Exception:
                         pass
                 if add_stock:
+                    # Determinar ubicación: primero la guardada en trazabilidad, si no la del producto
+                    loc_id = None
+                    try:
+                        loc_id = (tr.get('loc_id') if isinstance(tr, dict) else None)
+                        if not loc_id:
+                            p = self.session.get(Product, int(det.id_producto))
+                            if p and getattr(p, 'id_ubicacion', None):
+                                loc_id = int(getattr(p, 'id_ubicacion'))
+                    except Exception:
+                        loc_id = None
                     self.inv.register_entry(
                         product_id=int(det.id_producto), cantidad=int(to_recv),
-                        motivo=f"Recepcion {po.id}",
+                        motivo=f"Recepción {po.id}",
                         lote=str(lote) if lote else None,
                         serie=str(serie) if serie else None,
                         fecha_vencimiento=venc,
                         reception_id=getattr(self, '_current_reception_id', None),
-                        location_id=(tr.get('loc_id') if isinstance(tr, dict) else None)
+                        location_id=loc_id
                     )
                 det.received_qty = int(getattr(det, "received_qty", 0) or 0) + int(to_recv)
                 if to_recv > 0:

@@ -42,12 +42,12 @@ class SuppliersView(ttk.Frame):
         frm = ttk.Labelframe(self, text="Proveedor", padding=10)
         frm.pack(fill="x", expand=False)
 
-        self.var_Razón = tk.StringVar()
+        self.var_razon = tk.StringVar()
         self.var_rut = tk.StringVar()
         self.var_contacto = tk.StringVar()
-        self.var_Teléfono = tk.StringVar()
+        self.var_telefono = tk.StringVar()
         self.var_email = tk.StringVar()
-        self.var_Dirección = tk.StringVar()
+        self.var_direccion = tk.StringVar()
 
         def row(lbl: str, var: tk.StringVar, r: int, width: int = 40):
             ttk.Label(frm, text=f"{lbl}:").grid(row=r, column=0, sticky="e", padx=4, pady=4)
@@ -55,12 +55,12 @@ class SuppliersView(ttk.Frame):
             ent.grid(row=r, column=1, sticky="w", padx=4, pady=4)
             return ent
 
-        self.ent_Razón = row("Razón social", self.var_Razón, 0)
+        self.ent_razon = row("Razón social", self.var_razon, 0)
         self.ent_rut = row("RUT", self.var_rut, 1, width=20)
         row("Contacto (vendedor)", self.var_contacto, 2)
-        row("Teléfono", self.var_Teléfono, 3)
+        row("Teléfono", self.var_telefono, 3)
         row("Email", self.var_email, 4)
-        row("Dirección", self.var_Dirección, 5)
+        row("Dirección", self.var_direccion, 5)
 
         # Botones
         btns = ttk.Frame(frm)
@@ -85,21 +85,21 @@ class SuppliersView(ttk.Frame):
         tv = getattr(self.table, "_fallback", None)
         if tv is not None:
             tv.bind("<Double-1>", lambda e: self._on_row_dblclick())
-            # Click en encabezado: limpiar selección y formulario
+            # Click en encabezado → limpiar selección y formulario
             tv.bind("<Button-1>", self._on_tree_click)
 
         # Carga inicial
         self._load_table()
         # Foco inicial
-        self.after(100, lambda: self.ent_Razón.focus_set())
+        self.after(100, lambda: self.ent_razon.focus_set())
 
     # ---------- Utilidades ----------
     def _apply_column_widths(self) -> None:
         """Ajusta anchos de columnas tanto en tksheet como en Treeview."""
         if hasattr(self.table, "sheet"):
             try:
-                for i, w in enumerate(self.COL_WIDTHS):
-                    self.table.sheet.column_width(i, width=w)
+                for i, w in enumerate(self.COLS and self.COL_WIDTHS):
+                    self.table.sheet.column_width(i, width=self.COL_WIDTHS[i])
             except Exception:
                 pass
         tv = getattr(self.table, "_fallback", None)
@@ -119,7 +119,7 @@ class SuppliersView(ttk.Frame):
         return normalize_rut(rut)
 
     def _selected_row_index(self) -> Optional[int]:
-        """Índice de fila selecciónada en la grilla (None si no hay)."""
+        """Índice de fila seleccionada en la grilla (None si no hay)."""
         # tksheet
         if hasattr(self.table, "sheet"):
             try:
@@ -145,9 +145,9 @@ class SuppliersView(ttk.Frame):
             return None
 
     def _read_form(self) -> dict | None:
-        Razón = self.var_Razón.get().strip()
+        razon = self.var_razon.get().strip()
         rut = self._normalize_rut(self.var_rut.get())
-        if not Razón:
+        if not razon:
             self._warn("La Razón social es obligatoria.")
             return None
         if not rut:
@@ -169,12 +169,12 @@ class SuppliersView(ttk.Frame):
             return None
 
         return {
-            "razon_social": Razón,
+            "razon_social": razon,
             "rut": rut,
             "contacto": self.var_contacto.get().strip() or None,
-            "telefono": self.var_Teléfono.get().strip() or None,
+            "telefono": self.var_telefono.get().strip() or None,
             "email": email,
-            "direccion": self.var_Dirección.get().strip() or None,
+            "direccion": self.var_direccion.get().strip() or None,
         }
 
     # ---------- CRUD ----------
@@ -223,7 +223,7 @@ class SuppliersView(ttk.Frame):
     def _on_delete(self):
         if self._editing_id is None:
             return
-        if not messagebox.askyesno("Confirmar", "¿Eliminar está proveedor?"):
+        if not messagebox.askyesno("Confirmar", "¿Eliminar este proveedor?"):
             return
         try:
             self.repo.delete(self._editing_id)
@@ -235,30 +235,30 @@ class SuppliersView(ttk.Frame):
             self._error(f"No se pudo eliminar:\n{e}")
 
     def _on_row_dblclick(self, _=None):
-        """Carga la fila selecciónada a los controles para edición."""
+        """Carga la fila seleccionada a los controles para edición."""
         idx = self._selected_row_index()
         if idx is None or idx < 0 or idx >= len(self._rows_cache):
             return
         vals = self._rows_cache[idx]
-        # 0 id, 1 Razón, 2 rut, 3 contacto, 4 Teléfono, 5 email, 6 Dirección
+        # 0 id, 1 razon, 2 rut, 3 contacto, 4 telefono, 5 email, 6 direccion
         self._editing_id = int(vals[0])
-        self.var_Razón.set(vals[1] or "")
+        self.var_razon.set(vals[1] or "")
         self.var_rut.set(vals[2] or "")
         self.var_contacto.set(vals[3] or "")
-        self.var_Teléfono.set(vals[4] or "")
+        self.var_telefono.set(vals[4] or "")
         self.var_email.set(vals[5] or "")
-        self.var_Dirección.set(vals[6] or "")
+        self.var_direccion.set(vals[6] or "")
 
         self.btn_save.config(state="disabled")
         self.btn_update.config(state="normal")
         self.btn_delete.config(state="normal")
 
-        # seleccióna texto en el primer campo para edición rápida
-        self.after(100, lambda: self.ent_Razón.focus_set())
-        self.after(120, lambda: self.ent_Razón.select_range(0, "end"))
+        # Selecciona texto en el primer campo para edición rápida
+        self.after(100, lambda: self.ent_razon.focus_set())
+        self.after(120, lambda: self.ent_razon.select_range(0, "end"))
 
     def _on_tree_click(self, event):
-        """(Solo fallback) Click en encabezado: limpiar selección y formulario."""
+        """(Solo fallback) Click en encabezado → limpiar selección y formulario."""
         tv = getattr(self.table, "_fallback", None)
         if tv is None:
             return
@@ -269,7 +269,7 @@ class SuppliersView(ttk.Frame):
 
     def _clear_form(self):
         self._editing_id = None
-        for v in (self.var_Razón, self.var_rut, self.var_contacto, self.var_Teléfono, self.var_email, self.var_Dirección):
+        for v in (self.var_razon, self.var_rut, self.var_contacto, self.var_telefono, self.var_email, self.var_direccion):
             v.set("")
         self.btn_save.config(state="normal")
         self.btn_update.config(state="disabled")
@@ -285,7 +285,7 @@ class SuppliersView(ttk.Frame):
         except Exception:
             pass
         # Foco en el primer campo
-        self.after(100, lambda: self.ent_Razón.focus_set())
+        self.after(100, lambda: self.ent_razon.focus_set())
 
     def _load_table(self):
         """Consulta y vuelca datos en la grilla (sin colores)."""
@@ -324,5 +324,4 @@ class SuppliersView(ttk.Frame):
 
     def _info(self, msg: str):
         messagebox.showinfo("OK", msg)
-
 

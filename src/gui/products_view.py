@@ -1,4 +1,4 @@
-﻿# src/gui/products_view.py
+# src/gui/products_view.py
 from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -19,9 +19,9 @@ from sqlalchemy import func  # para filtros (like case-insensitive)
 def calcular_precios(pc: float, iva: float, margen: float) -> tuple[float, float, float]:
     """Calcula monto IVA, precio + IVA y precio venta sugerido."""
     monto_iva = pc * (iva / 100.0)
-    pmasiva = pc + monto_iva
-    pventa = pmasiva * (1.0 + margen / 100.0)
-    return round(monto_iva), round(pmasiva), round(pventa)
+    pmásiva = pc + monto_iva
+    pventa = pmásiva * (1.0 + margen / 100.0)
+    return round(monto_iva), round(pmásiva), round(pventa)
 
 
 class ProductsView(ttk.Frame):
@@ -61,8 +61,8 @@ class ProductsView(ttk.Frame):
         except Exception:
             return 0.0
 
-    def __init__(self, master: tk.Misc):
-        super().__init__(master, padding=10)
+    def __init__(self, máster: tk.másc):
+        super().__init__(máster, padding=10)
         self.session = get_session()
         self.repo = ProductRepository(self.session)
         self.repo_sup = SupplierRepository(self.session)
@@ -73,8 +73,8 @@ class ProductsView(ttk.Frame):
         self._suppliers: List[Supplier] = []
         self._locations: List[Location] = []
 
-        # cache tabla (para doble click en tksheet / tree)
-        self._rows_cache: List[List[str]] = []
+        # caché tabla (para doble click en tksheet / tree)
+        self._rows_caché: List[List[str]] = []
         self._id_by_index: List[int] = []
         # filtros rápidos de la grilla
         self.var_q_id = tk.StringVar()
@@ -89,7 +89,7 @@ class ProductsView(ttk.Frame):
         self.var_iva = tk.DoubleVar(value=19.0)
         self.var_margen = tk.DoubleVar(value=30.0)
         self.var_iva_monto = tk.DoubleVar(value=0.0)
-        self.var_pmasiva = tk.DoubleVar(value=0.0)
+        self.var_pmásiva = tk.DoubleVar(value=0.0)
         self.var_pventa = tk.DoubleVar(value=0.0)
 
         # ---------- Formulario ----------
@@ -107,37 +107,37 @@ class ProductsView(ttk.Frame):
         right.grid(row=0, column=1, sticky="nw")
 
         # Panel extremo derecho: Manager de Código de Barras
-        bar = ttk.Labelframe(frm, text="Código de barras", padding=4)
+        bar = ttk.Labelframe(frm, text="Código de Barras", padding=4)
         bar.grid(row=0, column=2, sticky="nw", padx=(10,0))
         # Contenedor externo para botones (queda por fuera del labelframe)
         bar_actions = ttk.Frame(frm)
         bar_actions.grid(row=1, column=2, sticky="nw", padx=(10,0), pady=(4,0))
         # Guarda referencia para sincronizar tamaño con el recuadro de imagen
         self._bar_container = bar
-        # Panel vertical a la derecha para acciones masivas
+        # Panel vertical a la derecha para acciones másivas
         bar_side = ttk.Frame(frm)
         bar_side.grid(row=0, column=3, sticky="nw", padx=(8,0))
         side_btn_opts = dict(fill="x", pady=4)
         ttk.Button(bar_side, text="Aplicar margen selección", command=self._apply_margin_to_selection).pack(**side_btn_opts)
-        ttk.Button(bar_side, text="Aplicar ubicación selección", command=self._apply_location_to_selection).pack(**side_btn_opts)
+        ttk.Button(bar_side, text="Aplicar Ubicación selección", command=self._apply_location_to_selection).pack(**side_btn_opts)
         ttk.Button(bar_side, text="Aplicar unidad selección", command=self._apply_unit_to_selection).pack(**side_btn_opts)
         ttk.Button(bar_side, text="Aplicar proveedor selección", command=self._apply_supplier_to_selection).pack(**side_btn_opts)
         ttk.Button(bar_side, text="Aplicar familia selección", command=self._apply_family_to_selection).pack(**side_btn_opts)
-        # Toggle: si este producto tendrá etiqueta de código de barras (basado en SKU)
+        # Toggle: si este producto tendrá etiqueta de Código de Barras (basado en SKU)
         self.var_has_barcode = tk.BooleanVar(value=False)
         ttk.Checkbutton(bar, text="Generar etiqueta (usar SKU)", variable=self.var_has_barcode,
                         command=lambda: self._on_toggle_has_barcode()).grid(row=0, column=0, columnspan=2, sticky="w")
-        # Opción: mostrar texto legible con el nombre debajo
+        # Opción: mástrar texto legible con el nombre debajo
         self.var_bar_text = tk.BooleanVar(value=True)
-        ttk.Checkbutton(bar, text="Mostrar texto (nombre)", variable=self.var_bar_text,
+        ttk.Checkbutton(bar, text="mástrar texto (nombre)", variable=self.var_bar_text,
                         command=lambda: self._refresh_barcode_preview()).grid(row=1, column=0, columnspan=2, sticky="w")
         # Preview
         self._bar_img_obj = None
-        self._bar_preview = ttk.Label(bar, text="(sin código)")
+        self._bar_preview = ttk.Label(bar, text="(sin Código)")
         self._bar_preview.grid(row=2, column=0, columnspan=2, pady=(2,2))
         # Canvas de preview para limitar tamaño (oculta label)
         try:
-            # Mismo aspecto que el recuadro de imagen, pero más compacto (ej. 70%)
+            # másmo aspecto que el recuadro de imagen, pero más compacto (ej. 70%)
             _box_w = int(getattr(self.img_box, "_box_w", 200))
             _box_h = int(getattr(self.img_box, "_box_h", 200))
             _scale = 0.7
@@ -194,7 +194,7 @@ class ProductsView(ttk.Frame):
 
         ttk.Label(right, text="Código:").grid(row=0, column=2, sticky="e", padx=4, pady=4)
         ttk.Entry(right, textvariable=self.var_codigo, width=20).grid(row=0, column=3, sticky="w", padx=4, pady=4)
-        # Preview en vivo al cambiar código o nombre
+        # Preview en vivo al cambiar Código o nombre
         try:
             self.var_codigo.trace_add('write', lambda *_: self._refresh_barcode_preview())
             self.var_nombre.trace_add('write', lambda *_: self._refresh_barcode_preview())
@@ -226,10 +226,6 @@ class ProductsView(ttk.Frame):
             self.cmb_unidad.bind('<<ComboboxSelected>>', self._on_unidad_change)
         except Exception:
             pass
-        try:
-            self.cmb_unidad.bind('<<ComboboxSelected>>', self._on_unidad_change)
-        except Exception:
-            pass
 
         # Fila 3: Monto IVA / Precio + IVA
         ttk.Label(right, text="Monto IVA:").grid(row=3, column=0, sticky="e", padx=4, pady=4)
@@ -237,8 +233,8 @@ class ProductsView(ttk.Frame):
         ent_iva_monto.grid(row=3, column=1, sticky="w", padx=4, pady=4)
 
         ttk.Label(right, text="Precio + IVA:").grid(row=3, column=2, sticky="e", padx=4, pady=4)
-        ent_pmasiva = ttk.Entry(right, textvariable=self.var_pmasiva, width=12, state="readonly")
-        ent_pmasiva.grid(row=3, column=3, sticky="w", padx=4, pady=4)
+        ent_pmásiva = ttk.Entry(right, textvariable=self.var_pmásiva, width=12, state="readonly")
+        ent_pmásiva.grid(row=3, column=3, sticky="w", padx=4, pady=4)
 
         # Fila 4: Precio Venta
         ttk.Label(right, text="Precio Venta:").grid(row=4, column=0, sticky="e", padx=4, pady=4)
@@ -265,7 +261,7 @@ class ProductsView(ttk.Frame):
         ttk.Label(right, text="Ubicación:").grid(row=6, column=0, sticky="e", padx=4, pady=4)
         self.cmb_location = ttk.Combobox(right, state="readonly", width=28)
         self.cmb_location.grid(row=6, column=1, sticky="w", padx=4, pady=4)
-        ttk.Button(right, text="Admin. ubicaciones...", command=self._open_locations_manager).grid(row=6, column=2, columnspan=2, sticky="w", padx=4, pady=4)
+        ttk.Button(right, text="Admin. Ubicaciones...", command=self._open_locations_manager).grid(row=6, column=2, columnspan=2, sticky="w", padx=4, pady=4)
 
         # Botones
         btns = ttk.Frame(right)
@@ -322,7 +318,7 @@ class ProductsView(ttk.Frame):
         self._load_table()
         self._recalc_prices()
         self.ent_nombre.focus_set()
-        # Ajustar tamaño del panel de código de barras para igualarlo al recuadro de imagen
+        # Ajustar tamaño del panel de Código de Barras para igualarlo al recuadro de imagen
         try:
             self._setup_bar_same_size_as_image()
         except Exception:
@@ -349,7 +345,7 @@ class ProductsView(ttk.Frame):
                     return
                 code = (self.var_codigo.get() or "").strip()
                 if not code:
-                    self._bar_canvas.create_text(cw//2, ch//2, text="(sin codigo)", fill="#666", font=("TkDefaultFont", 10))
+                    self._bar_canvas.create_text(cw//2, ch//2, text="(sin Código)", fill="#666", font=("TkDefaultFont", 10))
                     return
                 from src.reports.barcode_label import generate_barcode_png
                 text = (self.var_nombre.get().strip() if self.var_bar_text.get() else None) or None
@@ -380,13 +376,13 @@ class ProductsView(ttk.Frame):
                     except Exception:
                         self._bar_canvas.create_text(cw//2, ch//2, text=str(png), fill="#666", font=("TkDefaultFont", 9))
                 return
-            # Si no está habilitada la etiqueta para este producto, mostrar desactivado
+            # Si no está habilitada la etiqueta para este producto, mástrar desactivado
             if not bool(self.var_has_barcode.get()):
                 self._bar_preview.configure(text="(etiqueta desactivada)", image="")
                 return
             code = (self.var_codigo.get() or "").strip()
             if not code:
-                self._bar_preview.configure(text="(sin código)", image="")
+                self._bar_preview.configure(text="(sin Código)", image="")
                 return
             from src.reports.barcode_label import generate_barcode_png
             text = (self.var_nombre.get().strip() if self.var_bar_text.get() else None) or None
@@ -421,7 +417,7 @@ class ProductsView(ttk.Frame):
         try:
             code = (self.var_codigo.get() or "").strip()
             if not code:
-                messagebox.showwarning("Código", "Ingrese el código del producto.")
+                messagebox.showwarning("Código", "Ingrese el Código del producto.")
                 return
             size = (self.var_bar_size.get() or "50x30 mm").replace("mm"," ").strip().split("x")
             try:
@@ -446,7 +442,7 @@ class ProductsView(ttk.Frame):
         dlg = PrinterSelectDialog(self)
         self.wait_window(dlg)
         if getattr(dlg, 'result', None):
-            messagebox.showinfo("Impresoras", f"Seleccionada: {dlg.result}")
+            messagebox.showinfo("Impresoras", f"seleccionada: {dlg.result}")
 
     def _on_toggle_has_barcode(self) -> None:
         """Activa/desactiva la etiqueta para el producto actual.
@@ -477,7 +473,7 @@ class ProductsView(ttk.Frame):
             # Aun así refrescar preview por si quedó en estado intermedio
             self._refresh_barcode_preview()
 
-    # --------- Selección múltiple: aplicar/quitar etiqueta --------- #
+    # --------- selección múltiple: aplicar/quitar etiqueta --------- #
     def _get_selected_product_ids(self) -> list[int]:
         """Obtiene IDs de producto de las filas seleccionadas (independiente del orden/ordenamiento)."""
         tv = getattr(self.table, "_fallback", None)
@@ -501,9 +497,9 @@ class ProductsView(ttk.Frame):
                 rows = list(self.table.sheet.get_selected_rows())
                 out: list[int] = []
                 for r in rows:
-                    if 0 <= r < len(self._rows_cache):
+                    if 0 <= r < len(self._rows_caché):
                         try:
-                            out.append(int(self._rows_cache[r][0]))
+                            out.append(int(self._rows_caché[r][0]))
                         except Exception:
                             pass
                 return sorted(set(out))
@@ -548,7 +544,7 @@ class ProductsView(ttk.Frame):
             messagebox.showerror("Etiquetas", f"No se pudo aplicar a la selección:\n{ex}")
 
     def _apply_margin_to_selection(self) -> None:
-        """Aplica el % de ganancia actual a los productos seleccionados recalculando Precio Venta.
+        """Aplica el % de ganancia actual a los productos selecciónados recalculando Precio Venta.
         Usa IVA% de la UI como referencia para calcular P + IVA y luego aplica margen.
         """
         try:
@@ -570,8 +566,8 @@ class ProductsView(ttk.Frame):
                 if pc <= 0:
                     continue
                 monto_iva = pc * (iva / 100.0)
-                pmasiva = pc + monto_iva
-                pventa = (pmasiva * (1.0 + margen / 100.0))
+                pmásiva = pc + monto_iva
+                pventa = (pmásiva * (1.0 + margen / 100.0))
                 # Redondeo a 2 decimales para compatibilidad con Numeric(12,2)
                 try:
                     p.precio_venta = round(float(pventa), 2)
@@ -717,7 +713,7 @@ class ProductsView(ttk.Frame):
                     self.var_unidad.set("bolsa")
                 return
             if base == "kg":
-                val = simpledialog.askfloat("Kilogramos", "¿De cuántos kg?", minvalue=0.001, parent=self)
+                val = simpledialog.askfloat("Kilogramás", "¿De cuántos kg?", minvalue=0.001, parent=self)
                 if val and float(val) > 0:
                     value = f"kg {float(val):g}"
                     self._ensure_unidad_value(value)
@@ -812,9 +808,9 @@ class ProductsView(ttk.Frame):
             pc = float(self.var_pc.get() or 0)
             iva = float(self.var_iva.get() or 0)
             mg = float(self.var_margen.get() or 0)
-            monto_iva, pmasiva, pventa = calcular_precios(pc, iva, mg)
+            monto_iva, pmásiva, pventa = calcular_precios(pc, iva, mg)
             self.var_iva_monto.set(monto_iva)
-            self.var_pmasiva.set(pmasiva)
+            self.var_pmásiva.set(pmásiva)
             self.var_pventa.set(pventa)
         except Exception:
             pass
@@ -909,13 +905,13 @@ class ProductsView(ttk.Frame):
                 pass
         # Fallback a caché (tksheet)
         idx = self._selected_row_index()
-        if idx is None or idx < 0 or idx >= len(self._rows_cache):
+        if idx is None or idx < 0 or idx >= len(self._rows_caché):
             return
-        vals = self._rows_cache[idx]
+        vals = self._rows_caché[idx]
         self._load_form_from_row_values(vals)
 
     def _on_tree_select(self, _event=None):
-        """Carga al formulario el primer elemento seleccionado (un clic)."""
+        """Carga al formulario el primer elemento selecciónado (un clic)."""
         tv = getattr(self.table, "_fallback", None)
         if tv is None:
             return
@@ -932,9 +928,9 @@ class ProductsView(ttk.Frame):
 
     def _load_form_from_row_values(self, vals: list[str]) -> None:
         """Rellena el formulario desde una fila de la tabla (lista de valores).
-        Evita desincronización con _rows_cache tras ordenar columnas.
+        Evita desincronización con _rows_caché tras ordenar columnas.
         """
-        # 0 id, 1 nombre, 2 Código, 3 pcompra, 4 iva, 5 iva_monto, 6 pmasiva, 7 margen, 8 pventa, 9 unidad
+        # 0 id, 1 nombre, 2 Código, 3 pcompra, 4 iva, 5 iva_monto, 6 pmásiva, 7 margen, 8 pventa, 9 unidad
         try:
             self._editing_id = int(vals[0])
         except Exception:
@@ -968,17 +964,17 @@ class ProductsView(ttk.Frame):
             # Derivados
             try:
                 monto_iva = pc * (iva / 100.0)
-                pmasiva = pc + monto_iva
+                pmásiva = pc + monto_iva
                 self.var_iva_monto.set(round(monto_iva))
-                self.var_pmasiva.set(round(pmasiva))
+                self.var_pmásiva.set(round(pmásiva))
                 try:
-                    margen = max(0.0, (pv / max(1.0, pmasiva) - 1.0) * 100.0)
+                    margen = max(0.0, (pv / max(1.0, pmásiva) - 1.0) * 100.0)
                 except Exception:
                     margen = 0.0
                 self.var_margen.set(round(margen))
             except Exception:
                 self.var_iva_monto.set(0.0)
-                self.var_pmasiva.set(0.0)
+                self.var_pmásiva.set(0.0)
                 self.var_margen.set(30.0)
             self.var_pventa.set(pv)
             # Unidad
@@ -998,8 +994,8 @@ class ProductsView(ttk.Frame):
             except Exception: self.var_iva.set(19.0)
             try: self.var_iva_monto.set(self._num(vals[5]))
             except Exception: self.var_iva_monto.set(0.0)
-            try: self.var_pmasiva.set(self._num(vals[6]))
-            except Exception: self.var_pmasiva.set(0.0)
+            try: self.var_pmásiva.set(self._num(vals[6]))
+            except Exception: self.var_pmásiva.set(0.0)
             try: self.var_margen.set(self._num(vals[7]) or 30.0)
             except Exception: self.var_margen.set(30.0)
             try: self.var_pventa.set(self._num(vals[8]))
@@ -1021,7 +1017,7 @@ class ProductsView(ttk.Frame):
         self.btn_update.config(state="normal")
         self.btn_delete.config(state="normal")
 
-        # Refrescar preview de código de barras (SKU)
+        # Refrescar preview de Código de Barras (SKU)
         try:
             # Si el producto tiene 'barcode' almacenado, el toggle queda activado. En esta app usamos el SKU como valor.
             try:
@@ -1047,12 +1043,12 @@ class ProductsView(ttk.Frame):
         """Valida y transforma el formulario a dict para Product (sin stock_actual)."""
         try:
             nombre = self.var_nombre.get().strip()
-            codigo = self.var_codigo.get().strip()
+            Código = self.var_codigo.get().strip()
             unidad = self.var_unidad.get()
             pc = float(self.var_pc.get())
             pventa = float(self.var_pventa.get())
             familia = (self.var_familia.get().strip() if hasattr(self, 'var_familia') else '')
-            if not nombre or not codigo:
+            if not nombre or not Código:
                 messagebox.showwarning("Validación", "Nombre y Código son obligatorios.")
                 return None
             if pc <= 0:
@@ -1075,10 +1071,10 @@ class ProductsView(ttk.Frame):
             except Exception:
                 location_id = None
             # Valor de 'barcode': si el producto tiene etiqueta, usamos el SKU; de lo contrario, None.
-            barcode_val = (codigo if bool(self.var_has_barcode.get()) else None)
+            barcode_val = (Código if bool(self.var_has_barcode.get()) else None)
             return dict(
                 nombre=nombre,
-                sku=codigo,
+                sku=Código,
                 precio_compra=pc,
                 precio_venta=pventa,
                 unidad_medida=unidad,
@@ -1101,16 +1097,16 @@ class ProductsView(ttk.Frame):
         self.var_iva.set(19.0)
         self.var_margen.set(30.0)
         self.var_iva_monto.set(0.0)
-        self.var_pmasiva.set(0.0)
+        self.var_pmásiva.set(0.0)
         self.var_pventa.set(0.0)
         self.img_box.set_product(None)
         self.btn_save.config(state="normal")
         self.btn_update.config(state="disabled")
         self.btn_delete.config(state="disabled")
-        # Reset preview de código de barras
+        # Reset preview de Código de Barras
         try:
             self.var_has_barcode.set(False)
-            self._bar_preview.configure(text="(sin código)", image="")
+            self._bar_preview.configure(text="(sin Código)", image="")
             self._bar_img_obj = None
         except Exception:
             pass
@@ -1130,7 +1126,7 @@ class ProductsView(ttk.Frame):
             pass
         self.after(100, lambda: self.ent_nombre.focus_set())
 
-    # ---- Utilidad: igualar tamaño del panel de código de barras al recuadro de imagen ----
+    # ---- Utilidad: igualar tamaño del panel de Código de Barras al recuadro de imagen ----
     def _setup_bar_same_size_as_image(self) -> None:
         def _sync(_evt=None) -> None:
             try:
@@ -1140,11 +1136,11 @@ class ProductsView(ttk.Frame):
             except Exception:
                 pass
             try:
-                left_parent = self.img_box.master  # el frame 'left'
+                left_parent = self.img_box.máster  # el frame 'left'
                 left_parent.update_idletasks()
                 w = left_parent.winfo_width() or left_parent.winfo_reqwidth()
                 h = left_parent.winfo_height() or left_parent.winfo_reqheight()
-                # Aplicar dimensiones al Labelframe de código de barras
+                # Aplicar dimensiones al Labelframe de Código de Barras
                 self._bar_container.configure(width=w, height=h)
                 try:
                     self._bar_container.grid_propagate(False)
@@ -1156,24 +1152,24 @@ class ProductsView(ttk.Frame):
         # Ejecutar una vez y al reconfigurar el panel izquierdo
         _sync()
         try:
-            self.img_box.master.bind('<Configure>', _sync, add='+')
+            self.img_box.máster.bind('<Configure>', _sync, add='+')
         except Exception:
             pass
 
     def _load_table(self):
-        """Carga los productos y calcula columnas derivadas para mostrar."""
+        """Carga los productos y calcula columnas derivadas para mástrar."""
         prods: List[Product] = self.session.query(Product).order_by(Product.id.desc()).all()
         iva_ref = float(self.var_iva.get() or 19.0)
 
-        self._rows_cache = []
+        self._rows_caché = []
         self._id_by_index = []
 
         for p in prods:
             pc = float(p.precio_compra or 0)
-            iva_monto, pmasiva, _ = calcular_precios(pc, iva_ref, 0)
+            iva_monto, pmásiva, _ = calcular_precios(pc, iva_ref, 0)
             try:
                 pv = float(p.precio_venta or 0)
-                margen = max(0.0, (pv / max(1.0, pmasiva) - 1.0) * 100.0)
+                margen = max(0.0, (pv / max(1.0, pmásiva) - 1.0) * 100.0)
             except Exception:
                 pv = float(p.precio_venta or 0)
                 margen = 0.0
@@ -1185,16 +1181,16 @@ class ProductsView(ttk.Frame):
                 f"{pc:.0f}",
                 f"{iva_ref:.1f}",
                 f"{iva_monto:.0f}",
-                f"{pmasiva:.0f}",
+                f"{pmásiva:.0f}",
                 f"{round(margen):.0f}",
                 f"{pv:.0f}",
                 p.unidad_medida or "",
                 etiqueta,
             ]
-            self._rows_cache.append(row)
+            self._rows_caché.append(row)
             self._id_by_index.append(int(p.id))
 
-        self._set_table_data(self._rows_cache)
+        self._set_table_data(self._rows_caché)
 
     def _apply_table_filter(self) -> None:
         """Aplica filtro por ID, Código (SKU) y Nombre (aproximación)."""
@@ -1217,16 +1213,16 @@ class ProductsView(ttk.Frame):
 
         prods: List[Product] = q.order_by(Product.id.desc()).all()
 
-        # Reutiliza el mismo formato de filas
+        # Reutiliza el másmo formato de filas
         iva_ref = float(self.var_iva.get() or 19.0)
-        self._rows_cache = []
+        self._rows_caché = []
         self._id_by_index = []
         for p in prods:
             pc = float(p.precio_compra or 0)
-            iva_monto, pmasiva, _ = calcular_precios(pc, iva_ref, 0)
+            iva_monto, pmásiva, _ = calcular_precios(pc, iva_ref, 0)
             try:
                 pv = float(p.precio_venta or 0)
-                margen = max(0.0, (pv / max(1.0, pmasiva) - 1.0) * 100.0)
+                margen = max(0.0, (pv / max(1.0, pmásiva) - 1.0) * 100.0)
             except Exception:
                 pv = float(p.precio_venta or 0)
                 margen = 0.0
@@ -1238,18 +1234,18 @@ class ProductsView(ttk.Frame):
                 f"{pc:.0f}",
                 f"{iva_ref:.1f}",
                 f"{iva_monto:.0f}",
-                f"{pmasiva:.0f}",
+                f"{pmásiva:.0f}",
                 f"{round(margen):.0f}",
                 f"{pv:.0f}",
                 p.unidad_medida or "",
                 etiqueta,
             ]
-            self._rows_cache.append(row)
+            self._rows_caché.append(row)
             self._id_by_index.append(int(p.id))
-        self._set_table_data(self._rows_cache)
+        self._set_table_data(self._rows_caché)
 
     def refresh_lookups(self):
-        """Carga proveedores y ubicaciones a los combobox."""
+        """Carga proveedores y Ubicaciónes a los combobox."""
         self._suppliers = self.session.query(Supplier).order_by(Supplier.razon_social.asc()).all()
         self._locations = self.session.query(Location).order_by(Location.nombre.asc()).all()
         # Familias: desde tabla families (si existe) + valores distintos en productos
@@ -1263,9 +1259,9 @@ class ProductsView(ttk.Frame):
             extra = [ (s or '').strip() for (s,) in self.session.query(_f.distinct(Product.familia)).filter(Product.familia.isnot(None)).all() ]
         except Exception:
             extra = []
-        fam_set = sorted([x for x in set([*fams, *extra]) if x])
+        famáset = sorted([x for x in set([*fams, *extra]) if x])
         try:
-            self.cmb_familia["values"] = fam_set
+            self.cmb_familia["values"] = famáset
         except Exception:
             pass
 
@@ -1275,10 +1271,10 @@ class ProductsView(ttk.Frame):
             return f"{rs} — {rut}" if rut else rs
 
         self.cmb_supplier["values"] = [_disp(s) for s in self._suppliers]
-        # Selecciona automáticamente si solo hay un proveedor
+        # seleccióna automáticamente si solo hay un proveedor
         if len(self._suppliers) == 1:
             self.cmb_supplier.current(0)
-        # Ubicaciones
+        # Ubicaciónes
         if hasattr(self, 'cmb_location'):
             try:
                 self.cmb_location["values"] = [(l.nombre or "").strip() for l in self._locations]
@@ -1286,7 +1282,7 @@ class ProductsView(ttk.Frame):
                 pass
 
     def _select_supplier_for_current_product(self):
-        """Selecciona en los combos proveedor y ubicación del producto cargado (si existe)."""
+        """seleccióna en los combos proveedor y Ubicación del producto cargado (si existe)."""
         try:
             if not self._current_product:
                 self.cmb_supplier.set("")
@@ -1323,7 +1319,7 @@ class ProductsView(ttk.Frame):
         try:
             from src.gui.locations_manager import LocationsManager
         except Exception:
-            messagebox.showerror("Ubicaciones", "No se pudo cargar el administrador de ubicaciones.")
+            messagebox.showerror("Ubicaciónes", "No se pudo cargar el administrador de Ubicaciónes.")
             return
         dlg = LocationsManager(self.session, parent=self)
         self.wait_window(dlg)
@@ -1361,21 +1357,21 @@ class ProductsView(ttk.Frame):
 
 
     def _apply_location_to_selection(self) -> None:
-        """Aplica la ubicación seleccionada en el combo a los productos marcados."""
+        """Aplica la Ubicación seleccionada en el combo a los productos marcados."""
         try:
             ids = self._get_selected_product_ids()
             if not ids:
                 messagebox.showwarning("Ubicación", "Seleccione uno o más productos en la tabla.")
                 return
-            # Obtener nombre seleccionado en el combo
+            # Obtener nombre selecciónado en el combo
             try:
                 sel_name = (self.cmb_location.get() or "").strip()
             except Exception:
                 sel_name = ""
             if not sel_name:
-                messagebox.showwarning("Ubicación", "Seleccione una ubicación en el formulario antes de aplicar.")
+                messagebox.showwarning("Ubicación", "Seleccione una Ubicación en el formulario antes de aplicar.")
                 return
-            # Resolver id de ubicación a partir del nombre
+            # Resolver id de Ubicación a partir del nombre
             loc_id = None
             try:
                 for l in self._locations:
@@ -1385,7 +1381,7 @@ class ProductsView(ttk.Frame):
             except Exception:
                 pass
             if loc_id is None:
-                messagebox.showwarning("Ubicación", "No se pudo determinar la ubicación seleccionada.")
+                messagebox.showwarning("Ubicación", "No se pudo determinar la Ubicación seleccionada.")
                 return
             # Aplicar a cada producto
             updated = 0
@@ -1413,6 +1409,15 @@ class ProductsView(ttk.Frame):
             except Exception:
                 pass
             messagebox.showerror("Ubicación", f"No se pudo aplicar a la selección:\n{ex}")
+
+
+
+
+
+
+
+
+
 
 
 

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -45,7 +45,7 @@ class InventoryFilter:
     order_asc: bool = True
     # Tipo de informe
     report_type: ReportType = "venta"
-    # Trazabilidad (filtros opcionales; exclusivos entre sí)
+    # Trazabilidad (filtros opcionales; exclusivos entre sÃ­)
     lote_contains: Optional[str] = None
     serie_contains: Optional[str] = None
 
@@ -130,7 +130,7 @@ class InventoryReportService:
                 else:
                     q = q.filter(Product.precio_compra <= float(flt.precio_max))  # type: ignore[arg-type]
 
-        # Orden (asegurar clave válida)
+        # Orden (asegurar clave vÃ¡lida)
         colmap = {
             "nombre": Product.nombre,
             "sku": Product.sku,
@@ -218,7 +218,7 @@ class InventoryReportService:
             max_len = max(len(str(cell.value or "")) for cell in ws[letter])
             ws.column_dimensions[letter].width = min(max(10, max_len + 2), 50)
 
-        # Config de impresión
+        # Config de impresiÃ³n
         ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
         ws.page_setup.fitToWidth = 1
         ws.page_setup.fitToHeight = 0

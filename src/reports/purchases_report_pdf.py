@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 from pathlib import Path
 from typing import Iterable, Dict, Any, Optional, List
 import webbrowser
@@ -56,7 +56,7 @@ def generate_purchases_report_to_downloads(
         str(out_path),
         pagesize=A4,
         leftMargin=14*mm, rightMargin=14*mm, topMargin=14*mm, bottomMargin=12*mm,
-        title="Informe / Órdenes de Compra",
+        title="Informe / Ã“rdenes de Compra",
     )
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle("cell", fontName="Helvetica", fontSize=8, leading=10))

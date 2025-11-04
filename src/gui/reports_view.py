@@ -12,10 +12,10 @@ from src.gui.printer_select_dialog import PrinterSelectDialog
 
 # Agregador de reportes
 from src.reports.report_center import (
-    REPORTS,                 # catÃ¡logo de reportes
+    REPORTS,                 # catálogo de reportes
     fetch_preview,           # obtiene (columns, rows) para previsualizar
     export_report_xlsx,      # exporta a xlsx (o csv si falta openpyxl)
-    print_report_generic,    # impresiÃ³n genÃ©rica (exporta y envÃ­a a impresora)
+    print_report_generic,    # impresión genérica (exporta y envía a impresora)
 )
 
 # Helpers lookups
@@ -30,8 +30,8 @@ class ReportsView(ttk.Frame):
     """
     Centro de Informes:
       - Selector de reporte (lista izquierda)
-      - Filtros dinÃ¡micos por reporte
-      - PrevisualizaciÃ³n en grilla
+      - Filtros dinámicos por reporte
+      - Previsualización en grilla
       - Exportar XLSX e Imprimir
     """
     def __init__(self, master: tk.Misc):
@@ -88,7 +88,7 @@ class ReportsView(ttk.Frame):
             self.lst_reports.selection_set(0)
             self._on_report_change()
 
-    # ======================= UI de filtros dinÃ¡micos ======================= #
+    # ======================= UI de filtros dinámicos ======================= #
     def _clear_filters_ui(self):
         for child in self.frm_filters.winfo_children():
             child.destroy()
@@ -117,7 +117,7 @@ class ReportsView(ttk.Frame):
         meta = REPORTS[key]
         schema = meta.get("filters", {})
 
-        # Construye controles segÃºn schema
+        # Construye controles según schema
         row = 0
         # Rango de fechas
         if schema.get("date_range"):
@@ -159,7 +159,7 @@ class ReportsView(ttk.Frame):
             self._filter_vars["inventory_type"] = cmb
             row += 1
 
-        # Margen mÃ­nimo (para lista de precios)
+        # Margen mínimo (para lista de precios)
         if schema.get("min_margin"):
             ttk.Label(self.frm_filters, text="Margen >= %:").grid(row=row, column=0, sticky="e", padx=4, pady=2)
             m = tk.DoubleVar(value=0.0)
@@ -177,7 +177,7 @@ class ReportsView(ttk.Frame):
 
     # ============================ Acciones ============================ #
     def _collect_filters(self) -> Dict[str, Any]:
-        """Lee los widgets de filtros y retorna un dict estÃ¡ndar."""
+        """Lee los widgets de filtros y retorna un dict estándar."""
         d: Dict[str, Any] = {}
         if "date_from" in self._filter_vars:
             d["date_from"] = self._filter_vars["date_from"].get().strip()
@@ -216,7 +216,7 @@ class ReportsView(ttk.Frame):
         try:
             filters = self._collect_filters()
             path = export_report_xlsx(self.session, self._current_key, filters)
-            messagebox.showinfo("ExportaciÃ³n", f"Archivo generado:\n{path}")
+            messagebox.showinfo("Exportación", f"Archivo generado:\n{path}")
         except ValueError as ve:
             messagebox.showwarning("Filtros", str(ve))
         except Exception as e:
@@ -236,6 +236,6 @@ class ReportsView(ttk.Frame):
 
         try:
             print_report_generic(self.session, self._current_key, filters, printer_name=printer)
-            messagebox.showinfo("ImpresiÃ³n", f"Informe enviado a '{printer}'.")
+            messagebox.showinfo("Impresión", f"Informe enviado a '{printer}'.")
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo imprimir:\n{e}")

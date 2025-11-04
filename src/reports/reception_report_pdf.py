@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import webbrowser
@@ -39,13 +39,13 @@ def generate_reception_report_to_downloads(
         str(out_path),
         pagesize=A4,
         leftMargin=14*mm, rightMargin=14*mm, topMargin=14*mm, bottomMargin=12*mm,
-        title="Informe de Recepción",
+        title="Informe de RecepciÃ³n",
     )
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle("cell", fontName="Helvetica", fontSize=8, leading=10))
 
     story: list = []
-    story.append(Paragraph("Recepción de Mercaderías", styles["Title"]))
+    story.append(Paragraph("RecepciÃ³n de MercaderÃ­as", styles["Title"]))
     story.append(Spacer(1, 6))
 
     # Encabezado
@@ -55,10 +55,10 @@ def generate_reception_report_to_downloads(
 
     hdr_lines = [
         f"<b>OC:</b> {oc_number}",
-        f"<b>Recepción ID:</b> {rec.get('id','')}",
-        f"<b>Fecha recepción:</b> { _fmt_date(rec.get('fecha')) }",
+        f"<b>RecepciÃ³n ID:</b> {rec.get('id','')}",
+        f"<b>Fecha recepciÃ³n:</b> { _fmt_date(rec.get('fecha')) }",
         f"<b>Tipo doc:</b> {rec.get('tipo_doc','')}",
-        f"<b>N° doc:</b> {rec.get('numero_documento','')}",
+        f"<b>NÂ° doc:</b> {rec.get('numero_documento','')}",
     ]
     story.append(Paragraph(" ".join(hdr_lines), styles["BodyText"]))
     story.append(Spacer(1, 6))
@@ -68,7 +68,7 @@ def generate_reception_report_to_downloads(
         f"<b>Contacto:</b> {prov.get('contacto','')}",
         f"<b>Tel:</b> {prov.get('telefono','')}",
         f"<b>Email:</b> {prov.get('email','')}",
-        f"<b>Dirección:</b> {prov.get('direccion','')}",
+        f"<b>DirecciÃ³n:</b> {prov.get('direccion','')}",
     ]
     story.append(Paragraph(" ".join(prov_lines), styles["BodyText"]))
 
@@ -89,7 +89,7 @@ def generate_reception_report_to_downloads(
 
     story.append(Spacer(1, 10))
 
-    headers = ["ID", "Producto", "Unidad", "Cant.", "Ubicación", "Lote/Serie", "Vence"]
+    headers = ["ID", "Producto", "Unidad", "Cant.", "UbicaciÃ³n", "Lote/Serie", "Vence"]
     data = [headers]
     for ln in lines:
         data.append([

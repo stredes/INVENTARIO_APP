@@ -87,7 +87,7 @@ def generate_products_catalog(
     out_path: Optional[Path] = None,
     iva: float = 0.19,
     copies: int = 1,
-    title: str = "CatÃ¡logo de Productos",
+    title: str = "Catálogo de Productos",
     cols: int = 3,
     rows: int = 4,
     show_company: bool = True,
@@ -99,13 +99,13 @@ def generate_products_catalog(
     auto_open: bool = True,
 ) -> Path:
     """
-    Genera un catÃ¡logo PDF de todos los productos con:
+    Genera un catálogo PDF de todos los productos con:
       - Imagen (si existe, usando thumbnail),
       - Nombre + SKU,
       - Stock actual,
       - Precio de venta sin IVA.
 
-    Layout: tarjetas en grilla (3 columnas x 4 filas) por pÃ¡gina.
+    Layout: tarjetas en grilla (3 columnas x 4 filas) por página.
     """
     session = session or get_session()
     products: List[Product] = session.query(Product).order_by(Product.nombre.asc()).all()
@@ -124,6 +124,7 @@ def generate_products_catalog(
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name="tiny", fontSize=7, leading=9))
     styles.add(ParagraphStyle(name="card_title", fontSize=9, leading=11, spaceAfter=2, alignment=0, wordWrap="CJK"))
+    styles.add(ParagraphStyle(name="card_title_sm", fontSize=8, leading=10, spaceAfter=1, alignment=0, wordWrap="CJK"))
     styles.add(ParagraphStyle(name="hdr", fontSize=12, leading=14))
     styles.add(ParagraphStyle(name="hdr_b", fontSize=16, leading=18, alignment=1))
 
@@ -212,8 +213,9 @@ def generate_products_catalog(
     for p in products:
         img_path, thumb_path = get_latest_image_paths(int(p.id))
         # Imagen contenida en un contenedor fijo (aspect-ratio friendly)
+        img_ratio = 0.52 if rows >= 5 else 0.6
         img_box_w = col_w - 8 * mm
-        img_box_h = row_h * 0.5
+        img_box_h = row_h * img_ratio
         img_cell: Table
         use_path: Optional[Path] = None
         if thumb_path and thumb_path.exists():
@@ -223,7 +225,7 @@ def generate_products_catalog(
         if use_path is not None:
             try:
                 im = Image(str(use_path))
-                # Escalar manteniendo proporciÃ³n sin exceder el box
+                # Escalar manteniendo proporción sin exceder el box
                 iw, ih = float(getattr(im, 'imageWidth', 1)), float(getattr(im, 'imageHeight', 1))
                 r = min(img_box_w / max(iw, 1.0), img_box_h / max(ih, 1.0), 1.0)
                 im.drawWidth = iw * r
@@ -240,14 +242,16 @@ def generate_products_catalog(
         ]))
 
         raw_title = (p.nombre or '').strip()
-        title = f"<b>{_wrap_title(raw_title, col_w - 8*mm, 2)}</b>"
+        max_title_lines = 1 if rows >= 5 else 2
+        title = f"<b>{_wrap_title(raw_title, col_w - 8*mm, max_title_lines)}</b>"
         sku = (p.sku or "").strip()
         sku_txt = f"SKU: {sku}" if sku else ""
         stock = int(getattr(p, "stock_actual", 0) or 0)
         price_raw = float(getattr(p, "precio_venta", 0.0) or 0.0)
         price_net = _price_without_vat(price_raw, iva)
 
-        lines = [Paragraph(title, styles["card_title"])]
+        title_style = styles["card_title_sm"] if rows >= 5 else styles["card_title"]
+        lines = [Paragraph(title, title_style)]
         if show_sku and sku:
             lines.append(Paragraph(sku_txt, styles["tiny"]))
         if show_stock:
@@ -257,11 +261,13 @@ def generate_products_catalog(
         if show_price_gross:
             lines.append(Paragraph(f"Precio: <b>{int(price_raw):,}</b>".replace(",", "."), styles["tiny"]))
 
-        text_block = KeepInFrame(col_w-8*mm, row_h*0.4, content=lines, mode='truncate', mergeSpace=True)
+        text_h = row_h * (1.0 - img_ratio)
+        kif_mode = 'shrink' if rows >= 5 else 'truncate'
+        text_block = KeepInFrame(col_w-8*mm, text_h, content=lines, mode=kif_mode, mergeSpace=True)
         card_tbl = Table([
             [img_cell],
             [text_block]
-        ], colWidths=[col_w-8*mm], rowHeights=[row_h*0.6, row_h*0.4])
+        ], colWidths=[col_w-8*mm], rowHeights=[row_h*img_ratio, row_h*(1.0-img_ratio)])
         card_tbl.setStyle(TableStyle([
             ("BOX", (0,0), (-1,-1), 0.3, colors.black),
             ("TOPPADDING", (0,0), (-1,-1), 3),
@@ -285,7 +291,7 @@ def generate_products_catalog(
     if cards:
         story.append(Table(cards, colWidths=[col_w]*cols, rowHeights=[row_h]*len(cards), hAlign='CENTER'))
 
-    # Repetir pÃ¡ginas segÃºn 'copies'
+    # Repetir páginas según 'copies'
     if copies and copies > 1:
         story = story * int(copies)
 

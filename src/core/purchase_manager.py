@@ -149,11 +149,18 @@ class PurchaseManager:
             # Stock (si corresponde)
             if estado.lower() in ("completada", "por pagar") and apply_to_stock:
                 for it in items:
+                    # Ubicación: usar la ubicación por defecto del producto si existe
+                    try:
+                        prod = self.products.get(it.product_id)
+                        loc_id = int(getattr(prod, 'id_ubicacion')) if (prod and getattr(prod, 'id_ubicacion', None)) else None
+                    except Exception:
+                        loc_id = None
                     self.inventory.register_entry(
                         product_id=it.product_id,
                         cantidad=it.cantidad,
                         motivo=f"Compra {pur.id}",
                         when=fecha,
+                        location_id=loc_id,
                     )
 
             self.session.commit()

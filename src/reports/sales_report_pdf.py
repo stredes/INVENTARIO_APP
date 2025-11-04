@@ -1,4 +1,4 @@
-# src/reports/sales_report_pdf.py
+﻿# src/reports/sales_report_pdf.py
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from pathlib import Path
@@ -62,7 +62,7 @@ def _read_company_cfg() -> dict:
     defaults = {
         "name": "Tu Empresa Spa",
         "rut": "76.123.456-7",
-        "giro": "Comercialización de artículos",
+        "giro": "ComercializaciÃ³n de artÃ­culos",
         "direccion": "Calle Falsa 123",
         "comuna": "Santiago",
         "ciudad": "Santiago",
@@ -93,11 +93,11 @@ def _try_logo_img(path: str | Path, max_w_mm: float, max_h_mm: float) -> Optiona
         return None
 
 # ---------------------------------------------------------------------
-# Construcción de una página “tipo factura” (una venta)
+# ConstrucciÃ³n de una pÃ¡gina â€œtipo facturaâ€ (una venta)
 # ---------------------------------------------------------------------
 def _venta_page_story(row: Dict[str, Any], styles, company: dict) -> List:
     """
-    Construye la historia (flowables) de una venta con layout tipo Factura Electrónica.
+    Construye la historia (flowables) de una venta con layout tipo Factura ElectrÃ³nica.
     Espera en `row`:
       - id / folio / numero (opcional)
       - fecha
@@ -112,7 +112,7 @@ def _venta_page_story(row: Dict[str, Any], styles, company: dict) -> List:
     # --- Encabezado: logo + empresa (izq) / caja rut-doc-folio-fecha (der)
     logo = _try_logo_img(company.get("logo_path", ""), 28, 28)
     if logo is None:
-        # caja de logo vacía
+        # caja de logo vacÃ­a
         logo = Table([[Paragraph("LOGO", styles["small"])]],
                      colWidths=[28*mm], rowHeights=[28*mm])
         logo.setStyle(TableStyle([
@@ -125,7 +125,7 @@ def _venta_page_story(row: Dict[str, Any], styles, company: dict) -> List:
         f"<b>{company['name']}</b>",
         company["giro"],
         company["direccion"],
-        f"{company['comuna']} – {company['ciudad']}",
+        f"{company['comuna']} â€“ {company['ciudad']}",
         f"Tel: {company['telefono']}",
         company["email"],
     ]
@@ -140,8 +140,8 @@ def _venta_page_story(row: Dict[str, Any], styles, company: dict) -> List:
     right = Table([
         [Paragraph(f"R.U.T.: <b>{rut}</b>", styles["h_med"])],
         [Paragraph("<b>ORDEN DE VENTA</b>", styles["h_doc"])],
-        [Paragraph(f"Nº <b>{folio}</b>", styles["h_med"])],
-        [Paragraph(f"Fecha Emisión: <b>{fecha}</b>", styles["small"])],
+        [Paragraph(f"NÂº <b>{folio}</b>", styles["h_med"])],
+        [Paragraph(f"Fecha EmisiÃ³n: <b>{fecha}</b>", styles["small"])],
     ], colWidths=[60*mm])
     right.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 0.8, colors.black),
@@ -166,10 +166,10 @@ def _venta_page_story(row: Dict[str, Any], styles, company: dict) -> List:
         "cont": row.get("cliente_contacto") or "-",
     }
     cliente_tbl = Table([
-        [Paragraph("<b>Señor(es):</b>", styles["lbl"]), Paragraph(cli["razon"], styles["cell"]),
+        [Paragraph("<b>SeÃ±or(es):</b>", styles["lbl"]), Paragraph(cli["razon"], styles["cell"]),
          Paragraph("<b>RUT:</b>", styles["lbl"]), Paragraph(cli["rut"], styles["cell"])],
-        [Paragraph("<b>Dirección:</b>", styles["lbl"]), Paragraph(cli["dir"], styles["cell"]),
-         Paragraph("<b>Teléfono:</b>", styles["lbl"]), Paragraph(cli["tel"], styles["cell"])],
+        [Paragraph("<b>DirecciÃ³n:</b>", styles["lbl"]), Paragraph(cli["dir"], styles["cell"]),
+         Paragraph("<b>TelÃ©fono:</b>", styles["lbl"]), Paragraph(cli["tel"], styles["cell"])],
         [Paragraph("<b>Contacto:</b>", styles["lbl"]), Paragraph(cli["cont"], styles["cell"]),
          Paragraph("<b>Email:</b>", styles["lbl"]), Paragraph(cli["mail"], styles["cell"])],
     ], colWidths=[22*mm, 78*mm, 18*mm, 52*mm])
@@ -185,9 +185,9 @@ def _venta_page_story(row: Dict[str, Any], styles, company: dict) -> List:
     story.append(cliente_tbl)
     story.append(Spacer(1, 6))
 
-    # --- Ítems
+    # --- Ãtems
     items: List[Dict[str, Any]] = list(row.get("items") or [])
-    data = [["Código", "Descripción", "Cantidad", "Precio (CLP)", "Subtotal (CLP)"]]
+    data = [["CÃ³digo", "DescripciÃ³n", "Cantidad", "Precio (CLP)", "Subtotal (CLP)"]]
     neto_calc = 0.0
     for it in items:
         cod = it.get("codigo") or ""
@@ -258,13 +258,13 @@ def _venta_page_story(row: Dict[str, Any], styles, company: dict) -> List:
     story.append(bottom)
 
     story.append(Spacer(1, 6))
-    # Pie de página simple (opcional)
-    story.append(Paragraph("* Recepción sujeta a revisión de calidad. Plazo de pago 30 días salvo acuerdo.", styles["small"]))
+    # Pie de pÃ¡gina simple (opcional)
+    story.append(Paragraph("* RecepciÃ³n sujeta a revisiÃ³n de calidad. Plazo de pago 30 dÃ­as salvo acuerdo.", styles["small"]))
 
     return story
 
 # ---------------------------------------------------------------------
-# API pública
+# API pÃºblica
 # ---------------------------------------------------------------------
 def generate_sales_report_to_downloads(
     *,
@@ -276,10 +276,10 @@ def generate_sales_report_to_downloads(
 ) -> Path:
     """
     Genera PDF en Descargas. Si los `rows` traen `items`, se genera
-    **una página tipo “Factura Electrónica” por venta**. Si no traen `items`,
+    **una pÃ¡gina tipo â€œFactura ElectrÃ³nicaâ€ por venta**. Si no traen `items`,
     se produce un **resumen tabular**.
 
-    Estructura esperada por venta (cuando se desea página tipo factura):
+    Estructura esperada por venta (cuando se desea pÃ¡gina tipo factura):
     {
       "id": 101, "folio": "OV-20250901", "fecha": datetime,
       "cliente": "ACME SPA", "cliente_rut": "76.777.777-7",
@@ -291,7 +291,7 @@ def generate_sales_report_to_downloads(
       ],
       "iva_percent": 19.0,              # opcional (default 19)
       "neto": 30780, "iva": 5848, "total": 36628,  # opcionales (se calculan si faltan)
-      "observaciones": "Entregar con guía."
+      "observaciones": "Entregar con guÃ­a."
     }
     """
     out_dir = _downloads_dir()
@@ -304,7 +304,7 @@ def generate_sales_report_to_downloads(
         str(out_path),
         pagesize=A4,
         leftMargin=14*mm, rightMargin=14*mm, topMargin=14*mm, bottomMargin=12*mm,
-        title="Informe / Órdenes de Venta",
+        title="Informe / Ã“rdenes de Venta",
     )
     styles = getSampleStyleSheet()
     # estilos extra
@@ -321,7 +321,7 @@ def generate_sales_report_to_downloads(
     any_items = any(bool(r.get("items")) for r in rows_list)
 
     if any_items:
-        # Una página por venta con layout factura
+        # Una pÃ¡gina por venta con layout factura
         for idx, r in enumerate(rows_list):
             story += _venta_page_story(r, styles, company)
             if idx < len(rows_list) - 1:

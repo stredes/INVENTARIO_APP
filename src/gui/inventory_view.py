@@ -32,7 +32,7 @@ from src.gui.widgets.grid_table import GridTable
 class InventoryView(ttk.Frame):
     """
     Vista de Inventario con grid real (tksheet) o fallback Treeview:
-    - Resaltado por min/max (colores crÃ­ticos persistentes).
+    - Resaltado por min/max (colores críticos persistentes).
     - Auto-refresco configurable.
     - Filtros + Exportar XLSX + Imprimir.
     - Columnas por 'venta' / 'compra' / 'completo'.
@@ -50,7 +50,7 @@ class InventoryView(ttk.Frame):
         self._auto_job: Optional[str] = None
         self._auto_enabled = tk.BooleanVar(value=True)
 
-        # ConfiguraciÃ³n inicial
+        # Configuración inicial
         min_v, max_v = get_inventory_limits()
         self._crit_min = tk.IntVar(value=min_v)
         self._crit_max = tk.IntVar(value=max_v)
@@ -59,7 +59,7 @@ class InventoryView(ttk.Frame):
         # Filtro activo
         self._current_filter = InventoryFilter()
 
-        # Mapeo de filas mostradas â†’ IDs (para selecciÃ³n/imprimir/exportar)
+        # Mapeo de filas mostradas â†’ IDs (para selección/imprimir/exportar)
         self._last_row_ids: List[int] = []
 
         # --- Encabezado ---
@@ -152,12 +152,12 @@ class InventoryView(ttk.Frame):
         self._lbl_total_venta = ttk.Label(footer, text="$ 0.00", font=("", 10, "bold"))
         self._lbl_total_venta.grid(row=0, column=4, sticky="w")
 
-        # Leyenda (colorÃ­metro) en la esquina inferior derecha
+        # Leyenda (colorímetro) en la esquina inferior derecha
         self._legend = ttk.Frame(footer)
         self._legend.grid(row=0, column=5, sticky="e", padx=6)
         self._build_legend()
 
-        # --- LÃ­mites por producto seleccionado ---
+        # --- Límites por producto seleccionado ---
         prod_cfg = ttk.Labelframe(self, text="Límites críticos del producto seleccionado", padding=10)
         prod_cfg.pack(fill="x", expand=False, pady=(6, 10))
         self._sel_min = tk.IntVar(value=0)
@@ -187,7 +187,7 @@ class InventoryView(ttk.Frame):
         Devuelve (rows, colors, ids)
           rows  : lista de listas con valores para la tabla
           colors: color de fondo por fila (None / rango por color)
-          ids   : IDs de producto para mapear selecciÃ³n
+          ids   : IDs de producto para mapear selección
         """
         rows, colors, ids = [], [], []
         min_def = int(self._crit_min.get())
@@ -195,9 +195,9 @@ class InventoryView(ttk.Frame):
 
         for p in products:
             stock = int(p.stock_actual or 0)
-            # lee lÃ­mites por producto si existen; si no, usa defaults
+            # lee límites por producto si existen; si no, usa defaults
             min_v, max_v = _get_prod_limits(int(p.id), min_def, max_def)
-            # Colores por rango respecto a lÃ­mites
+            # Colores por rango respecto a límites
             very_low_thr = max(0, int(min_v * 0.5))
             very_high_thr = int(max_v * 1.25)
             color = None
@@ -237,7 +237,7 @@ class InventoryView(ttk.Frame):
                 loteser,
             ]
 
-            # Agregar columnas de precio segÃºn tipo de reporte (sin barcode)
+            # Agregar columnas de precio según tipo de reporte (sin barcode)
             if report_type == "venta":
                 row += [f"{float(p.precio_venta or 0):.0f}"]
             elif report_type == "compra":
@@ -245,7 +245,7 @@ class InventoryView(ttk.Frame):
             else:
                 row += [f"{float(p.precio_compra or 0):.0f}", f"{float(p.precio_venta or 0):.0f}"]
 
-            # Proveedor y UbicaciÃ³n
+            # Proveedor y Ubicación
             try:
                 prov = getattr(getattr(p, "supplier", None), "razon_social", "") or ""
             except Exception:
@@ -254,9 +254,9 @@ class InventoryView(ttk.Frame):
                 ubic = getattr(getattr(p, "location", None), "nombre", "") or ""
             except Exception:
                 ubic = ""
-            # Anexar proveedor/ubicaciÃ³n al final segÃºn columnas
+            # Anexar proveedor/ubicación al final según columnas
             cols_for_type = self._columns_for(report_type)
-            if "Proveedor" in cols_for_type and "UbicaciÃ³n" in cols_for_type:
+            if "Proveedor" in cols_for_type and "Ubicación" in cols_for_type:
                 row = row + [prov, ubic]
 
             rows.append(row)
@@ -319,7 +319,7 @@ class InventoryView(ttk.Frame):
         # 1) Cargar datos en la grilla (tksheet o fallback Treeview)
         self.table.set_data(cols, rows)
 
-        # 2) Refrescar tema (si cambiÃ³) y luego aplicar colores crÃ­ticos por fila
+        # 2) Refrescar tema (si cambió) y luego aplicar colores críticos por fila
         try:
             self.table.theme_refresh()
         except Exception:
@@ -376,6 +376,13 @@ class InventoryView(ttk.Frame):
                     fecha_s = ''
                 prov = getattr(sup, 'razon_social', '') if sup else ''
                 ubic = getattr(loc, 'nombre', '') if loc else ''
+                if not ubic:
+                    # Fallback: mostrar ubicación por defecto del producto
+                    try:
+                        p = self.session.get(Product, int(getattr(se, 'id_producto', 0) or 0))
+                        ubic = getattr(getattr(p, 'location', None), 'nombre', '') or ''
+                    except Exception:
+                        pass
                 loteser = (getattr(se, 'lote', None) or getattr(se, 'serie', None) or '')
                 vence = getattr(se, 'fecha_vencimiento', None)
                 try:
@@ -592,7 +599,7 @@ class InventoryView(ttk.Frame):
         _set_prod_limits(pid, mn, mx)
         self.refresh_table()
 
-    # (El bloque de configuraciÃ³n por defecto se eliminÃ³ por solicitud)
+    # (El bloque de configuración por defecto se eliminó por solicitud)
 
     def _on_toggle_auto(self):
         if self._auto_enabled.get():
@@ -690,7 +697,7 @@ class InventoryView(ttk.Frame):
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo imprimir:\n{e}")
 
-    # --------- Interfaz homogÃ©nea con MainWindow --------- #
+    # --------- Interfaz homogénea con MainWindow --------- #
     def print_current(self):
         self._on_print()
 

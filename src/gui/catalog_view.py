@@ -15,15 +15,15 @@ from src.reports.catalog_generator import generate_products_catalog
 
 
 class CatalogView(ttk.Frame):
-    """Vista para generar el catÃ¡logo de productos en PDF (con preview)."""
+    """Vista para generar el catálogo de productos en PDF (con preview)."""
 
     def __init__(self, master: tk.Misc, session: Optional[Session] = None):
         super().__init__(master, padding=10)
         self.session: Session = session or get_session()
 
-        ttk.Label(self, text="Generador de CatÃ¡logo de Productos", font=("", 12, "bold")).pack(anchor="w")
+        ttk.Label(self, text="Generador de Catálogo de Productos", font=("", 12, "bold")).pack(anchor="w")
 
-        actions = ttk.LabelFrame(self, text="Acciones de catÃ¡logo", padding=8)
+        actions = ttk.LabelFrame(self, text="Acciones de catálogo", padding=8)
         actions.pack(fill="x", pady=(6, 8))
 
         ttk.Label(actions, text="Copias:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
@@ -34,12 +34,12 @@ class CatalogView(ttk.Frame):
         self.var_iva = tk.DoubleVar(value=19.0)
         ttk.Spinbox(actions, from_=0, to=100, increment=0.5, textvariable=self.var_iva, width=6).grid(row=0, column=3, sticky="w")
 
-        ttk.Label(actions, text="DiseÃ±o:").grid(row=0, column=4, sticky="e", padx=8)
+        ttk.Label(actions, text="Diseño:").grid(row=0, column=4, sticky="e", padx=8)
         self.var_layout = tk.StringVar(value="3 x 4")
         ttk.Combobox(actions, textvariable=self.var_layout, values=["3 x 4", "2 x 3", "4 x 5"], state="readonly", width=8).grid(row=0, column=5, sticky="w")
 
-        ttk.Label(actions, text="TÃ­tulo:").grid(row=1, column=0, sticky="e", padx=4, pady=4)
-        self.var_title = tk.StringVar(value="CatÃ¡logo de Productos")
+        ttk.Label(actions, text="Título:").grid(row=1, column=0, sticky="e", padx=4, pady=4)
+        self.var_title = tk.StringVar(value="Catálogo de Productos")
         ttk.Entry(actions, textvariable=self.var_title, width=36).grid(row=1, column=1, columnspan=3, sticky="we")
 
         # Filtro por familia (opcional)
@@ -101,7 +101,7 @@ class CatalogView(ttk.Frame):
                 auto_open=True,
                 iva=float(self.var_iva.get() or 19.0) / 100.0,
                 copies=max(1, int(self.var_copies.get() or 1)),
-                title=self.var_title.get().strip() or "CatÃ¡logo de Productos",
+                title=self.var_title.get().strip() or "Catálogo de Productos",
                 cols=cols, rows=rows,
                 show_company=self.var_show_company.get(),
                 show_sku=self.var_show_sku.get(),
@@ -110,9 +110,9 @@ class CatalogView(ttk.Frame):
                 show_price_gross=self.var_show_gross.get(),
                 family=fam_param,
             )
-            messagebox.showinfo("CatÃ¡logo", f"CatÃ¡logo generado:\n{out}")
+            messagebox.showinfo("Catálogo", f"Catálogo generado:\n{out}")
         except Exception as e:
-            messagebox.showerror("CatÃ¡logo", f"No se pudo generar el catÃ¡logo:\n{e}")
+            messagebox.showerror("Catálogo", f"No se pudo generar el catálogo:\n{e}")
 
     def _on_preview(self) -> None:
         try:
@@ -157,7 +157,7 @@ class CatalogView(ttk.Frame):
 
         if self.var_show_company.get():
             comp = self._read_company_cfg()
-            title = self.var_title.get().strip() or "CatÃ¡logo de Productos"
+            title = self.var_title.get().strip() or "Catálogo de Productos"
             draw.text((margin, 4), f"{comp.get('name', '')}", fill=(0, 0, 0), font=font_t)
             draw.text((W//2 - 120, 4), title, fill=(0, 0, 0), font=font_t)
 
@@ -220,8 +220,9 @@ class CatalogView(ttk.Frame):
             from src.utils.image_store import get_latest_image_paths as _glp
             main_img, thumb = _glp(int(p.id))
             use = thumb if (thumb and thumb.exists()) else main_img
+            img_ratio = 0.52 if rows >= 5 else 0.6
             box_w = col_w - 24
-            box_h = int(row_h * 0.5) - 24
+            box_h = int(row_h * img_ratio) - 24
             draw.rectangle([x0 + 12, y0 + 12, x0 + 12 + box_w, y0 + 12 + box_h], outline=(200, 200, 200), width=1)
             if use and use.exists():
                 try:
@@ -243,19 +244,40 @@ class CatalogView(ttk.Frame):
             stock = int(getattr(p, "stock_actual", 0) or 0)
             price = float(getattr(p, "precio_venta", 0.0) or 0.0)
             neto = int(round(price / (1.0 + iva), 0)) if price > 0 else 0
+            # Text layout under the image area
             tx = x0 + 12
-            ty = y0 + int(row_h * 0.55)
-            for ln in _wrap(name, font=font_t, max_w=col_w - 24, max_lines=2):
-                draw.text((tx, ty), ln, fill=(0, 0, 0), font=font_t)
-                ty += 18
+            line_h = 16 if rows >= 5 else 18
+            ty = y0 + int(row_h * img_ratio) + 6
+            max_text_h = row_h - int(row_h * img_ratio) - 10
+            max_lines = max(1, int(max_text_h // line_h))
+
+            # Compose lines: title (wrapped), optional sku/stock, and price(s)
+            name_lines = _wrap(name, font=font_t, max_w=col_w - 24, max_lines=(1 if rows >= 5 else 2))
+            content_lines = [(ln, font_t) for ln in name_lines]
             if self.var_show_sku.get() and sku:
-                draw.text((tx, ty), f"SKU: {sku}", fill=(20, 20, 20), font=font_s); ty += 18
+                content_lines.append((f"SKU: {sku}", font_s))
             if self.var_show_stock.get():
-                draw.text((tx, ty), f"Stock: {stock}", fill=(20, 20, 20), font=font_s); ty += 18
+                content_lines.append((f"Stock: {stock}", font_s))
+            price_lines = []
             if self.var_show_net.get():
-                draw.text((tx, ty), f"Precio (sin IVA): {format(neto,',').replace(',', '.')}", fill=(0, 0, 0), font=font_s); ty += 18
+                price_lines.append((f"Precio (sin IVA): {format(neto,',').replace(',', '.')}", font_s))
             if self.var_show_gross.get():
-                draw.text((tx, ty), f"Precio: {format(int(price),',').replace(',', '.')}", fill=(0, 0, 0), font=font_s)
+                price_lines.append((f"Precio: {format(int(price),',').replace(',', '.')}", font_s))
+            content_lines.extend(price_lines)
+            # Ensure price lines are not dropped: trim head if needed
+            if len(content_lines) > max_lines:
+                keep_tail = min(len(price_lines), max_lines - 1) if price_lines else 0
+                # number of lines to show from start segment
+                head_allow = max_lines - keep_tail
+                if head_allow < len(content_lines) - keep_tail:
+                    # take first head_allow and last keep_tail
+                    content_lines = content_lines[:head_allow] + content_lines[-keep_tail:]
+                else:
+                    content_lines = content_lines[:max_lines]
+            # Draw
+            for text, font in content_lines[:max_lines]:
+                draw.text((tx, ty), text, fill=(0, 0, 0), font=font)
+                ty += line_h
 
         return im
 

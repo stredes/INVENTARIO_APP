@@ -7,10 +7,8 @@ from typing import List, Optional
 from src.data.database import get_session
 from src.data.models import Customer
 from src.data.repository import CustomerRepository
-from src.utils.validators import is_valid_rut_chile, normalize_rut, is_valid_email
-
-# Rejilla real (tksheet) o fallback Treeview
 from src.gui.widgets.grid_table import GridTable
+from src.utils.validators import is_valid_rut_chile, normalize_rut, is_valid_email
 
 
 class CustomersView(ttk.Frame):
@@ -25,8 +23,8 @@ class CustomersView(ttk.Frame):
         self.repo = CustomerRepository(self.session)
 
         self._editing_id: Optional[int] = None
-        self._rows_cache: List[List[str]] = []   # copia de lo mostrado en la tabla (por índice)
-        self._id_by_index: List[int] = []        # mapea fila -> id
+        self._rows_cache: List[List[str]] = []  # copia de lo mostrado en la tabla (por índice)
+        self._id_by_index: List[int] = []       # mapea fila -> id
 
         # ---------- Formulario ----------
         frm = ttk.Labelframe(self, text="Cliente", padding=10)
@@ -63,17 +61,16 @@ class CustomersView(ttk.Frame):
         self.table = GridTable(self, height=14)
         self.table.pack(fill="both", expand=True, pady=(10, 0))
 
-        # Doble click para editar: soporta tksheet y fallback Treeview
+        # Doble click para editar (tksheet + fallback)
         if hasattr(self.table, "sheet"):
             try:
-                # tksheet: doble click en celda
                 self.table.sheet.extra_bindings([("double_click", lambda e: self._on_row_dblclick())])
             except Exception:
                 pass
         tv = getattr(self.table, "_fallback", None)
         if tv is not None:
             tv.bind("<Double-1>", lambda e: self._on_row_dblclick())
-            # Click en encabezado → limpiar selección y formulario
+            # Click en encabezado: limpiar selección y formulario
             tv.bind("<Button-1>", self._on_tree_click)
 
         # Carga inicial
@@ -94,8 +91,8 @@ class CustomersView(ttk.Frame):
                 pass
         tv = getattr(self.table, "_fallback", None)
         if tv is not None:
+            tv["columns"] = list(self.COLS)
             for i, name in enumerate(self.COLS):
-                # En fallback los ids de columna son exactamente los títulos
                 tv.heading(name, text=name, anchor="center")
                 tv.column(name, width=self.COL_WIDTHS[i], anchor="center")
             try:
@@ -118,8 +115,9 @@ class CustomersView(ttk.Frame):
             messagebox.showwarning("Validación", "El RUT no es válido (revise dígito verificador).")
             return None
 
-        email = self.var_email.get().strip() or None
-        if not is_valid_email(email):
+        # Email opcional: solo validar si está presente
+        email = self.var_email.get().strip()
+        if email and not is_valid_email(email):
             messagebox.showwarning("Validación", "El email no parece válido.")
             return None
 
@@ -128,12 +126,12 @@ class CustomersView(ttk.Frame):
             "rut": rut,
             "contacto": self.var_contacto.get().strip() or None,
             "telefono": self.var_telefono.get().strip() or None,
-            "email": email,
+            "email": (email or None),
             "direccion": self.var_direccion.get().strip() or None,
         }
 
     def _selected_row_index(self) -> Optional[int]:
-        """Índice de fila seleccionada en la grilla (None si no hay)."""
+        """Índice de fila seleccionada en la grilla (o None)."""
         # tksheet
         if hasattr(self.table, "sheet"):
             try:
@@ -244,7 +242,7 @@ class CustomersView(ttk.Frame):
         self.btn_delete.config(state="normal")
 
     def _on_tree_click(self, event):
-        """(Solo fallback) Click en encabezado → limpiar selección y formulario."""
+        """(Solo fallback) Click en encabezado: limpiar selección y formulario."""
         tv = getattr(self.table, "_fallback", None)
         if tv is None:
             return
@@ -298,3 +296,4 @@ class CustomersView(ttk.Frame):
     # ---------- Interfaz homogénea con MainWindow ----------
     def refresh_lookups(self):
         self._load_table()
+

@@ -17,7 +17,7 @@ from src.core.sales_manager import SalesManager
 from src.utils.po_generator import generate_po_to_downloads
 from src.utils.so_generator import generate_so_to_downloads
 
-# Grilla tipo hoja (tksheet si estÃ¡ instalado; si no, Treeview)
+# Grilla tipo hoja (tksheet si está instalado; si no, Treeview)
 from src.gui.widgets.grid_table import GridTable
 
 
@@ -25,12 +25,12 @@ class OrdersAdminView(ttk.Frame):
     """
     Administra Ã“rdenes de Compra y Ã“rdenes de Venta:
     - Listado de OC/OV con estado
-    - Ver detalle (Ã­tems)
+    - Ver detalle (ítems)
     - Marcar Confirmada/Completada (ajusta stock)
     - Cancelar / Eliminar (revierte stock si corresponde)
     """
 
-    # ----- Columnas (titulos + anchos) -----
+    # ----- Columnas (títulos + anchos) -----
     PUR_COLS = ["ID", "N° OC", "Fecha", "Proveedor", "Estado", "Total", "Docs"]
     PUR_W    = [70, 110, 130, 260, 120, 120, 220]
 
@@ -67,7 +67,7 @@ class OrdersAdminView(ttk.Frame):
         self.pm = PurchaseManager(self.session)
         self.sm = SalesManager(self.session)
 
-        # Mapeos fila -> id (para selecciÃ³n)
+        # Mapeos fila -> id (para selección)
         self._pur_ids: List[int] = []
         self._sale_ids: List[int] = []
 
@@ -300,12 +300,12 @@ class OrdersAdminView(ttk.Frame):
             action()
             self.session.commit()
             reload_func()
-            messagebox.showinfo("Ã‰xito", success_msg)
+            messagebox.showinfo("Éxito", success_msg)
         except Exception as e:
             self.session.rollback()
-            messagebox.showerror("Error", f"OcurriÃ³ un error:\n{e}")
+            messagebox.showerror("Error", f"Ocurrió un error:\n{e}")
 
-    # ================== InicializaciÃ³n pestaÃ±a COMPRAS ================== #
+    # ================== Inicialización pestaña COMPRAS ================== #
     def _init_purchase_tab(self, parent):
         top_c = ttk.Frame(parent); top_c.pack(fill="x")
         ttk.Button(top_c, text="Actualizar", command=self._load_purchases).pack(side="left", padx=4)
@@ -315,7 +315,7 @@ class OrdersAdminView(ttk.Frame):
         ttk.Button(top_c, text="Reimprimir OC (PDF)", command=self._purchase_print_pdf).pack(side="left", padx=4)
         ttk.Button(top_c, text="Vincular recepción…", command=self._purchase_link_reception).pack(side="left", padx=4)
 
-        # Editor de estado (mÃ¡s directo)
+        # Editor de estado (más directo)
         editor = ttk.Frame(parent); editor.pack(fill="x", pady=(6, 0))
         ttk.Label(editor, text="Estado:").pack(side="left")
         self.PUR_STATES = ("Pendiente", "Incompleta", "Por pagar", "Completada", "Cancelada", "Eliminada")
@@ -341,13 +341,13 @@ class OrdersAdminView(ttk.Frame):
         # Listado de compras
         self.tbl_pur = GridTable(parent, height=10)
         self.tbl_pur.pack(fill="both", expand=True, pady=(6, 4))
-        # SelecciÃ³n (tksheet)
+        # Selección (tksheet)
         if hasattr(self.tbl_pur, "sheet"):
             try:
                 self.tbl_pur.sheet.extra_bindings([("cell_select", lambda e: self._on_purchase_selected())])
             except Exception:
                 pass
-        # SelecciÃ³n (fallback Treeview)
+        # Selección (fallback Treeview)
         tv = getattr(self.tbl_pur, "_fallback", None)
         if tv is not None:
             tv.bind("<<TreeviewSelect>>", lambda _e: self._on_purchase_selected())
@@ -358,11 +358,11 @@ class OrdersAdminView(ttk.Frame):
         self.tbl_pur_det = GridTable(parent, height=8)
         self.tbl_pur_det.pack(fill="both", expand=False)
 
-        # Inicializa headers vacÃ­os
+        # Inicializa headers vacíos
         self._set_table_data(self.tbl_pur, self.PUR_COLS, self.PUR_W, [])
         self._set_table_data(self.tbl_pur_det, self.PUR_DET_COLS, self.PUR_DET_W, [])
 
-    # =================== InicializaciÃ³n pestaÃ±a VENTAS ================== #
+    # =================== Inicialización pestaña VENTAS ================== #
     def _init_sales_tab(self, parent):
         top_v = ttk.Frame(parent); top_v.pack(fill="x")
         ttk.Button(top_v, text="Actualizar", command=self._load_sales).pack(side="left", padx=4)
@@ -412,7 +412,7 @@ class OrdersAdminView(ttk.Frame):
         self.tbl_sale_det = GridTable(parent, height=8)
         self.tbl_sale_det.pack(fill="both", expand=False)
 
-        # Inicializa headers vacÃ­os
+        # Inicializa headers vacíos
         self._set_table_data(self.tbl_sale, self.SALE_COLS, self.SALE_W, [])
         self._set_table_data(self.tbl_sale_det, self.SALE_DET_COLS, self.SALE_DET_W, [])
 
@@ -905,7 +905,7 @@ class OrdersAdminView(ttk.Frame):
                 except Exception:
                     return ""
             notes_parts = []
-            if pur.numero_documento: notes_parts.append(f"NÂº Doc: {pur.numero_documento}")
+            if pur.numero_documento: notes_parts.append(f"Nº Doc: {pur.numero_documento}")
             if pur.fecha_documento: notes_parts.append(f"F. Documento: {_fmt(pur.fecha_documento)}")
             if pur.fecha_contable: notes_parts.append(f"F. Contable: {_fmt(pur.fecha_contable)}")
             if pur.fecha_vencimiento: notes_parts.append(f"F. Venc.: {_fmt(pur.fecha_vencimiento)}")
@@ -937,15 +937,22 @@ class OrdersAdminView(ttk.Frame):
             messagebox.showwarning("Compras", "Seleccione una compra.")
             return
         if str(pur.estado).strip().lower() == "completada":
-            messagebox.showinfo("Compras", "Esta compra ya estÃ¡ COMPLETADA.")
+            messagebox.showinfo("Compras", "Esta compra ya está COMPLETADA.")
             return
 
         def action():
             for det in pur.details:
+                # Usar ubicación por defecto del producto si existe
+                try:
+                    prod = self.session.get(Product, int(det.id_producto))
+                    loc_id = int(getattr(prod, 'id_ubicacion')) if (prod and getattr(prod, 'id_ubicacion', None)) else None
+                except Exception:
+                    loc_id = None
                 self.inventory.register_entry(
                     product_id=det.id_producto,
                     cantidad=det.cantidad,
                     motivo=f"Compra {pur.id}",
+                    location_id=loc_id,
                 )
             pur.estado = "Completada"
 
@@ -975,7 +982,7 @@ class OrdersAdminView(ttk.Frame):
         if not pur:
             messagebox.showwarning("Compras", "Seleccione una compra.")
             return
-        if not messagebox.askyesno("Confirmar", f"Â¿Eliminar compra {pur.id}?"):
+        if not messagebox.askyesno("Confirmar", f"¿Eliminar compra {pur.id}?"):
             return
 
         def action():
@@ -1196,7 +1203,7 @@ class OrdersAdminView(ttk.Frame):
             messagebox.showwarning("Ventas", "Seleccione una venta.")
             return
         if str(sale.estado).strip().lower() == "confirmada":
-            messagebox.showinfo("Ventas", "Esta venta ya estÃ¡ CONFIRMADA.")
+            messagebox.showinfo("Ventas", "Esta venta ya está CONFIRMADA.")
             return
 
         def action():
@@ -1281,7 +1288,7 @@ class OrdersAdminView(ttk.Frame):
         if not sale:
             messagebox.showwarning("Ventas", "Seleccione una venta.")
             return
-        if not messagebox.askyesno("Confirmar", f"Â¿Eliminar venta {sale.id}?"):
+        if not messagebox.askyesno("Confirmar", f"¿Eliminar venta {sale.id}?"):
             return
 
         def action():
