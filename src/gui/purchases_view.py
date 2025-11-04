@@ -486,6 +486,16 @@ class PurchasesView(ttk.Frame):
         base = D(getattr(p, "precio_compra", 0) or 0)
         return q2(base)
 
+    def _current_iva_rate(self) -> Decimal:
+        """Retorna la tasa de IVA como Decimal (por defecto 0.19).
+        En esta vista no existe un control de IVA editable, por lo que usamos la
+        constante IVA_RATE. Si más adelante agregas un campo IVA%, puedes leerlo aquí.
+        """
+        try:
+            return D(IVA_RATE)
+        except Exception:
+            return D("0.19")
+
     def _selected_product(self) -> Optional[Product]:
         # Primero intentamos tomar el objeto real desde el autocomplete
         it = self.cmb_product.get_selected_item()
@@ -599,15 +609,42 @@ class PurchasesView(ttk.Frame):
 
     def _collect_items_for_manager(self) -> List[PurchaseItem]:
         items: List[PurchaseItem] = []
+        def _num(s: str) -> Decimal:
+            """Parsea números robustamente desde strings con $/miles/coma decimal.
+            - "1.234,56" -> 1234.56
+            - "1,234.56" -> 1234.56
+            - "180.00"   -> 180.00
+            - "$ 3.240"  -> 3240
+            """
+            try:
+                s = str(s or '').replace('$','').replace('CLP','').replace('%','').strip()
+                if not s:
+                    return D(0)
+                # decidir separador decimal por la última ocurrencia
+                if ',' in s and '.' in s:
+                    if s.rfind(',') > s.rfind('.'):
+                        # miles=., decimal=,
+                        s = s.replace('.', '').replace(',', '.')
+                    else:
+                        # miles=,, decimal=.
+                        s = s.replace(',', '')
+                elif ',' in s:
+                    # solo coma: úsala como decimal
+                    s = s.replace(',', '.')
+                # else: solo punto o entero
+                return D(s)
+            except Exception:
+                return D(0)
         for iid in self.tree.get_children():
             prod_id, _name, scnt, sprice, sdisc, _sub = self.tree.item(iid, "values")
             # Aplicamos descuento al precio unitario para reflejar el total mostrado
             try:
-                disc_pct = D(str(sdisc).replace("%", ""))
+                disc_pct = _num(sdisc)
             except Exception:
                 disc_pct = D(0)
             disc_rate = disc_pct / D(100)
-            price_eff = q2(D(sprice) * (D(1) + IVA_RATE) * (D(1) - disc_rate))
+            iva_rate = self._current_iva_rate()
+            price_eff = q2(_num(sprice) * (D(1) + iva_rate) * (D(1) - disc_rate))
             items.append(
                 PurchaseItem(
                     product_id=int(prod_id),
@@ -619,6 +656,22 @@ class PurchasesView(ttk.Frame):
 
     def _collect_items_for_pdf(self) -> List[Dict[str, object]]:
         rows: List[Dict[str, object]] = []
+        # Normalizador local para valores con formato ($, miles, coma decimal)
+        def _num(s: str) -> Decimal:
+            try:
+                s = str(s or '').replace('$','').replace('CLP','').replace('%','').strip()
+                if not s:
+                    return D(0)
+                if ',' in s and '.' in s:
+                    if s.rfind(',') > s.rfind('.'):
+                        s = s.replace('.', '').replace(',', '.')
+                    else:
+                        s = s.replace(',', '')
+                elif ',' in s:
+                    s = s.replace(',', '.')
+                return D(s)
+            except Exception:
+                return D(0)
         for iid in self.tree.get_children():
             prod_id, name, scnt, sprice, sdisc, ssub = self.tree.item(iid, "values")
             try:
@@ -630,11 +683,12 @@ class PurchasesView(ttk.Frame):
                 unidad = getattr(p, "unidad_medida", None) or "U"
             except Exception:
                 unidad = "U"
+            iva_rate = self._current_iva_rate()
             rows.append({
                 "id": int(prod_id),
                 "nombre": str(name),
                 "cantidad": int(float(scnt)),
-                "precio": q2(D(sprice) * (D(1) + IVA_RATE)),          # con IVA (precio bruto)
+                "precio": q2(_num(sprice) * (D(1) + iva_rate)),          # con IVA (precio bruto)
                 "subtotal": D(ssub),          # con IVA y descuento ya aplicado
                 "dcto_pct": disc_pct,         # usado por OC
                 "descuento_porcentaje": disc_pct,  # compat para cotizaciÃ³n
@@ -666,7 +720,18 @@ class PurchasesView(ttk.Frame):
                 if po_id:
                     po = self.session.get(Purchase, int(po_id))
                     if po:
-                        self._apply_reception_for_po(po)
+                        # Intentar inferir tipo de documento desde la recepción vinculada
+                        tipo_doc = None
+                        try:
+                            from src.data.models import Reception
+                            rec_id = getattr(self, '_current_reception_id', None)
+                            if rec_id:
+                                rec = self.session.get(Reception, int(rec_id))
+                                if rec is not None:
+                                    tipo_doc = getattr(rec, 'tipo_doc', None)
+                        except Exception:
+                            tipo_doc = None
+                        self._apply_reception_for_po(po, tipo_doc=tipo_doc)
                         return
                 # Fallback: entradas simples con trazabilidad por ítem seleccionado
                 for iid in self.tree.get_children():
@@ -681,12 +746,23 @@ class PurchasesView(ttk.Frame):
                     lote = (tr.get('lote') or None)
                     serie = (tr.get('serie') or None)
                     venc = (tr.get('venc') or None)
+                    # Ubicación prioriza la trazabilidad; si no, toma la ubicación por defecto del producto
+                    loc_id = None
+                    try:
+                        loc_id = (tr.get('loc_id') if isinstance(tr, dict) else None)
+                        if not loc_id:
+                            p = self.session.get(Product, int(prod_id))
+                            if p and getattr(p, 'id_ubicacion', None):
+                                loc_id = int(getattr(p, 'id_ubicacion'))
+                    except Exception:
+                        loc_id = None
                     if lote and serie:
                         serie = None
                     self.inv.register_entry(
                         product_id=prod_id, cantidad=qty, motivo=f"Recepcion {self._stamp()}",
                         lote=str(lote) if lote else None, serie=str(serie) if serie else None, fecha_vencimiento=venc,
-                        reception_id=getattr(self, '_current_reception_id', None)
+                        reception_id=getattr(self, '_current_reception_id', None),
+                        location_id=loc_id
                     )
                 try:
                     self.session.commit()

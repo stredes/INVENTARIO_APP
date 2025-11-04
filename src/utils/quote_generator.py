@@ -35,7 +35,8 @@ def _fmt_moneda(n, currency: str = "CLP") -> str:
         x = D(n)
     except Exception:
         return str(n)
-    if currency.upper() == "CLP":
+    cur = (currency or "CLP").strip().upper()
+    if cur in ("CLP", "PESO CHILENO", "PESOS CHILENOS", "CHILEAN PESO", "CHILEAN PESOS"):
         return f"${x:,.0f}".replace(",", ".")
     return f"${x:,.2f}"
 

@@ -74,6 +74,9 @@ class InventoryManager:
         old = int(p.stock_actual or 0)
         new = old + int(cantidad)
 
+        if lote and serie:
+            raise InventoryError("'lote' y 'serie' no pueden usarse juntos en la misma entrada")
+
         entry = StockEntry(
             id_producto=p.id,
             id_recepcion=reception_id,
@@ -98,6 +101,9 @@ class InventoryManager:
         cantidad: int,
         motivo: Optional[str] = None,
         when: Optional[datetime] = None,
+        lote: Optional[str] = None,
+        serie: Optional[str] = None,
+        location_id: Optional[int] = None,
     ) -> MovementResult:
         """
         Resta stock y registra en stock_exits.
@@ -114,10 +120,16 @@ class InventoryManager:
             )
         new = old - int(cantidad)
 
+        if lote and serie:
+            raise InventoryError("'lote' y 'serie' no pueden usarse juntos en la misma salida")
+
         exit_ = StockExit(
             id_producto=p.id,
             cantidad=int(cantidad),
             motivo=motivo,
+            lote=(lote or None),
+            serie=(serie or None),
+            id_ubicacion=location_id,
             fecha=when or datetime.utcnow(),  # <--- campo correcto
         )
         self.exits.add(exit_)

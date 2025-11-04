@@ -79,6 +79,173 @@ class SalesView(ttk.Frame):
         ).pack(side="left")
 
         self._cashier_frame = ttk.Labelframe(self, text="Cajero de ventas", padding=8)
+        self._cashier_frame.pack_forget()
+
+        ttk.Label(self._cashier_frame, text="Escanear SKU:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
+        self.ent_scan = ttk.Entry(self._cashier_frame, width=28)
+        self.ent_scan.grid(row=0, column=1, sticky="w", padx=4, pady=4)
+        self.ent_scan.bind("<Return>", lambda _e: self._on_scan_enter())
+
+        ttk.Button(self._cashier_frame, text="Agregar", command=self._on_scan_enter).grid(row=0, column=2, padx=6)
+        ttk.Button(self._cashier_frame, text="Cobrar (F12)", command=self._on_quick_checkout).grid(row=0, column=3, padx=6)
+
+        try:
+            self.bind_all("<F12>", lambda _e: self._on_quick_checkout())
+            self.bind_all("<Control-l>", lambda _e: self._focus_scan())
+        except Exception:
+            pass
+
+        # ---------- Detalle ----------
+        det = ttk.Labelframe(self, text="Detalle de venta", padding=10)
+        det.pack(fill="x", expand=False, pady=(10, 0))
+
+        ttk.Label(det, text="Producto:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
+        self.cmb_product = AutoCompleteCombobox(det, width=45, state="normal")
+        self.cmb_product.grid(row=0, column=1, sticky="w", padx=4, pady=4)
+        self.cmb_product.bind("<<ComboboxSelected>>", self._on_product_change)
+
+        ttk.Label(det, text="Cantidad:").grid(row=0, column=2, sticky="e", padx=4, pady=4)
+        self.ent_qty = ttk.Entry(det, width=10)
+        self.ent_qty.insert(0, "1")
+        self.ent_qty.grid(row=0, column=3, sticky="w", padx=4, pady=4)
+
+        ttk.Label(det, text="Precio (venta):").grid(row=0, column=4, sticky="e", padx=4, pady=4)
+        self.ent_price = ttk.Entry(det, width=12)
+        self.ent_price.insert(0, "0")
+        self.ent_price.grid(row=0, column=5, sticky="w", padx=4, pady=4)
+
+        ttk.Button(det, text="Agregar ítem", command=self._on_add_item)\
+            .grid(row=0, column=8, padx=8)
+
+        # Campos ampliados
+        self.var_det_nro = tk.StringVar(value="1")
+        self.var_prod_code = tk.StringVar(value="")
+        self.var_prod_desc = tk.StringVar(value="")
+        self.var_unidad = tk.StringVar(value="Unidades")
+        self.var_desc_tipo = tk.StringVar(value="Monto")
+        self.var_desc_val = tk.DoubleVar(value=0.0)
+        self.var_ccosto = tk.StringVar(value="1001 - Ventas")
+        self.var_moneda = tk.StringVar(value="PESO CHILENO")
+        self.var_tasa = tk.DoubleVar(value=1.0)
+        self.var_monto_neto = tk.DoubleVar(value=0.0)
+
+        ttk.Label(det, text="Numero detalle").grid(row=1, column=0, sticky="e", padx=4, pady=4)
+        ttk.Entry(det, textvariable=self.var_det_nro, width=10, state="readonly").grid(row=1, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(det, text="Codigo de producto").grid(row=1, column=2, sticky="e", padx=4, pady=4)
+        ttk.Entry(det, textvariable=self.var_prod_code, width=18, state="readonly").grid(row=1, column=3, sticky="w", padx=4, pady=4)
+        ttk.Label(det, text="Descripcion").grid(row=1, column=4, sticky="e", padx=4, pady=4)
+        ttk.Entry(det, textvariable=self.var_prod_desc, width=36, state="readonly").grid(row=1, column=5, columnspan=3, sticky="we", padx=4, pady=4)
+
+        ttk.Label(det, text="Unidad").grid(row=2, column=0, sticky="e", padx=4, pady=4)
+        cb_unid = ttk.Combobox(det, textvariable=self.var_unidad, state="readonly",
+                                values=["Unidades", "Caja", "Bolsa", "kg", "lt", "ml"])
+        cb_unid.grid(row=2, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(det, text="Tipo desc").grid(row=2, column=2, sticky="e", padx=4, pady=4)
+        cb_tipo = ttk.Combobox(det, textvariable=self.var_desc_tipo, state="readonly",
+                                values=["Monto", "Porcentaje"])
+        cb_tipo.grid(row=2, column=3, sticky="w", padx=4, pady=4)
+        ttk.Label(det, text="Descuento").grid(row=2, column=4, sticky="e", padx=4, pady=4)
+        ent_desc = ttk.Entry(det, textvariable=self.var_desc_val, width=12)
+        ent_desc.grid(row=2, column=5, sticky="w", padx=4, pady=4)
+        ttk.Label(det, text="Monto neto").grid(row=2, column=6, sticky="e", padx=4, pady=4)
+        ttk.Entry(det, textvariable=self.var_monto_neto, width=14, state="readonly").grid(row=2, column=7, sticky="w", padx=4, pady=4)
+
+        # ---------- Tabla ----------
+        tree_frame = ttk.Frame(self)
+        tree_frame.pack(fill="both", expand=True, pady=(10, 0))
+        columns = ("id", "nombre", "cantidad", "precio", "dcto", "subtotal")
+        self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=10)
+        for cid, text, w in [
+            ("id", "ID", 70),
+            ("nombre", "Producto", 320),
+            ("cantidad", "Cant.", 80),
+            ("precio", "Precio", 110),
+            ("dcto", "Dcto %", 70),
+            ("subtotal", "Subtotal", 120),
+        ]:
+            self.tree.heading(cid, text=text, anchor="center")
+            self.tree.column(cid, width=w, anchor="center")
+        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=vsb.set)
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        tree_frame.rowconfigure(0, weight=1)
+        tree_frame.columnconfigure(0, weight=1)
+
+        self.tree.bind("<MouseWheel>", self._on_mousewheel)
+        self.tree.bind("<Button-4>", self._on_mousewheel)
+        self.tree.bind("<Button-5>", self._on_mousewheel)
+        try:
+            from src.gui.treeview_utils import enable_treeview_sort
+            enable_treeview_sort(self.tree)
+        except Exception:
+            pass
+
+        # ---------- Total + Acciones ----------
+        bottom = ttk.Frame(self)
+        bottom.pack(fill="x", expand=False, pady=10)
+        self.lbl_total = ttk.Label(bottom, text="Total: 0.00", font=("", 11, "bold"))
+        self.lbl_total.pack(side="left")
+
+        ttk.Button(bottom, text="Eliminar ítem", command=self._on_delete_item)\
+            .pack(side="right", padx=6)
+        ttk.Button(bottom, text="Limpiar tabla", command=self._on_clear_table)\
+            .pack(side="right", padx=6)
+        ttk.Button(bottom, text="Generar Cotización (PDF)", command=self._on_generate_sales_quote)\
+            .pack(side="right", padx=6)
+        ttk.Button(bottom, text="Generar OV (PDF en Descargas)", command=self._on_generate_so_downloads)\
+            .pack(side="right", padx=6)
+        ttk.Button(bottom, text="Guardar venta", command=self._on_confirm_sale)\
+            .pack(side="right", padx=6)
+
+        self.refresh_lookups()
+
+    @staticmethod
+    def _fmt_clp(value) -> str:
+        """CLP con miles y sin decimales (p.ej., $1.234.567)."""
+        try:
+            n = float(value or 0)
+            s = f"${n:,.0f}"
+            return s.replace(",", ".")
+        except Exception:
+            return "$ 0"
+
+        # ---------- Encabezado ----------
+        top = ttk.Labelframe(self, text="Encabezado de venta", padding=10)
+        top.pack(fill="x", expand=False)
+
+        ttk.Label(top, text="Cliente:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
+        self.cmb_customer = ttk.Combobox(top, state="readonly", width=50)
+        self.cmb_customer.grid(row=0, column=1, sticky="w", padx=4, pady=4)
+
+        self.var_apply = tk.BooleanVar(value=True)
+        ttk.Checkbutton(top, text="Descontar stock (Confirmada/Pagada)", variable=self.var_apply)\
+            .grid(row=0, column=2, padx=10)
+
+        # Estado y forma de pago en el encabezado (igual que Compras)
+        ttk.Label(top, text="Estado:").grid(row=0, column=3, sticky="e", padx=4)
+        self.cmb_estado = ttk.Combobox(top, state="readonly", width=14, values=self.ESTADOS)
+        self.cmb_estado.current(0)
+        self.cmb_estado.grid(row=0, column=4, sticky="w", padx=4)
+
+        ttk.Label(top, text="Pago:").grid(row=0, column=5, sticky="e", padx=4)
+        self.PAGOS = ("Contado", "Débito", "Transferencia", "Crédito 30 días")
+        self.cmb_pago = ttk.Combobox(top, state="readonly", width=18, values=self.PAGOS)
+        self.cmb_pago.set("Contado")
+        self.cmb_pago.grid(row=0, column=6, sticky="w", padx=4)
+
+        # ---------- Modo Cajero de ventas (POS) ----------
+        self._cashier_mode = tk.BooleanVar(value=False)
+        cashier_bar = ttk.Frame(self)
+        cashier_bar.pack(fill="x", expand=False, pady=(8, 0))
+        ttk.Checkbutton(
+            cashier_bar,
+            text="Modo cajero de ventas",
+            variable=self._cashier_mode,
+            command=lambda: self._toggle_cashier_ui(),
+        ).pack(side="left")
+
+        self._cashier_frame = ttk.Labelframe(self, text="Cajero de ventas", padding=8)
         # Oculto por defecto; se muestra al activar el modo
         self._cashier_frame.pack_forget()
 
@@ -404,7 +571,12 @@ class SalesView(ttk.Frame):
 
     # -------------------- Lookups --------------------
     def refresh_lookups(self):
-        """Carga clientes y productos en los combos y autocompletados."""
+        """Carga clientes y productos en los combos y autocompletados.
+        Tolerante: si los widgets aún no existen (llamado temprano desde pestañas), sale.
+        """
+        # Protección ante llamadas tempranas desde MainWindow._on_tab_change
+        if not hasattr(self, "cmb_customer") or not hasattr(self, "cmb_product"):
+            return
         self.customers = self.session.query(Customer)\
             .order_by(Customer.razon_social.asc()).all()
         self.cmb_customer["values"] = [self._display_customer(c) for c in self.customers]
@@ -729,10 +901,10 @@ class SalesView(ttk.Frame):
     def _on_generate_sales_quote(self):
         try:
             items = self._collect_items()
-            items = self._collect_items()
             if not items:
                 self._warn("Agregue al menos un ítem.")
                 return
+            cust = self._get_selected_customer_dict()
             cust.setdefault("nombre", cust.get("razon_social") or "")
             try:
                 cust["pago"] = self.cmb_pago.get()
@@ -895,11 +1067,11 @@ class SalesView(ttk.Frame):
                 fecha_txt,
                 r.get("cliente", "") or "",
                 r.get("estado", "") or "",
-                f"{float(r.get('total', 0.0)):.2f}",
+                self._fmt_clp(r.get('total', 0.0)),
             ))
 
         bottom = ttk.Frame(win); bottom.pack(fill="x", padx=8, pady=(0, 8))
-        lbl = ttk.Label(bottom, text=f"Total general: {total_general:.2f}", font=("", 11, "bold"))
+        lbl = ttk.Label(bottom, text=f"Total general: {self._fmt_clp(total_general)}", font=("", 11, "bold"))
         lbl.pack(side="left")
 
         def _export_csv():
@@ -917,7 +1089,12 @@ class SalesView(ttk.Frame):
                         continue
                     fval = r["fecha"]
                     ftxt = fval.strftime("%d/%m/%Y %H:%M") if hasattr(fval, "strftime") else str(fval or "")
-                    w.writerow([r["id"], ftxt, r["cliente"], r["estado"], f"{r['total']:.2f}"])
+                    # Para CSV, dejamos valor entero en pesos (sin separadores)
+                    try:
+                        tot_i = int(round(float(r['total'] or 0)))
+                    except Exception:
+                        tot_i = 0
+                    w.writerow([r["id"], ftxt, r["cliente"], r["estado"], str(tot_i)])
             self._info(f"CSV guardado en Descargas:\n{out_path}")
 
         def _export_pdf():

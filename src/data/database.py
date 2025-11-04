@@ -384,6 +384,24 @@ def _ensure_schema(engine: Engine) -> None:
         except Exception:
             pass
 
+        # También permitir trazabilidad en salidas (multi-lote)
+        _add_column_if_missing(engine, table="stock_exits", column="lote", type_sql="TEXT")
+        _add_column_if_missing(engine, table="stock_exits", column="serie", type_sql="TEXT")
+        _add_column_if_missing(engine, table="stock_exits", column="id_ubicacion", type_sql="INTEGER REFERENCES locations(id)")
+        try:
+            _create_index_if_missing(
+                engine,
+                index_sql='CREATE INDEX IF NOT EXISTS idx_stock_exits_lote ON stock_exits(lote);',
+                index_name='idx_stock_exits_lote',
+            )
+            _create_index_if_missing(
+                engine,
+                index_sql='CREATE INDEX IF NOT EXISTS idx_stock_exits_ubicacion ON stock_exits(id_ubicacion);',
+                index_name='idx_stock_exits_ubicacion',
+            )
+        except Exception:
+            pass
+
         # --------- Compras: campos adicionales opcionales ---------
         _add_column_if_missing(engine, table="purchases", column="numero_documento", type_sql="TEXT")
         _add_column_if_missing(engine, table="purchases", column="fecha_documento", type_sql="DATETIME")

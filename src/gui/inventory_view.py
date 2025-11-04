@@ -113,12 +113,21 @@ class InventoryView(ttk.Frame):
 
         # --- Tabla (GridTable) ---
         self.table = GridTable(self)
-        self.table.pack(fill="both", expand=True, pady=(8, 10))
-        # Enlazar selección para actualizar preview de código de barras
+        self.table.pack(fill="both", expand=True, pady=(8, 6))
+        # Enlazar selección para actualizar preview de código de barras y movimientos
         tv = getattr(self.table, '_fallback', None)
         if tv is not None:
-            tv.bind('<<TreeviewSelect>>', lambda _e: self._update_bar_preview())
-            tv.bind('<ButtonRelease-1>', lambda _e: self._update_bar_preview())
+            tv.bind('<<TreeviewSelect>>', lambda _e: (self._update_bar_preview(), self._load_movements_for_selection()))
+            tv.bind('<ButtonRelease-1>', lambda _e: (self._update_bar_preview(), self._load_movements_for_selection()))
+        
+        # --- Movimientos recientes del producto seleccionado ---
+        mov_frame = ttk.Labelframe(self, text="Movimientos recientes", padding=6)
+        mov_frame.pack(fill="both", expand=False, pady=(0, 8))
+        self.mov_table = GridTable(mov_frame, height=6)
+        self.mov_table.pack(fill="both", expand=True)
+        self._set_mov_data([])
+
+        # (Se removió panel de "Stock por lote/serie" a pedido)
 
         # --- Footer de totales ---
         # Muestra Î£ P. Compra y Î£ P. Venta de lo actualmente listado
@@ -258,11 +267,13 @@ class InventoryView(ttk.Frame):
     # ======================= helpers de totales / formato ======================= #
     @staticmethod
     def _fmt_money(value) -> str:
-        """Formatea números a '$ 1,234.56'. (Cambiar si prefieres es-CL exacto)."""
+        """Formatea CLP con miles y sin decimales: $1.234.567."""
         try:
-            return f"$ {float(value or 0):,.2f}"
+            n = float(value or 0)
+            s = f"${n:,.0f}"
+            return s.replace(",", ".")
         except Exception:
-            return "$ 0.00"
+            return "$ 0"
 
     @staticmethod
     def _compute_totals(products: List[Product]) -> tuple[float, float]:
@@ -317,6 +328,82 @@ class InventoryView(ttk.Frame):
             self.table.set_row_backgrounds(colors)
         except Exception:
             pass
+        # Refrescar movimientos para la selección actual
+        self._load_movements_for_selection()
+
+    # ------------------ Movimientos por producto ------------------ #
+    def _set_mov_data(self, rows: list[list]):
+        cols = ["Fecha", "Tipo", "Cant.", "Proveedor", "Ubicación", "Lote/Serie", "Vence", "Motivo"]
+        widths = [140, 70, 70, 220, 160, 150, 110, 260]
+        self.mov_table.set_data(cols, rows)
+        tv = getattr(self.mov_table, '_fallback', None)
+        if tv is not None:
+            try:
+                for i, c in enumerate(cols):
+                    tv.heading(c, text=c, anchor='center')
+                    tv.column(c, width=widths[i], anchor='center')
+            except Exception:
+                pass
+
+
+    def _load_movements_for_selection(self) -> None:
+        try:
+            prod = self._current_selected_product()
+            if not prod:
+                self._set_mov_data([])
+                return
+            pid = int(getattr(prod, 'id', 0) or 0)
+            if pid <= 0:
+                self._set_mov_data([])
+                return
+            from src.data.models import StockEntry, StockExit, Reception, Purchase, Supplier, Location
+            rows: list[list] = []
+            q_e = (
+                self.session.query(StockEntry, Reception, Purchase, Supplier, Location)
+                .outerjoin(Reception, StockEntry.id_recepcion == Reception.id)
+                .outerjoin(Purchase, Reception.id_compra == Purchase.id)
+                .outerjoin(Supplier, Purchase.id_proveedor == Supplier.id)
+                .outerjoin(Location, StockEntry.id_ubicacion == Location.id)
+                .filter(StockEntry.id_producto == pid)
+                .order_by(StockEntry.id.desc())
+                .limit(50)
+            )
+            for se, rec, pur, sup, loc in q_e:
+                fecha = getattr(se, 'fecha', None)
+                try:
+                    fecha_s = fecha.strftime('%Y-%m-%d %H:%M') if fecha else ''
+                except Exception:
+                    fecha_s = ''
+                prov = getattr(sup, 'razon_social', '') if sup else ''
+                ubic = getattr(loc, 'nombre', '') if loc else ''
+                loteser = (getattr(se, 'lote', None) or getattr(se, 'serie', None) or '')
+                vence = getattr(se, 'fecha_vencimiento', None)
+                try:
+                    vence_s = vence.strftime('%Y-%m-%d') if vence else ''
+                except Exception:
+                    vence_s = ''
+                rows.append([fecha_s, 'Entrada', int(getattr(se, 'cantidad', 0) or 0), prov, ubic, loteser, vence_s, getattr(se, 'motivo', '') or ''])
+            q_x = (
+                self.session.query(StockExit)
+                .filter(StockExit.id_producto == pid)
+                .order_by(StockExit.id.desc())
+                .limit(50)
+            )
+            for sx in q_x:
+                fecha = getattr(sx, 'fecha', None)
+                try:
+                    fecha_s = fecha.strftime('%Y-%m-%d %H:%M') if fecha else ''
+                except Exception:
+                    fecha_s = ''
+                rows.append([fecha_s, 'Salida', int(getattr(sx, 'cantidad', 0) or 0), '', '', '', '', getattr(sx, 'motivo', '') or ''])
+            try:
+                rows.sort(key=lambda r: r[0], reverse=True)
+            except Exception:
+                pass
+            self._set_mov_data(rows)
+        except Exception:
+            self._set_mov_data([])
+
 
     # ------------------ Barcode helpers ------------------ #
     def _current_selected_product(self) -> Optional[Product]:

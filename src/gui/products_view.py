@@ -830,6 +830,13 @@ class ProductsView(ttk.Frame):
             data = self._read_form()
             if not data:
                 return
+            # Validar unicidad de SKU
+            try:
+                if self.repo.get_by_sku(str(data.get("sku", ""))):
+                    messagebox.showwarning("Duplicado", "Ya existe un producto con ese Código/SKU.")
+                    return
+            except Exception:
+                pass
             prod = Product(**data)
             self.session.add(prod)
             self.session.commit()
@@ -853,6 +860,16 @@ class ProductsView(ttk.Frame):
             if not p:
                 messagebox.showwarning("Aviso", "Registro no encontrado.")
                 return
+            # Validar unicidad de SKU si cambió
+            try:
+                new_sku = str(data.get("sku", ""))
+                if new_sku and new_sku != getattr(p, "sku", None):
+                    other = self.repo.get_by_sku(new_sku)
+                    if other and getattr(other, "id", None) != p.id:
+                        messagebox.showwarning("Duplicado", "Ya existe un producto con ese Código/SKU.")
+                        return
+            except Exception:
+                pass
             for k, v in data.items():
                 setattr(p, k, v)
             self.session.commit()

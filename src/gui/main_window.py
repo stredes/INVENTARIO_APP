@@ -1,4 +1,4 @@
-# src/gui/main_window.py
+﻿# src/gui/main_window.py
 from __future__ import annotations
 import sys
 import configparser
@@ -14,7 +14,7 @@ from src.gui.purchases_view import PurchasesView
 from src.gui.sales_view import SalesView
 from src.gui.inventory_view import InventoryView
 from src.gui.orders_admin_view import OrdersAdminView
-from src.reports.report_center import ReportCenter  # ← NUEVO
+from src.reports.report_center import ReportCenter  # â† NUEVO
 from src.gui.catalog_view import CatalogView
 
 from src.gui.theme_manager import ThemeManager
@@ -29,10 +29,10 @@ class MainWindow(ttk.Frame):
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
 
-        # ⬇️ NO USAR self._root (colisiona con tk._root())
+        # â¬‡ï¸ NO USAR self._root (colisiona con tk._root())
         self.app_root: tk.Tk = self.winfo_toplevel()
 
-        # Tema y menú
+        # Tema y menÃº
         ThemeManager.attach(self.app_root)
         self._build_menu()
 
@@ -42,10 +42,16 @@ class MainWindow(ttk.Frame):
         self.suppliers_tab = SuppliersView(self.notebook)
         self.customers_tab = CustomersView(self.notebook)
         self.purchases_tab = PurchasesView(self.notebook)
-        self.sales_tab = SalesView(self.notebook)
+        # Construcción segura de Ventas con fallback visible si hay error
+        try:
+            self.sales_tab = SalesView(self.notebook)
+        except Exception as ex:
+            err = ttk.Frame(self.notebook)
+            ttk.Label(err, text=f"No se pudo cargar 'Ventas':\n{ex}", foreground="#b00020").pack(padx=12, pady=12, anchor='w')
+            self.sales_tab = err
         self.inventory_tab = InventoryView(self.notebook)
         self.orders_admin_tab = OrdersAdminView(self.notebook)
-        self.report_center_tab = ReportCenter(self.notebook)  # ← NUEVO
+        self.report_center_tab = ReportCenter(self.notebook)  # â† NUEVO
         self.catalog_tab = CatalogView(self.notebook)
 
         self.notebook.add(self.products_tab, text="Productos")
@@ -54,9 +60,9 @@ class MainWindow(ttk.Frame):
         self.notebook.add(self.purchases_tab, text="Compras")
         self.notebook.add(self.sales_tab, text="Ventas")
         self.notebook.add(self.inventory_tab, text="Inventario")
-        self.notebook.add(self.orders_admin_tab, text="Órdenes")
-        self.notebook.add(self.report_center_tab, text="Informes")  # ← NUEVO
-        self.notebook.add(self.catalog_tab, text="Catálogo")
+        self.notebook.add(self.orders_admin_tab, text="Ã“rdenes")
+        self.notebook.add(self.report_center_tab, text="Informes")  # â† NUEVO
+        self.notebook.add(self.catalog_tab, text="CatÃ¡logo")
 
         self.notebook.pack(fill="both", expand=True)
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_change)
@@ -79,19 +85,19 @@ class MainWindow(ttk.Frame):
         Toast.show(self.app_root, "Ctrl+K: Paleta de comandos", kind="info", ms=1800)
 
     def _generate_catalog(self) -> None:
-        """Genera catálogo PDF de productos (imagen, stock y precio sin IVA)."""
+        """Genera catÃ¡logo PDF de productos (imagen, stock y precio sin IVA)."""
         try:
             from src.reports.catalog_generator import generate_products_catalog
             out = generate_products_catalog(self.products_tab.session, auto_open=True)
-            Toast.show(self.app_root, f"Catálogo generado: {out}", kind="success")
+            Toast.show(self.app_root, f"CatÃ¡logo generado: {out}", kind="success")
         except Exception as ex:
-            Toast.show(self.app_root, f"Error al generar catálogo: {ex}", kind="danger", position="tr")
+            Toast.show(self.app_root, f"Error al generar catÃ¡logo: {ex}", kind="danger", position="tr")
 
     def _open_db_connection_dialog(self) -> None:
         try:
             from src.gui.db_connection_dialog import DBConnectionDialog
         except Exception as ex:
-            Toast.show(self.app_root, f"No se pudo cargar el diálogo de DB: {ex}", kind="danger")
+            Toast.show(self.app_root, f"No se pudo cargar el diÃ¡logo de DB: {ex}", kind="danger")
             return
         DBConnectionDialog(self)
 
@@ -100,7 +106,7 @@ class MainWindow(ttk.Frame):
         self.app_root.config(menu=menubar)
 
         m_file = Menu(menubar, tearoff=False)
-        m_file.add_command(label="Paleta de comandos…    Ctrl+K", command=self._open_palette)
+        m_file.add_command(label="Paleta de comandosâ€¦    Ctrl+K", command=self._open_palette)
         m_file.add_separator()
         m_file.add_command(label="Salir", command=self.app_root.quit)
         menubar.add_cascade(label="Archivo", menu=m_file)
@@ -113,9 +119,9 @@ class MainWindow(ttk.Frame):
         m_tools.add_command(label="Imprimir (Ctrl+P)", command=self._print_current)
         m_tools.add_command(label="Refrescar aplicacion (F5)", command=self._refresh_all)
         m_tools.add_separator()
-        m_tools.add_command(label="Generador de catálogos", command=self._generate_catalog)
+        m_tools.add_command(label="Generador de catÃ¡logos", command=self._generate_catalog)
         m_tools.add_separator()
-        m_tools.add_command(label="Conexión a BD…", command=self._open_db_connection_dialog)
+        m_tools.add_command(label="ConexiÃ³n a BDâ€¦", command=self._open_db_connection_dialog)
         # Importacion SQL masiva
         m_tools.add_separator()
         m_tools.add_command(label="Importacion SQL masiva...", command=self._open_sql_importer)
@@ -133,8 +139,8 @@ class MainWindow(ttk.Frame):
         menubar.add_cascade(label="Herramientas", menu=m_tools)
 
         m_view = Menu(menubar, tearoff=False)
-        m_view.add_command(label="Paleta de comandos…", command=self._open_palette)
-        m_view.add_command(label="Ir a Informes", command=self.show_report_center)  # ← NUEVO
+        m_view.add_command(label="Paleta de comandosâ€¦", command=self._open_palette)
+        m_view.add_command(label="Ir a Informes", command=self.show_report_center)  # â† NUEVO
         menubar.add_cascade(label="Ver", menu=m_view)
 
     def _setup_shortcuts(self) -> None:
@@ -189,7 +195,7 @@ class MainWindow(ttk.Frame):
         )
         if not path:
             return
-        if not messagebox.askyesno("Confirmar", "Esto reemplazará los datos ERP por el backup seleccionado. ¿Continuar?", parent=self.app_root):
+        if not messagebox.askyesno("Confirmar", "Esto reemplazarÃ¡ los datos ERP por el backup seleccionado. Â¿Continuar?", parent=self.app_root):
             return
         try:
             import_erp_from_xlsx(Path(path))
@@ -246,7 +252,7 @@ class MainWindow(ttk.Frame):
             return
         if not messagebox.askyesno(
             "Confirmar",
-            "Esto reemplazará productos, clientes, proveedores, órdenes y stock actual por el archivo seleccionado.\n\n¿Desea continuar?",
+            "Esto reemplazarÃ¡ productos, clientes, proveedores, Ã³rdenes y stock actual por el archivo seleccionado.\n\nÂ¿Desea continuar?",
             parent=self.app_root,
         ):
             return
@@ -271,12 +277,12 @@ class MainWindow(ttk.Frame):
             CommandAction("go_purchases", "Ir a Compras", callback=self.show_purchases, keywords=["oc", "orden de compra"]),
             CommandAction("go_sales", "Ir a Ventas", callback=self.show_sales, keywords=["ov", "boletas", "ventas"]),
             CommandAction("go_inventory", "Ir a Inventario", callback=self.show_inventory, keywords=["kardex", "bodega"]),
-            CommandAction("go_orders", "Ir a Órdenes", callback=self.show_orders_admin, keywords=["admin", "oc", "ov"]),
-            CommandAction("go_reports", "Ir a Informes", callback=self.show_report_center, keywords=["reportes", "informes"]),  # ← NUEVO
-            CommandAction("go_catalog", "Ir a Catálogo", callback=self.show_catalog, keywords=["catalogo", "pdf"]),
-            CommandAction("act_new", "Nuevo registro", callback=self._new_current, category="Acción", shortcut="Ctrl+N"),
-            CommandAction("act_save", "Guardar cambios", callback=self._save_current, category="Acción", shortcut="Ctrl+S"),
-            CommandAction("act_print", "Imprimir vista", callback=self._print_current, category="Acción", shortcut="Ctrl+P"),
+            CommandAction("go_orders", "Ir a Ã“rdenes", callback=self.show_orders_admin, keywords=["admin", "oc", "ov"]),
+            CommandAction("go_reports", "Ir a Informes", callback=self.show_report_center, keywords=["reportes", "informes"]),  # â† NUEVO
+            CommandAction("go_catalog", "Ir a CatÃ¡logo", callback=self.show_catalog, keywords=["catalogo", "pdf"]),
+            CommandAction("act_new", "Nuevo registro", callback=self._new_current, category="AcciÃ³n", shortcut="Ctrl+N"),
+            CommandAction("act_save", "Guardar cambios", callback=self._save_current, category="AcciÃ³n", shortcut="Ctrl+S"),
+            CommandAction("act_print", "Imprimir vista", callback=self._print_current, category="AcciÃ³n", shortcut="Ctrl+P"),
         ]
         if hasattr(view, "actions") and callable(getattr(view, "actions")):
             try:
@@ -300,7 +306,7 @@ class MainWindow(ttk.Frame):
     def show_sales(self) -> None: self._select_tab_by_widget(self.sales_tab)
     def show_inventory(self) -> None: self._select_tab_by_widget(self.inventory_tab)
     def show_orders_admin(self) -> None: self._select_tab_by_widget(self.orders_admin_tab)
-    def show_report_center(self) -> None: self._select_tab_by_widget(self.report_center_tab)  # ← NUEVO
+    def show_report_center(self) -> None: self._select_tab_by_widget(self.report_center_tab)  # â† NUEVO
     def show_catalog(self) -> None: self._select_tab_by_widget(self.catalog_tab)
 
     def _new_current(self) -> None:
@@ -318,7 +324,7 @@ class MainWindow(ttk.Frame):
             if hasattr(view, name) and callable(getattr(view, name)):
                 try:
                     getattr(view, name)()
-                    self.status.flash("Guardado con éxito", kind="success", ms=1400)
+                    self.status.flash("Guardado con Ã©xito", kind="success", ms=1400)
                 except Exception as ex:
                     Toast.show(self.app_root, f"Error al guardar: {ex}", kind="danger", position="tr")
                     self.status.flash("Error al guardar", kind="danger", ms=1400)
@@ -327,13 +333,13 @@ class MainWindow(ttk.Frame):
 
     def _print_current(self) -> None:
         view = self._current_view()
-        for name in ("print_current", "print_inventory", "print", "export_pdf"):  # ← incluye print_inventory
+        for name in ("print_current", "print_inventory", "print", "export_pdf"):  # â† incluye print_inventory
             if hasattr(view, name) and callable(getattr(view, name)):
                 try:
                     self.status.progress_start(indeterminate=True)
                     getattr(view, name)()
                     self.status.progress_hide()
-                    self.status.flash("Impresión enviada", kind="success", ms=1400)
+                    self.status.flash("ImpresiÃ³n enviada", kind="success", ms=1400)
                 except Exception as ex:
                     self.status.progress_hide()
                     Toast.show(self.app_root, f"Error al imprimir: {ex}", kind="danger", position="tr")
@@ -347,9 +353,14 @@ class MainWindow(ttk.Frame):
             try:
                 w.refresh_lookups()
             except Exception as ex:
+                # Evita fallar si la vista aÃºn no terminÃ³ de construir widgets
                 print(f"Error al refrescar lookups: {ex}", file=sys.stderr)
+                try:
+                    self.app_root.after(200, lambda: getattr(w, "refresh_lookups", lambda: None)())
+                except Exception:
+                    pass
         tab_text = self.notebook.tab(self.notebook.select(), "text")
-        self.status.set_message(f"Vista: {tab_text} — Ctrl+K para comandos")
+        self.status.set_message(f"Vista: {tab_text} â€” Ctrl+K para comandos")
         self._save_last_tab_index()
 
     def _restore_ui_state(self) -> None:
@@ -358,14 +369,14 @@ class MainWindow(ttk.Frame):
             cfg.read(UI_STATE_PATH, encoding="utf-8")
         geom = cfg.get("mainwindow", "geometry", fallback="")
         if geom:
-            # Restaura la geometría, pero asegúrate de que quede visible
+            # Restaura la geometrÃ­a, pero asegÃºrate de que quede visible
             try:
                 self.app_root.geometry(geom)
             except Exception:
                 pass
             self._ensure_on_screen()
         else:
-            # Si no hay geometría guardada, centra dentro de la pantalla actual
+            # Si no hay geometrÃ­a guardada, centra dentro de la pantalla actual
             self._center_on_screen()
         last_idx = cfg.getint("mainwindow", "last_tab_index", fallback=0)
         try:
@@ -374,20 +385,20 @@ class MainWindow(ttk.Frame):
             pass
 
     def _ensure_on_screen(self) -> None:
-        """Garantiza que la ventana esté dentro de los límites visibles.
-        Si la geometría previa estaba en un monitor secundario ausente,
+        """Garantiza que la ventana estÃ© dentro de los lÃ­mites visibles.
+        Si la geometrÃ­a previa estaba en un monitor secundario ausente,
         reubica/clampa la ventana para que sea visible.
         """
         root = self.app_root
         try:
             root.update_idletasks()
-            # Tamaños actuales (si aún no se calculan, usa requeridos)
+            # TamaÃ±os actuales (si aÃºn no se calculan, usa requeridos)
             w = root.winfo_width() or root.winfo_reqwidth()
             h = root.winfo_height() or root.winfo_reqheight()
-            # Posición actual
+            # PosiciÃ³n actual
             x = root.winfo_x()
             y = root.winfo_y()
-            # Tamaño de escritorio virtual (múltiples monitores)
+            # TamaÃ±o de escritorio virtual (mÃºltiples monitores)
             v_w = max(getattr(root, 'winfo_vrootwidth', lambda: 0)() or 0, root.winfo_screenwidth())
             v_h = max(getattr(root, 'winfo_vrootheight', lambda: 0)() or 0, root.winfo_screenheight())
 
@@ -400,7 +411,7 @@ class MainWindow(ttk.Frame):
             if new_x != x or new_y != y:
                 root.geometry(f"{w}x{h}+{new_x}+{new_y}")
         except Exception:
-            # Ante cualquier error, como último recurso centra
+            # Ante cualquier error, como Ãºltimo recurso centra
             self._center_on_screen()
 
     def _center_on_screen(self) -> None:
@@ -460,8 +471,8 @@ class MainWindow(ttk.Frame):
             return
         if not messagebox.askyesno(
             "Limpiar base de datos",
-            "Esto eliminará TODOS los registros (productos, proveedores, clientes,\n"
-            "ventas, compras, inventario y documentos ERP).\n\n¿Desea continuar?",
+            "Esto eliminarÃ¡ TODOS los registros (productos, proveedores, clientes,\n"
+            "ventas, compras, inventario y documentos ERP).\n\nÂ¿Desea continuar?",
             parent=self.app_root,
         ):
             return
@@ -537,7 +548,7 @@ class MainWindow(ttk.Frame):
 
         if not messagebox.askyesno(
             "Sembrar SURT",
-            "Se insertaran/actualizaran proveedor y productos basicos.\n\n¿Continuar?",
+            "Se insertaran/actualizaran proveedor y productos basicos.\n\nÂ¿Continuar?",
             parent=self.app_root,
         ):
             return
@@ -545,12 +556,12 @@ class MainWindow(ttk.Frame):
         try:
             create_purchase = messagebox.askyesno(
                 "Sembrar SURT",
-                "¿Crear tambien una Orden de Compra (Pendiente)?",
+                "Â¿Crear tambien una Orden de Compra (Pendiente)?",
                 parent=self.app_root,
             )
             sum_stock = messagebox.askyesno(
                 "Sembrar SURT",
-                "¿Sumar stock segun cantidades de la orden?",
+                "Â¿Sumar stock segun cantidades de la orden?",
                 parent=self.app_root,
             )
 
@@ -577,7 +588,7 @@ class MainWindow(ttk.Frame):
                 pass
 
     def _refresh_all(self) -> None:
-        """Refresca todas las pestañas de la aplicacion de forma segura."""
+        """Refresca todas las pestaÃ±as de la aplicacion de forma segura."""
         views = [
             getattr(self, "products_tab", None),
             getattr(self, "suppliers_tab", None),

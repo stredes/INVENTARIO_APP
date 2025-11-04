@@ -26,7 +26,9 @@ from src.utils.money import D, q2, q0
 
 def _fmt_money(value, currency: str) -> str:
     try:
-        if currency.upper() == "CLP":
+        cur = (currency or "CLP").strip().upper()
+        # Tratar sinónimos como CLP
+        if cur in ("CLP", "PESO CHILENO", "PESOS CHILENOS", "CHILEAN PESO", "CHILEAN PESOS"):
             return f"{D(value):,.0f}".replace(",", ".")
         return f"{D(value):,.2f}"
     except Exception:

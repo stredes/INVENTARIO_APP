@@ -7,6 +7,7 @@ from typing import List, Optional
 from src.data.database import get_session
 from src.data.models import Supplier
 from src.data.repository import SupplierRepository
+from src.utils.validators import is_valid_rut_chile, normalize_rut, is_valid_email
 
 # Grilla tipo hoja (tksheet si está instalado; si no, Treeview)
 from src.gui.widgets.grid_table import GridTable
@@ -115,7 +116,7 @@ class SuppliersView(ttk.Frame):
 
     def _normalize_rut(self, rut: str) -> str:
         """Normaliza espacios y mayúsculas."""
-        return rut.replace(" ", "").strip().upper()
+        return normalize_rut(rut)
 
     def _selected_row_index(self) -> Optional[int]:
         """Índice de fila seleccionada en la grilla (None si no hay)."""
@@ -152,12 +153,12 @@ class SuppliersView(ttk.Frame):
         if not rut:
             self._warn("El RUT es obligatorio.")
             return None
-        if not validar_rut_chileno(rut):
-            self._warn("El RUT no tiene un formato válido (ej: 12345678-9).")
+        if not is_valid_rut_chile(rut):
+            self._warn("El RUT no tiene un formato válido (revise dígito verificador, ej: 12345678-5).")
             return None
-        # Validación mínima de email
+        # Validación de email
         email = self.var_email.get().strip() or None
-        if email and "@" not in email:
+        if not is_valid_email(email):
             self._warn("El email no parece válido.")
             return None
 

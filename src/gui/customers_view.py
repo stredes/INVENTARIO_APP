@@ -7,6 +7,7 @@ from typing import List, Optional
 from src.data.database import get_session
 from src.data.models import Customer
 from src.data.repository import CustomerRepository
+from src.utils.validators import is_valid_rut_chile, normalize_rut, is_valid_email
 
 # Rejilla real (tksheet) o fallback Treeview
 from src.gui.widgets.grid_table import GridTable
@@ -81,7 +82,7 @@ class CustomersView(ttk.Frame):
     # ---------- Utilidades ----------
     def _normalize_rut(self, rut: str) -> str:
         """Normaliza formato básico del RUT."""
-        return rut.replace(" ", "").strip().upper()
+        return normalize_rut(rut)
 
     def _apply_column_widths(self) -> None:
         """Ajusta anchos de columnas tanto en tksheet como en Treeview."""
@@ -112,9 +113,13 @@ class CustomersView(ttk.Frame):
         if not rut:
             messagebox.showwarning("Validación", "El RUT es obligatorio.")
             return None
+        # Validación de RUT (con dígito verificador)
+        if not is_valid_rut_chile(rut):
+            messagebox.showwarning("Validación", "El RUT no es válido (revise dígito verificador).")
+            return None
 
         email = self.var_email.get().strip() or None
-        if email and "@" not in email:
+        if not is_valid_email(email):
             messagebox.showwarning("Validación", "El email no parece válido.")
             return None
 

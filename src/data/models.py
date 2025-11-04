@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     UniqueConstraint,
+    CheckConstraint,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -59,6 +60,12 @@ class Supplier(Base):
 # ====================================================
 class Product(Base):
     __tablename__ = "products"
+    __table_args__ = (
+        CheckConstraint("precio_compra >= 0", name="ck_products_precio_compra_nonneg"),
+        CheckConstraint("precio_venta >= 0", name="ck_products_precio_venta_nonneg"),
+        CheckConstraint("stock_actual >= 0", name="ck_products_stock_nonneg"),
+        CheckConstraint("length(trim(sku)) > 0", name="ck_products_sku_not_empty"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     nombre: Mapped[str] = mapped_column(String, nullable=False)
@@ -146,6 +153,9 @@ class Location(Base):
 # ====================================================
 class Purchase(Base):
     __tablename__ = "purchases"
+    __table_args__ = (
+        CheckConstraint("total_compra >= 0", name="ck_purchases_total_nonneg"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     id_proveedor: Mapped[int] = mapped_column(ForeignKey("suppliers.id"), nullable=False)
@@ -181,6 +191,13 @@ class Purchase(Base):
 
 class PurchaseDetail(Base):
     __tablename__ = "purchase_details"
+    __table_args__ = (
+        CheckConstraint("cantidad > 0", name="ck_purchase_details_qty_pos"),
+        CheckConstraint("precio_unitario > 0", name="ck_purchase_details_price_pos"),
+        CheckConstraint("subtotal >= 0", name="ck_purchase_details_subtotal_nonneg"),
+        CheckConstraint("received_qty >= 0", name="ck_purchase_details_received_nonneg"),
+        CheckConstraint("received_qty <= cantidad", name="ck_purchase_details_received_le_qty"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     id_compra: Mapped[int] = mapped_column(ForeignKey("purchases.id", ondelete="CASCADE"), nullable=False)
@@ -216,6 +233,10 @@ class Reception(Base):
 # ====================================================
 class StockEntry(Base):
     __tablename__ = "stock_entries"
+    __table_args__ = (
+        CheckConstraint("cantidad > 0", name="ck_stock_entries_qty_pos"),
+        CheckConstraint("NOT (lote IS NOT NULL AND serie IS NOT NULL)", name="ck_stock_entries_lote_xor_serie"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     id_producto: Mapped[int] = mapped_column(ForeignKey("products.id"), nullable=False)
@@ -240,17 +261,27 @@ class StockEntry(Base):
 
 class StockExit(Base):
     __tablename__ = "stock_exits"
+    __table_args__ = (
+        CheckConstraint("cantidad > 0", name="ck_stock_exits_qty_pos"),
+        CheckConstraint("NOT (lote IS NOT NULL AND serie IS NOT NULL)", name="ck_stock_exits_lote_xor_serie"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     id_producto: Mapped[int] = mapped_column(ForeignKey("products.id"), nullable=False)
+    # Permitir identificar lote/serie y ubicación de la salida para multi-lote
+    id_ubicacion: Mapped[Optional[int]] = mapped_column(ForeignKey("locations.id"), nullable=True)
     cantidad: Mapped[int] = mapped_column(Integer, nullable=False)
     motivo: Mapped[Optional[str]] = mapped_column(String)
+    # Opcional: enlazar salida a un lote/serie específico
+    lote: Mapped[Optional[str]] = mapped_column(String)
+    serie: Mapped[Optional[str]] = mapped_column(String)
     fecha: Mapped[dt] = mapped_column(DateTime, nullable=False, default=dt.utcnow)
 
     product: Mapped["Product"] = relationship()
+    location: Mapped[Optional["Location"]] = relationship()
 
     def __repr__(self) -> str:
-        return f"<StockExit prod={self.id_producto} -{self.cantidad}>"
+        return f"<StockExit prod={self.id_producto} -{self.cantidad} lote={getattr(self,'lote',None)} serie={getattr(self,'serie',None)}>"
 
 
 # ====================================================
@@ -285,6 +316,9 @@ class Customer(Base):
 # ====================================================
 class Sale(Base):
     __tablename__ = "sales"
+    __table_args__ = (
+        CheckConstraint("total_venta >= 0", name="ck_sales_total_nonneg"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     id_cliente: Mapped[int] = mapped_column(ForeignKey("customers.id"), nullable=False)
@@ -303,6 +337,11 @@ class Sale(Base):
 
 class SaleDetail(Base):
     __tablename__ = "sale_details"
+    __table_args__ = (
+        CheckConstraint("cantidad > 0", name="ck_sale_details_qty_pos"),
+        CheckConstraint("precio_unitario > 0", name="ck_sale_details_price_pos"),
+        CheckConstraint("subtotal >= 0", name="ck_sale_details_subtotal_nonneg"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     id_venta: Mapped[int] = mapped_column(ForeignKey("sales.id", ondelete="CASCADE"), nullable=False)
