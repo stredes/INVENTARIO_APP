@@ -53,7 +53,7 @@ def generate_pos_ticket_to_downloads(
     auto_open: bool = True,
 ) -> Path:
     """
-    Genera un ticket tipo POS (boleta) compacto en la carpeta Descargas.
+    Genera un ticket tipo POS (baucher de compra) compacto en la carpeta Descargas.
     - width_mm: ancho del papel
     - alto se calcula según cantidad de ítems
     """
@@ -76,7 +76,7 @@ def generate_pos_ticket_to_downloads(
 
     out_dir = _downloads_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
-    fname = f"boleta_{folio}_{fecha.strftime('%Y%m%d-%H%M%S')}.pdf"
+    fname = f"baucher_de_compra_{folio}_{fecha.strftime('%Y%m%d-%H%M%S')}.pdf"
     out_path = out_dir / fname
 
     c = canvas.Canvas(str(out_path), pagesize=(w_pt, h_pt))
@@ -87,7 +87,7 @@ def generate_pos_ticket_to_downloads(
 
     # Header
     c.setFont("Helvetica-Bold", 10)
-    c.drawCentredString(w_pt / 2, y, "BOLETA DE VENTA")
+    c.drawCentredString(w_pt / 2, y, "BAUCHER DE COMPRA")
     y -= 12
     c.setFont("Helvetica", 8)
     c.drawCentredString(w_pt / 2, y, f"Nº {folio}")

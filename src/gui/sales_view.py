@@ -490,7 +490,7 @@ class SalesView(ttk.Frame):
                 pass
 
     def _on_quick_checkout(self) -> None:
-        """Confirma venta como 'Pagada' y genera boleta PDF (Descargas).
+        """Confirma venta como 'Pagada' y genera baucher de compra PDF (Descargas).
         Requiere cliente seleccionado.
         """
         try:
@@ -521,7 +521,7 @@ class SalesView(ttk.Frame):
                 apply_to_stock=apply_to_stock,
             )
 
-            # 4) Generar Boleta POS (ticket 80mm) en Descargas
+            # 4) Generar Baucher de compra POS (ticket 80mm) en Descargas
             try:
                 from datetime import datetime
                 from src.reports.pos_receipt import generate_pos_ticket_to_downloads
@@ -567,10 +567,10 @@ class SalesView(ttk.Frame):
                     iva_percent=19.0,
                     auto_open=True,
                 )
-                self._info(f"Venta registrada y boleta generada:\n{out}")
+                self._info(f"Venta registrada y baucher de compra generada:\n{out}")
             except Exception:
                 # Si el PDF falla, al menos informar venta creada
-                self._info("Venta registrada (Pagada). No se pudo generar la boleta.")
+                self._info("Venta registrada (Pagada). No se pudo generar el baucher de compra.")
 
             # 5) Limpiar UI
             self._on_clear_table()

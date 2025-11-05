@@ -276,7 +276,7 @@ class MainWindow(ttk.Frame):
             CommandAction("go_suppliers", "Ir a Proveedores", callback=self.show_suppliers, keywords=["proveedores"]),
             CommandAction("go_customers", "Ir a Clientes", callback=self.show_customers, keywords=["clientes"]),
             CommandAction("go_purchases", "Ir a Compras", callback=self.show_purchases, keywords=["oc", "orden de compra"]),
-            CommandAction("go_sales", "Ir a Ventas", callback=self.show_sales, keywords=["ov", "boletas", "ventas"]),
+            CommandAction("go_sales", "Ir a Ventas", callback=self.show_sales, keywords=["ov", "baucher", "baucher de compra", "ventas"]),
             CommandAction("go_inventory", "Ir a Inventario", callback=self.show_inventory, keywords=["kardex", "bodega"]),
             CommandAction("go_orders", "Ir a Ã“rdenes", callback=self.show_orders_admin, keywords=["admin", "oc", "ov"]),
             CommandAction("go_reports", "Ir a Informes", callback=self.show_report_center, keywords=["reportes", "informes"]),  # â† NUEVO
