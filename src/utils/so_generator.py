@@ -179,12 +179,12 @@ def generate_so_pdf(
         data.append([
             str(idx), str(it.get("codigo") or it.get("id", "") or ""), Paragraph(it.get("nombre", "") or "", cell), it.get("unidad", "U") or "U",
             f"{int(cantidad) if cantidad == cantidad.to_integral_value() else cantidad}",
-            _fmt_money(precio_mostrar, currency), f"{dcto} %", _fmt_money(subtotal_linea, currency),
+            _fmt_money(precio_mostrar, currency), f"{float(dcto):.0f} %", _fmt_money(subtotal_linea, currency),
         ])
 
     items_table = Table(
         data,
-        colWidths=[8 * mm, 16 * mm, 70 * mm, 12 * mm, 16 * mm, 28 * mm, 12 * mm, 20 * mm],
+        colWidths=[8 * mm, 18 * mm, 68 * mm, 12 * mm, 14 * mm, 30 * mm, 14 * mm, 18 * mm],
         repeatRows=1,
     )
     items_table.setStyle(TableStyle([
@@ -205,9 +205,9 @@ def generate_so_pdf(
     # Totales: Neto / IVA / Total (Neto + 19%)
     story.append(_band("Facturación"))
     story.append(Spacer(1, 2 * mm))
-    neto = q2(suma_neto)
-    iva = q2(neto * iva_rate)
-    total_v = q2(neto + iva)
+    total_v = q2(suma_neto)
+    neto = q2(total_v / (D(1) + iva_rate))
+    iva = q2(total_v - neto)
     p2 = ParagraphStyle(name="p2", fontName="Helvetica", fontSize=10, leading=13)
     tot_tbl = Table([
         [Paragraph("<b>Neto :</b>", p2), Paragraph(_fmt_money(neto, currency), p2)],
@@ -240,6 +240,8 @@ def generate_so_pdf(
 
     doc.build(story)
     return str(output_path)
+
+
 
 
 

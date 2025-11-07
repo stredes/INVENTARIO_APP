@@ -127,7 +127,7 @@ class SalesView(ttk.Frame):
         self.var_prod_code = tk.StringVar(value="")
         self.var_prod_desc = tk.StringVar(value="")
         self.var_unidad = tk.StringVar(value="Unidades")
-        self.var_desc_tipo = tk.StringVar(value="Monto")
+        self.var_desc_tipo = tk.StringVar(value="Porcentaje")
         self.var_desc_val = tk.DoubleVar(value=0.0)
         self.var_ccosto = tk.StringVar(value="1001 - Ventas")
         self.var_moneda = tk.StringVar(value="PESO CHILENO")
@@ -147,9 +147,9 @@ class SalesView(ttk.Frame):
         cb_unid.grid(row=2, column=1, sticky="w", padx=4, pady=4)
         ttk.Label(det, text="Tipo desc").grid(row=2, column=2, sticky="e", padx=4, pady=4)
         cb_tipo = ttk.Combobox(det, textvariable=self.var_desc_tipo, state="readonly",
-                                values=["Monto", "Porcentaje"])
+                                values=["Porcentaje"])
         cb_tipo.grid(row=2, column=3, sticky="w", padx=4, pady=4)
-        ttk.Label(det, text="Descuento").grid(row=2, column=4, sticky="e", padx=4, pady=4)
+        ttk.Label(det, text="Descuento (%)").grid(row=2, column=4, sticky="e", padx=4, pady=4)
         ent_desc = ttk.Entry(det, textvariable=self.var_desc_val, width=12)
         ent_desc.grid(row=2, column=5, sticky="w", padx=4, pady=4)
         ttk.Label(det, text="Monto neto").grid(row=2, column=6, sticky="e", padx=4, pady=4)
@@ -309,7 +309,7 @@ class SalesView(ttk.Frame):
         self.var_prod_code = tk.StringVar(value="")
         self.var_prod_desc = tk.StringVar(value="")
         self.var_unidad = tk.StringVar(value="Unidades")
-        self.var_desc_tipo = tk.StringVar(value="Monto")  # Monto | Porcentaje
+        self.var_desc_tipo = tk.StringVar(value="Porcentaje")  # Monto | Porcentaje
         self.var_desc_val = tk.DoubleVar(value=0.0)
         self.var_ccosto = tk.StringVar(value="1001 - Ventas")
         self.var_moneda = tk.StringVar(value="PESO CHILENO")
@@ -330,9 +330,9 @@ class SalesView(ttk.Frame):
                      values=["Unidades", "Caja", "Bolsa", "kg", "lt", "ml"]).grid(row=2, column=1, sticky="w", padx=4, pady=4)
         ttk.Label(det, text="Tipo desc").grid(row=2, column=2, sticky="e", padx=4, pady=4)
         cb_tipo = ttk.Combobox(det, textvariable=self.var_desc_tipo, state="readonly", width=12,
-                               values=["Monto", "Porcentaje"])
+                               values=["Porcentaje"])
         cb_tipo.grid(row=2, column=3, sticky="w", padx=4, pady=4)
-        ttk.Label(det, text="Descuento").grid(row=2, column=4, sticky="e", padx=4, pady=4)
+        ttk.Label(det, text="Descuento (%)").grid(row=2, column=4, sticky="e", padx=4, pady=4)
         ent_desc = ttk.Entry(det, textvariable=self.var_desc_val, width=12)
         ent_desc.grid(row=2, column=5, sticky="w", padx=4, pady=4)
         ttk.Label(det, text="Monto neto").grid(row=2, column=6, sticky="e", padx=4, pady=4)
@@ -724,7 +724,7 @@ class SalesView(ttk.Frame):
                 desc_val = float(self.var_desc_val.get() or 0)
             except Exception:
                 desc_val = 0.0
-            desc_tipo = (self.var_desc_tipo.get() or 'Monto').strip()
+            desc_tipo = "Porcentaje"
             disc = 0.0  # porcentaje equivalente para la columna
             eff_price = D(price)
             if desc_tipo == 'Monto':
@@ -788,7 +788,7 @@ class SalesView(ttk.Frame):
     def _recalc_net(self):
         try:
             price = float(self.ent_price.get() or 0)
-            desc_tipo = (self.var_desc_tipo.get() or 'Monto').strip()
+            desc_tipo = "Porcentaje"
             desc_val = float(self.var_desc_val.get() or 0)
             neto = price
             pct = 0.0
@@ -1233,4 +1233,5 @@ class SalesView(ttk.Frame):
     def _stamp() -> str:
         from datetime import datetime
         return datetime.now().strftime("%Y%m%d-%H%M%S")
+
 

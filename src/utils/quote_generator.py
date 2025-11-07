@@ -1,6 +1,6 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 """
-Generador de Cotizacion (PDF) con etiquetas en ASCII para evitar caracteres extraños.
+Generador de Cotizacion (PDF) con etiquetas en ASCII para evitar caracteres extraÃ±os.
 
 API principal:
     generate_quote_to_downloads(quote_number, supplier, items, currency="CLP", notes=None, auto_open=True)
@@ -21,6 +21,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+from src.utils.po_generator import open_file
 from reportlab.lib.styles import ParagraphStyle
 
 from src.utils.helpers import get_company_info, get_downloads_dir, get_po_payment_method
@@ -87,11 +88,12 @@ def _header(company: Dict[str, Any], quote_number: str):
 def _items_table(items: List[Dict[str, object]], currency: str) -> Table:
     hdr = ParagraphStyle(name="hdr", fontName="Helvetica-Bold", fontSize=8, leading=9, alignment=1)
     cell = ParagraphStyle(name="cell", fontName="Helvetica", fontSize=9, leading=11)
-    col_widths = [8, 16, 70, 12, 16, 28, 10, 22]
+    # Ajuste de anchos (mm): más espacio a precios y descuento
+    col_widths = [8, 18, 68, 12, 14, 30, 14, 18]
     assert sum(col_widths) == 182
     headers = [
         Paragraph("Item", hdr), Paragraph("Codigo", hdr), Paragraph("Descripcion", hdr), Paragraph("Unidad", hdr),
-        Paragraph("Cantidad", hdr), Paragraph("Precio Venta", hdr), Paragraph("Dcto", hdr), Paragraph("Total", hdr)
+        Paragraph("Cantidad", hdr), Paragraph("Precio Venta", hdr), Paragraph("Dcto (%)", hdr), Paragraph("Total", hdr)
     ]
     data = [headers]
     for idx, it in enumerate(items, start=1):
@@ -111,7 +113,7 @@ def _items_table(items: List[Dict[str, object]], currency: str) -> Table:
             str(it.get("unidad", "U") or "U"),
             f"{int(cant) if cant == cant.to_integral_value() else cant}",
             _fmt_moneda(precio_mostrar, currency),
-            Paragraph(f"{dcto} %", cell),
+            Paragraph(f"{float(dcto):.0f} %", cell),
             _fmt_moneda(sub_line, currency),
         ])
     tbl = Table(data, colWidths=[w * mm for w in col_widths], repeatRows=1)
@@ -128,21 +130,22 @@ def _items_table(items: List[Dict[str, object]], currency: str) -> Table:
 
 
 def _totals_block(company: Dict[str, Any], items: List[Dict[str, object]], currency: str):
+    # Precio de venta incluye IVA: sumar subtotales BRUTOS y derivar Neto/IVA
     iva_rate = D("0.19")
-    net_total = D(0)
+    gross_total = D(0)
     for it in items:
         cant = D(it.get("cantidad", 0) or 0)
         precio = D(it.get("precio", 0) or 0)
         dcto = D(it.get("descuento_porcentaje", it.get("dcto", 0)) or 0)
         if it.get("subtotal") is not None:
-            sub = D(it.get("subtotal") or 0)
+            sub_bruto = D(it.get("subtotal") or 0)
         else:
-            sub = cant * precio * (D(1) - dcto / D(100))
-        sub = q0(sub) if currency.upper() == "CLP" else q2(sub)
-        net_total += sub
-    neto = net_total
-    iva = q0(neto * iva_rate) if currency.upper() == "CLP" else q2(neto * iva_rate)
-    total = neto + iva
+            sub_bruto = cant * precio * (D(1) - dcto / D(100))
+        sub_bruto = q0(sub_bruto) if currency.upper() == "CLP" else q2(sub_bruto)
+        gross_total += sub_bruto
+    total = gross_total
+    neto = q0(total / (D(1) + iva_rate)) if currency.upper() == "CLP" else q2(total / (D(1) + iva_rate))
+    iva = q0(total - neto) if currency.upper() == "CLP" else q2(total - neto)
 
     p = ParagraphStyle(name="p", fontName="Helvetica", fontSize=10, leading=13)
     tot_tbl = Table([
@@ -227,7 +230,9 @@ def generate_quote_to_downloads(
 
     if auto_open:
         try:
-            webbrowser.open(out_path.as_uri())
+            open_file(str(out_path))
         except Exception:
             pass
     return str(out_path)
+
+

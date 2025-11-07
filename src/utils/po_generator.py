@@ -195,7 +195,7 @@ def generate_po_pdf(
     cell = ParagraphStyle(name="cell", fontName="Helvetica", fontSize=9, leading=11)
     headers = [
         Paragraph("Item", hdr), Paragraph("Codigo", hdr), Paragraph("Descripcion", hdr), Paragraph("Unidad", hdr),
-        Paragraph("Cantidad", hdr), Paragraph("Precio Unit.<br/>(sin IVA)", hdr), Paragraph("Dcto", hdr), Paragraph("Total<br/>(sin IVA)", hdr)
+        Paragraph("Cantidad", hdr), Paragraph("Precio Unit.<br/>(sin IVA)", hdr), Paragraph("Dcto (%)", hdr), Paragraph("Total<br/>(sin IVA)", hdr)
     ]
     data = [headers]
     net_total = D(0)
@@ -209,12 +209,12 @@ def generate_po_pdf(
         dcto_rate = dcto_pct / D(100)
         dcto_monto_raw = cantidad * precio_neto * dcto_rate
         subtotal_neto_raw = cantidad * precio_neto - dcto_monto_raw
-        dcto_monto = q0(dcto_monto_raw) if currency.upper() == "CLP" else q2(dcto_monto_raw)
+        # Para mostrar en la columna usamos el porcentaje, no el monto
         subtotal_neto = q0(subtotal_neto_raw) if currency.upper() == "CLP" else q2(subtotal_neto_raw)
         data.append([
             str(idx), str(it.get("id", "") or ""), Paragraph(it.get("nombre", "") or "", cell), it.get("unidad", "U") or "U",
             f"{int(cantidad) if cantidad == cantidad.to_integral_value() else cantidad}",
-            _fmt_money(precio_neto, currency), _fmt_money(dcto_monto, currency), _fmt_money(subtotal_neto, currency),
+            _fmt_money(precio_neto, currency), f"{float(dcto_pct):.0f} %", _fmt_money(subtotal_neto, currency),
         ])
         net_total += D(subtotal_neto)
         sub_bruto = D(it.get("subtotal", (cantidad * precio_bruto)))
@@ -224,7 +224,7 @@ def generate_po_pdf(
     # Ajuste de anchos: mÃ¡s espacio a "Unidad" para cadenas como "caja x 12"
     items_table = Table(
         data,
-        colWidths=[8 * mm, 16 * mm, 64 * mm, 20 * mm, 16 * mm, 28 * mm, 10 * mm, 22 * mm],
+        colWidths=[8 * mm, 18 * mm, 68 * mm, 12 * mm, 14 * mm, 30 * mm, 14 * mm, 18 * mm],
         repeatRows=1,
     )
     items_table.setStyle(TableStyle([

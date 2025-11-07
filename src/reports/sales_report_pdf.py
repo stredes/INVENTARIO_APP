@@ -188,14 +188,14 @@ def _venta_page_story(row: Dict[str, Any], styles, company: dict) -> List:
     # --- Ãtems
     items: List[Dict[str, Any]] = list(row.get("items") or [])
     data = [["CÃ³digo", "DescripciÃ³n", "Cantidad", "Precio (CLP)", "Subtotal (CLP)"]]
-    neto_calc = 0.0
+    total_calc = 0.0
     for it in items:
         cod = it.get("codigo") or ""
         desc = it.get("descripcion") or ""
         cant = float(it.get("cantidad") or 0)
         precio = float(it.get("precio") or 0)
         subtotal = float(it.get("subtotal") or cant * precio)
-        neto_calc += subtotal
+        total_calc += subtotal
         data.append([
             Paragraph(str(cod), styles["cell"]),
             Paragraph(desc, styles["cell"]),
@@ -220,9 +220,9 @@ def _venta_page_story(row: Dict[str, Any], styles, company: dict) -> List:
 
     # --- Totales
     iva_percent = float(row.get("iva_percent", 19.0))
-    neto = float(row.get("neto", neto_calc))
-    iva = float(row.get("iva", round(neto * iva_percent / 100.0, 0)))
-    total = float(row.get("total", neto + iva))
+    total = float(row.get("total", total_calc))
+    neto = float(row.get("neto", round(total / (1.0 + iva_percent / 100.0))))
+    iva = float(row.get("iva", round(total - neto)))
 
     tot_tbl = Table([
         ["MONTO NETO $", _fmt_clp0(neto)],
@@ -390,3 +390,4 @@ def generate_sales_report_to_downloads(
             pass
 
     return out_path
+
