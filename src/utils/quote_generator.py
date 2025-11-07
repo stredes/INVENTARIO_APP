@@ -157,16 +157,10 @@ def _totals_block(company: Dict[str, Any], items: List[Dict[str, object]], curre
         ("BOX", (0, 0), (-1, -1), 0.25, colors.grey),
     ]))
 
-    left_lines = [
-        f"<b>Facturar a:</b> {company.get('name','')}",
-        f"RUT: {company.get('rut','-')}",
-        "Presentar factura en:",
-        company.get('address',''),
-    ]
-    left = Paragraph("<br/>".join([x for x in left_lines if x]), p)
-    tbl = Table([[left, tot_tbl]], colWidths=[110 * mm, 70 * mm])
-    tbl.setStyle(TableStyle([["VALIGN", (0, 0), (-1, -1), "TOP"]]))
-    return [tbl]
+    # Mostrar totales pegados a la derecha: envolver en tabla de 2 columnas
+    wrap = Table([["", tot_tbl]], colWidths=[110 * mm, 70 * mm])
+    wrap.setStyle(TableStyle([["VALIGN", (0, 0), (-1, -1), "TOP"]]))
+    return [wrap]
 
 
 def generate_quote_to_downloads(
@@ -237,4 +231,3 @@ def generate_quote_to_downloads(
         except Exception:
             pass
     return str(out_path)
-

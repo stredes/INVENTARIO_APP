@@ -261,16 +261,10 @@ def generate_po_pdf(
         ("BOX", (0, 0), (-1, -1), 0.25, colors.grey),
     ]))
 
-    fact_left_lines = [
-        f"<b>Facturar a:</b> {comp.get('name','')}",
-        f"RUT: {comp.get('rut','-')}",
-        "Presentar factura en:",
-        comp.get('address',''),
-    ]
-    fact_left = Paragraph("<br/>".join([x for x in fact_left_lines if x]), p)
-    fact_tbl = Table([[fact_left, tot_tbl]], colWidths=[110 * mm, 70 * mm])
-    fact_tbl.setStyle(TableStyle([["VALIGN", (0, 0), (-1, -1), "TOP"]]))
-    story.append(fact_tbl)
+    # Totales pegados a la derecha: envolver en tabla 110/70 mm
+    wrap_tbl = Table([["", tot_tbl]], colWidths=[110 * mm, 70 * mm])
+    wrap_tbl.setStyle(TableStyle([["VALIGN", (0, 0), (-1, -1), "TOP"]]))
+    story.append(wrap_tbl)
 
     # Observaciones / Terminos
     story.append(Spacer(1, 3 * mm))
