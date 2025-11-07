@@ -24,6 +24,7 @@ from src.reports.inventory_reports import (
     print_inventory_report,
 )
 from src.gui.printer_select_dialog import PrinterSelectDialog
+from src.utils.printers import get_document_printer
 
 
 # ----------------------------- Utilidades ----------------------------- #
@@ -342,11 +343,14 @@ class ReportCenter(ttk.Frame):
         if not key.startswith("inventory_"):
             messagebox.showinfo("Impresión", "Sólo compatible con informes de Inventario.")
             return
-        dlg = PrinterSelectDialog(self)
-        self.wait_window(dlg)
-        if not dlg.result:
-            return
-        printer_name = dlg.result
+        # Usar impresora predeterminada si está configurada; de lo contrario preguntar
+        printer_name = get_document_printer()
+        if not printer_name:
+            dlg = PrinterSelectDialog(self)
+            self.wait_window(dlg)
+            if not dlg.result:
+                return
+            printer_name = dlg.result
         try:
             flt = InventoryFilter(report_type=("completo" if key.endswith("full") else ("compra" if key.endswith("compra") else "venta")))
             path = print_inventory_report(self.session, flt, "Listado de Inventario", printer_name=printer_name)

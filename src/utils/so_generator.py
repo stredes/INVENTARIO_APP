@@ -45,7 +45,8 @@ def _header(company: Dict[str, Any], so_number: str):
     if logo_path and Path(logo_path).exists():
         try:
             img = Image(logo_path)
-            img._restrictSize(35 * mm, 20 * mm)
+            # Ampliar logo en órdenes: más ancho y un poco más alto
+            img._restrictSize(80 * mm, 50 * mm)
             logo_cell = img
         except Exception:
             logo_cell = Paragraph(f"<b>{company.get('name','')}</b>", h1)
@@ -59,8 +60,9 @@ def _header(company: Dict[str, Any], so_number: str):
         " | ".join([x for x in [f"Tel: {company.get('phone','')}" if company.get('phone') else '', company.get('email','')] if x]),
     ]
     comp_html = "<br/>".join([x for x in comp_lines if x])
-    right = Paragraph(f"<b>ORDEN DE VENTA</b><br/>Nº {so_number}", h1)
-    header_table = Table([[logo_cell, Paragraph(comp_html, p), right]], colWidths=[45 * mm, 90 * mm, 45 * mm])
+    right = Paragraph(f"<b>ORDEN DE VENTA</b><br/>No. {so_number}", h1)
+    # Ajustar columnas para logo ampliado
+    header_table = Table([[logo_cell, Paragraph(comp_html, p), right]], colWidths=[60 * mm, 80 * mm, 40 * mm])
     header_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("ALIGN", (2, 0), (2, -1), "RIGHT"),
@@ -151,12 +153,12 @@ def generate_so_pdf(
     story.append(details)
     story.append(Spacer(1, 4 * mm))
 
-    # Ítems: precio unitario sin IVA + descuento + total sin IVA
+    # Ítems: precio de venta (bruto) + descuento % + total
     hdr = ParagraphStyle(name="hdr", fontName="Helvetica-Bold", fontSize=8, leading=9, alignment=1)
     cell = ParagraphStyle(name="cell", fontName="Helvetica", fontSize=9, leading=11)
     headers = [
         Paragraph("Ítem", hdr), Paragraph("Código", hdr), Paragraph("Descripción", hdr), Paragraph("Unidad", hdr),
-        Paragraph("Cantidad", hdr), Paragraph("Precio Unit.<br/>(sin IVA)", hdr), Paragraph("Dcto (%)", hdr), Paragraph("Total<br/>(sin IVA)", hdr)
+        Paragraph("Cantidad", hdr), Paragraph("Precio Venta", hdr), Paragraph("Dcto (%)", hdr), Paragraph("Total", hdr)
     ]
     data = [headers]
     suma_neto = D(0)
@@ -165,13 +167,19 @@ def generate_so_pdf(
         cantidad = D(it.get("cantidad", 0) or 0)
         precio_bruto = D(it.get("precio", 0) or 0)
         dcto = D(it.get("descuento_porcentaje", 0) or 0)
-        precio_neto = precio_bruto / (D(1) + iva_rate)
-        total_linea_neto = cantidad * precio_neto * (D(1) - dcto / D(100))
-        suma_neto += q2(total_linea_neto)
+        # Mostrar precio de venta tal cual (bruto)
+        precio_mostrar = precio_bruto
+        # Subtotal de la línea como lo ve el usuario en la tabla de ventas (NETO)
+        if it.get("subtotal") is not None:
+            subtotal_linea = D(it.get("subtotal") or 0)
+        else:
+            subtotal_linea = cantidad * precio_bruto * (D(1) - dcto / D(100))
+        # Para totales: sumar neto directo
+        suma_neto += q2(subtotal_linea)
         data.append([
-            str(idx), str(it.get("id", "") or ""), Paragraph(it.get("nombre", "") or "", cell), it.get("unidad", "U") or "U",
+            str(idx), str(it.get("codigo") or it.get("id", "") or ""), Paragraph(it.get("nombre", "") or "", cell), it.get("unidad", "U") or "U",
             f"{int(cantidad) if cantidad == cantidad.to_integral_value() else cantidad}",
-            _fmt_money(precio_neto, currency), f"{dcto} %", _fmt_money(total_linea_neto, currency),
+            _fmt_money(precio_mostrar, currency), f"{dcto} %", _fmt_money(subtotal_linea, currency),
         ])
 
     items_table = Table(
@@ -194,7 +202,7 @@ def generate_so_pdf(
     story.append(items_table)
     story.append(Spacer(1, 4 * mm))
 
-    # Totales: Neto / IVA / Total
+    # Totales: Neto / IVA / Total (Neto + 19%)
     story.append(_band("Facturación"))
     story.append(Spacer(1, 2 * mm))
     neto = q2(suma_neto)
@@ -237,5 +245,7 @@ def generate_so_pdf(
 
     doc.build(story)
     return str(output_path)
+
+
 
 

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -27,7 +27,7 @@ from src.utils.money import D, q2, q0
 def _fmt_money(value, currency: str) -> str:
     try:
         cur = (currency or "CLP").strip().upper()
-        # Tratar sinónimos como CLP
+        # Tratar sinÃ³nimos como CLP
         if cur in ("CLP", "PESO CHILENO", "PESOS CHILENOS", "CHILEAN PESO", "CHILEAN PESOS"):
             return f"{D(value):,.0f}".replace(",", ".")
         return f"{D(value):,.2f}"
@@ -56,7 +56,8 @@ def _header(company: Dict[str, Any], po_number: str):
     if logo_path and Path(logo_path).exists():
         try:
             img = Image(logo_path)
-            img._restrictSize(35 * mm, 20 * mm)
+            # Ampliar logo en Ã³rdenes de compra: mÃ¡s grande conservando proporciÃ³n
+            img._restrictSize(60 * mm, 28 * mm)
             logo_cell = img
         except Exception:
             logo_cell = Paragraph(f"<b>{company.get('name','')}</b>", h1)
@@ -70,8 +71,8 @@ def _header(company: Dict[str, Any], po_number: str):
         " | ".join([x for x in [f"Tel: {company.get('phone','')}" if company.get('phone') else '', company.get('email','')] if x]),
     ]
     comp_html = "<br/>".join([x for x in comp_lines if x])
-    right = Paragraph(f"<b>ORDEN DE COMPRA</b><br/>Nº {po_number}", h1)
-    header_table = Table([[logo_cell, Paragraph(comp_html, p), right]], colWidths=[45 * mm, 90 * mm, 45 * mm])
+    right = Paragraph(f"<b>ORDEN DE COMPRA</b><br/>NÂº {po_number}", h1)
+    header_table = Table([[logo_cell, Paragraph(comp_html, p), right]], colWidths=[60 * mm, 80 * mm, 40 * mm])
     header_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("ALIGN", (2, 0), (2, -1), "RIGHT"),
@@ -130,7 +131,7 @@ def generate_po_pdf(
     story.append(_header(comp, po_number))
     story.append(Spacer(1, 4 * mm))
     warn = ParagraphStyle(name="warn", fontName="Helvetica-Bold", fontSize=12, textColor=colors.HexColor("#1E6AA8"), alignment=1)
-    story.append(Paragraph("*Documento sujeto a modificación (Provisorio)*", warn))
+    story.append(Paragraph("*Documento sujeto a modificacion (Provisorio)*", warn))
     story.append(Spacer(1, 4 * mm))
 
     # Detalles generales
@@ -138,11 +139,11 @@ def generate_po_pdf(
     story.append(Spacer(1, 2 * mm))
     p = ParagraphStyle(name="p", fontName="Helvetica", fontSize=10, leading=13)
     left_lines = [
-        ("Señor(es):", supplier.get('nombre') or supplier.get('razon_social') or "-"),
-        ("Atención:", supplier.get('contacto') or "-"),
-        ("Teléfono:", supplier.get('telefono') or "-"),
+        ("SeÃ±or(es):", supplier.get('nombre') or supplier.get('razon_social') or "-"),
+        ("AtenciÃ³n:", supplier.get('contacto') or "-"),
+        ("Telefono:", supplier.get('telefono') or "-"),
         ("Giro:", supplier.get('giro', '-') or "-"),
-        ("Dirección:", supplier.get('direccion') or "-"),
+        ("Direccion:", supplier.get('direccion') or "-"),
         ("Despachar a:", supplier.get('direccion') or "-"),
     ]
     # Si 'notes' contiene "F. Documento:" usamos ese valor en cabecera.
@@ -153,7 +154,7 @@ def generate_po_pdf(
             txt = str(notes)
             key = f"{label}:"
             if key in txt:
-                # Busca 'Label: valor' y toma hasta el próximo separador ' | ' o fin de línea
+                # Busca 'Label: valor' y toma hasta el prÃ³ximo separador ' | ' o fin de lÃ­nea
                 part = txt.split(key, 1)[1].strip()
                 for sep in [" | ", "\n"]:
                     if sep in part:
@@ -189,11 +190,11 @@ def generate_po_pdf(
     story.append(details)
     story.append(Spacer(1, 4 * mm))
 
-    # Ítems (precio y total sin IVA)
+    # Items (precio y total sin IVA)
     hdr = ParagraphStyle(name="hdr", fontName="Helvetica-Bold", fontSize=8, leading=9, alignment=1)
     cell = ParagraphStyle(name="cell", fontName="Helvetica", fontSize=9, leading=11)
     headers = [
-        Paragraph("Ítem", hdr), Paragraph("Código", hdr), Paragraph("Descripción", hdr), Paragraph("Unidad", hdr),
+        Paragraph("Item", hdr), Paragraph("Codigo", hdr), Paragraph("Descripcion", hdr), Paragraph("Unidad", hdr),
         Paragraph("Cantidad", hdr), Paragraph("Precio Unit.<br/>(sin IVA)", hdr), Paragraph("Dcto", hdr), Paragraph("Total<br/>(sin IVA)", hdr)
     ]
     data = [headers]
@@ -220,7 +221,7 @@ def generate_po_pdf(
         sub_bruto = q0(sub_bruto) if currency.upper() == "CLP" else q2(sub_bruto)
         gross_total += sub_bruto
 
-    # Ajuste de anchos: más espacio a "Unidad" para cadenas como "caja x 12"
+    # Ajuste de anchos: mÃ¡s espacio a "Unidad" para cadenas como "caja x 12"
     items_table = Table(
         data,
         colWidths=[8 * mm, 16 * mm, 64 * mm, 20 * mm, 16 * mm, 28 * mm, 10 * mm, 22 * mm],
@@ -241,8 +242,8 @@ def generate_po_pdf(
     story.append(items_table)
     story.append(Spacer(1, 4 * mm))
 
-    # Facturación
-    story.append(_band("Facturación"))
+    # Facturacion
+    story.append(_band("Facturacion"))
     story.append(Spacer(1, 2 * mm))
     p2 = ParagraphStyle(name="p2", fontName="Helvetica", fontSize=10, leading=13)
     neto = net_total
@@ -271,7 +272,7 @@ def generate_po_pdf(
     fact_tbl.setStyle(TableStyle([["VALIGN", (0, 0), (-1, -1), "TOP"]]))
     story.append(fact_tbl)
 
-    # Observaciones / Términos
+    # Observaciones / Terminos
     story.append(Spacer(1, 3 * mm))
     story.append(_band("Observaciones:"))
     if notes:
@@ -340,4 +341,6 @@ def generate_po_to_downloads(
         open_file(str(out_pdf))
 
     return str(out_pdf)
+
+
 
