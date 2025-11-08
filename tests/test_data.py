@@ -13,6 +13,14 @@ from src.data.repository import (
 def test_product_crud_via_repo(session):
     repo = ProductRepository(session)
 
+    supplier = Supplier(
+        razon_social="Central Insumos Ltda.",
+        rut="76.123.456-7",
+        contacto="María",
+    )
+    session.add(supplier)
+    session.flush()
+
     # Crear
     p = Product(
         nombre="Guantes Nitrilo",
@@ -21,6 +29,7 @@ def test_product_crud_via_repo(session):
         precio_venta=1500.0,
         stock_actual=0,
         unidad_medida="unidad",
+        id_proveedor=supplier.id,
     )
     session.add(p)
     session.commit()
@@ -42,7 +51,14 @@ def test_supplier_and_link_table(session):
     repo_link = SupplierProductRepository(session)
 
     # Proveedor + Producto
-    s = Supplier(nombre="Proveedor Central")
+    s = Supplier(
+        razon_social="Proveedor Central",
+        rut="76.987.654-3",
+        contacto="Pedro",
+    )
+    session.add(s)
+    session.flush()
+
     p = Product(
         nombre="Alcohol Gel 1L",
         sku="AG-1000",
@@ -50,8 +66,9 @@ def test_supplier_and_link_table(session):
         precio_venta=3990.0,
         stock_actual=0,
         unidad_medida="lt",
+        id_proveedor=s.id,
     )
-    session.add_all([s, p])
+    session.add(p)
     session.commit()
 
     # Vincular con precio proveedor

@@ -16,6 +16,7 @@ from src.core.purchase_manager import PurchaseManager
 from src.core.sales_manager import SalesManager
 from src.utils.po_generator import generate_po_to_downloads
 from src.utils.so_generator import generate_so_to_downloads
+from src.gui.utils.order_helpers import ensure_treeview_styling, format_currency
 
 # Grilla tipo hoja (tksheet si está instalado; si no, Treeview)
 from src.gui.widgets.grid_table import GridTable
@@ -49,18 +50,9 @@ class OrdersAdminView(ttk.Frame):
     RECV_DET_COLS = ["ID Prod", "Producto", "Recibido", "Ubicación", "Lote/Serie", "Vence"]
     RECV_DET_W    = [80, 300, 90, 150, 150, 110]
 
-    @staticmethod
-    def _fmt_clp(value) -> str:
-        """Formatea moneda CLP con miles y sin decimales (p.ej., $6.854.400)."""
-        try:
-            n = float(value or 0)
-            s = f"${n:,.0f}"
-            return s.replace(",", ".")
-        except Exception:
-            return f"$ {value}"
-
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
+        ensure_treeview_styling()
 
         self.session = get_session()
         self.inventory = InventoryManager(self.session)
@@ -140,7 +132,7 @@ class OrdersAdminView(ttk.Frame):
                 pur.fecha_compra.strftime("%Y-%m-%d %H:%M") if getattr(pur, 'fecha_compra', None) else "",
                 getattr(sup, 'razon_social', '') or '',
                 getattr(pur, 'estado', '') or '',
-                self._fmt_clp(getattr(pur,'total_compra',0) or 0),
+                format_currency(getattr(pur,'total_compra',0) or 0),
                 getattr(pur, 'referencia', '') or '',
             ])
             self._all_rows_meta.append(("compra", int(pur.id)))
@@ -157,7 +149,7 @@ class OrdersAdminView(ttk.Frame):
                 sale.fecha_venta.strftime("%Y-%m-%d %H:%M") if getattr(sale, 'fecha_venta', None) else "",
                 getattr(cust, 'razon_social', '') or getattr(cust, 'rut', '') or '',
                 getattr(sale, 'estado', '') or '',
-                self._fmt_clp(getattr(sale,'total_venta',0) or 0),
+                format_currency(getattr(sale,'total_venta',0) or 0),
                 "",
             ])
             self._all_rows_meta.append(("venta", int(sale.id)))
@@ -176,7 +168,7 @@ class OrdersAdminView(ttk.Frame):
                 rec.fecha.strftime("%Y-%m-%d %H:%M") if getattr(rec, 'fecha', None) else "",
                 getattr(sup, 'razon_social', '') or '',
                 getattr(pur, 'estado', '') or '',
-                self._fmt_clp(getattr(pur,'total_compra',0) or 0),
+                format_currency(getattr(pur,'total_compra',0) or 0),
                 f"OC-{pur.id} {ref}".strip(),
             ])
             self._all_rows_meta.append(("recepcion", int(rec.id)))
@@ -497,7 +489,7 @@ class OrdersAdminView(ttk.Frame):
                     docs = ", ".join(parts)
             except Exception:
                 docs = ""
-            rows.append([pur.id, f"OC-{pur.id}", fecha, proveedor, pur.estado, self._fmt_clp(pur.total_compra), docs])
+            rows.append([pur.id, f"OC-{pur.id}", fecha, proveedor, pur.estado, format_currency(pur.total_compra), docs])
             self._pur_ids.append(int(pur.id))
 
         self._set_table_data(self.tbl_pur, self.PUR_COLS, self.PUR_W, rows)
@@ -526,7 +518,7 @@ class OrdersAdminView(ttk.Frame):
                 fecha_s = fecha.strftime("%Y-%m-%d %H:%M") if fecha else ""
             except Exception:
                 fecha_s = ""
-            rows.append([r.id, oc, proveedor, tipo, numero, fecha_s, pur.estado, self._fmt_clp(pur.total_compra)])
+            rows.append([r.id, oc, proveedor, tipo, numero, fecha_s, pur.estado, format_currency(pur.total_compra)])
             self._recv_ids.append(int(r.id))
             self._recv_to_purchase[int(r.id)] = int(pur.id)
 
@@ -809,7 +801,7 @@ class OrdersAdminView(ttk.Frame):
             .filter(PurchaseDetail.id_compra == purchase_id)
         )
         for det, prod in q:
-            rows.append([prod.id, prod.nombre, det.cantidad, self._fmt_clp(det.precio_unitario), self._fmt_clp(det.subtotal)])
+            rows.append([prod.id, prod.nombre, det.cantidad, format_currency(det.precio_unitario), format_currency(det.subtotal)])
 
         self._set_table_data(self.tbl_pur_det, self.PUR_DET_COLS, self.PUR_DET_W, rows)
 
@@ -1023,7 +1015,7 @@ class OrdersAdminView(ttk.Frame):
                 continue
             fecha = sale.fecha_venta.strftime("%Y-%m-%d %H:%M")
             cliente = getattr(cust, "razon_social", "") or "-"
-            rows.append([sale.id, fecha, cliente, sale.estado, self._fmt_clp(sale.total_venta)])
+            rows.append([sale.id, fecha, cliente, sale.estado, format_currency(sale.total_venta)])
             self._sale_ids.append(int(sale.id))
 
         self._set_table_data(self.tbl_sale, self.SALE_COLS, self.SALE_W, rows)
@@ -1148,8 +1140,8 @@ class OrdersAdminView(ttk.Frame):
                 prod.id,
                 prod.nombre,
                 det.cantidad,
-                self._fmt_clp(det.precio_unitario),
-                self._fmt_clp(det.subtotal),
+                format_currency(det.precio_unitario),
+                format_currency(det.subtotal),
             ])
 
         self._set_table_data(self.tbl_sale_det, self.SALE_DET_COLS, self.SALE_DET_W, rows)

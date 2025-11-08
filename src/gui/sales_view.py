@@ -15,7 +15,7 @@ from src.gui.widgets.autocomplete_combobox import AutoCompleteCombobox
 from src.reports.sales_report_pdf import generate_sales_report_to_downloads
 from sqlalchemy import and_
 from src.utils.money import D, q2, fmt_2
-from src.gui.treeview_utils import apply_default_treeview_styles, enable_auto_center_for_new_treeviews
+from src.gui.utils.order_helpers import ensure_treeview_styling, safe_set_combobox_values
 
 class SalesView(ttk.Frame):
     """
@@ -30,11 +30,7 @@ class SalesView(ttk.Frame):
 
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
-        try:
-            apply_default_treeview_styles()
-            enable_auto_center_for_new_treeviews()
-        except Exception:
-            pass
+        ensure_treeview_styling()
 
         self.session = get_session()
         self.sm = SalesManager(self.session)
@@ -65,10 +61,7 @@ class SalesView(ttk.Frame):
         ttk.Label(top, text="Pago:").grid(row=0, column=5, sticky="e", padx=4)
         self.PAGOS = ("Contado", "Débito", "Transferencia", "Crédito 30 días")
         self.cmb_pago = ttk.Combobox(top, state="readonly", width=18, values=self.PAGOS)
-        try:
-            self.cmb_pago["values"] = ("Contado", "Débito", "Transferencia", "Crédito 30 días")
-        except Exception:
-            pass
+        safe_set_combobox_values(self.cmb_pago, self.PAGOS)
         self.cmb_pago.set("Contado")
         self.cmb_pago.grid(row=0, column=6, sticky="w", padx=4)
 

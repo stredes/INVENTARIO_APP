@@ -14,9 +14,8 @@ from src.core.inventory_manager import InventoryManager
 from src.utils.po_generator import generate_po_to_downloads
 from src.utils.quote_generator import generate_quote_to_downloads as generate_quote_downloads
 from src.utils.helpers import get_po_payment_method, get_ui_purchases_mode, set_ui_purchases_mode
-from src.gui.widgets.autocomplete_combobox import AutoCompleteCombobox
 from src.utils.money import D, q2, fmt_2, mul
-from src.gui.treeview_utils import apply_default_treeview_styles, enable_auto_center_for_new_treeviews
+from src.gui.utils.order_helpers import ensure_treeview_styling, safe_set_combobox_values
 
 IVA_RATE = Decimal("0.19")  # 19% IVA por defecto
 
@@ -35,11 +34,7 @@ class PurchasesView(ttk.Frame):
 
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
-        try:
-            apply_default_treeview_styles()
-            enable_auto_center_for_new_treeviews()
-        except Exception:
-            pass
+        ensure_treeview_styling()
 
         self.session = get_session()
         self.pm = PurchaseManager(self.session)
@@ -78,11 +73,7 @@ class PurchasesView(ttk.Frame):
         ttk.Label(head, text="Pago:").grid(row=0, column=5, sticky="e", padx=4)
         self.PAGOS = ("Crédito 30 días", "Efectivo", "Débito", "Transferencia", "Cheque")
         self.cmb_pago = ttk.Combobox(head, state="readonly", width=18, values=self.PAGOS)
-        # Corrección visual de acentos en opciones de pago
-        try:
-            self.cmb_pago["values"] = ("Crédito 30 días", "Efectivo", "Débito", "Transferencia", "Cheque")
-        except Exception:
-            pass
+        safe_set_combobox_values(self.cmb_pago, self.PAGOS)
         self.cmb_pago.set(get_po_payment_method())
         self.cmb_pago.grid(row=0, column=6, sticky="w", padx=4)
         # Modo: Compra vs Recepcion

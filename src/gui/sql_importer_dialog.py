@@ -46,6 +46,49 @@ def _split_sql(sql: str) -> list[str]:
     return cleaned
 
 
+def _normalize_sql(sql: str) -> str:
+    """Normaliza saltos de línea y elimina BOM/espacios residuales."""
+    if not sql:
+        return ""
+    cleaned = sql.replace("\r\n", "\n").replace("\r", "\n")
+    if cleaned.startswith("\ufeff"):
+        cleaned = cleaned.lstrip("\ufeff")
+    return cleaned.strip()
+
+
+def _statement_preview(stmt: str, max_len: int = 160) -> str:
+    """Devuelve una versión resumida en una sola línea para mostrar en errores."""
+    text = " ".join(stmt.split())
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 3] + "..."
+
+
+_PROHIBITED_KEYWORDS = (
+    "drop ",
+    "alter ",
+    "create table",
+    "create trigger",
+    "attach ",
+    "detach ",
+    "vacuum",
+    "pragma ",
+)
+
+
+def detect_destructive_statements(statements: List[str]) -> List[str]:
+    """
+    Returns the subset of statements that appear to contain destructive keywords.
+    The check is case-insensitive and aims to block schema-altering commands.
+    """
+    flagged: List[str] = []
+    for stmt in statements:
+        low = stmt.lower()
+        if any(keyword in low for keyword in _PROHIBITED_KEYWORDS):
+            flagged.append(stmt.strip())
+    return flagged
+
+
 TEMPLATES: Dict[str, List[List[str]]] = {
     # columnas: [nombre_columna, tipo/ejemplo, notas]
     "suppliers": [
@@ -208,35 +251,66 @@ class SqlMassImporter(tk.Toplevel):
         self.txt.insert("1.0", ex)
 
     def _execute(self):
-        sql = self.txt.get("1.0", "end").strip()
+        raw_sql = self.txt.get("1.0", "end")
+        sql = _normalize_sql(raw_sql)
         if not sql:
             messagebox.showwarning("SQL", "Ingrese codigo SQL para ejecutar." , parent=self)
+            return
+        statements = [stmt for stmt in _split_sql(sql) if stmt.strip()]
+        if not statements:
+            messagebox.showwarning("SQL", "No se detectaron sentencias SQL válidas.", parent=self)
+            return
+        flagged = detect_destructive_statements(statements)
+        if flagged:
+            sample = "\n\n".join(flagged[:3])
+            messagebox.showerror(
+                "SQL",
+                "Por seguridad, se bloquearon comandos potencialmente destructivos "
+                "(DROP/ALTER/CREATE/ATTACH/DETACH/PRAGMA/VACUUM).\n\n"
+                f"Revise las sentencias:\n{sample}",
+                parent=self,
+            )
+            return
+        if not messagebox.askyesno(
+            "Confirmar importación",
+            f"Se ejecutarán {len(statements)} sentencias SQL.\n"
+            "Asegúrese de tener un respaldo antes de continuar.\n\n"
+            "¿Desea continuar?",
+            parent=self,
+        ):
             return
         eng = get_engine()
         try:
             with eng.begin() as conn:
-                # Si es SQLite, usa executescript para ejecutar TODO de una sola vez
                 try:
                     is_sqlite = getattr(getattr(eng, "dialect", None), "name", "") == "sqlite"
                 except Exception:
                     is_sqlite = False
                 if is_sqlite:
-                    raw = conn.connection  # DB-API connection (sqlite3.Connection)
                     try:
-                        raw.execute("PRAGMA foreign_keys=ON;")
+                        conn.exec_driver_sql("PRAGMA foreign_keys=ON;")
                     except Exception:
                         pass
-                    raw.executescript(sql)
-                else:
-                    # Para otros motores: dividir y ejecutar cada sentencia
-                    for stmt in _split_sql(sql):
+                for idx, stmt in enumerate(statements, start=1):
+                    try:
                         conn.exec_driver_sql(stmt)
+                    except Exception as ex:
+                        preview = _statement_preview(stmt)
+                        raise RuntimeError(
+                            f"Error en sentencia #{idx}:\n{preview}\n\nDetalle: {ex}"
+                        ) from ex
             messagebox.showinfo("SQL", "Ejecucion completada.", parent=self)
         except Exception as ex:
             messagebox.showerror("SQL", f"Error al ejecutar:\n{ex}", parent=self)
 
 
-__all__ = ["SqlMassImporter"]
+__all__ = [
+    "SqlMassImporter",
+    "_split_sql",
+    "_normalize_sql",
+    "_statement_preview",
+    "detect_destructive_statements",
+]
 
 
 

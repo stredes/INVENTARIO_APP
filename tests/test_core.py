@@ -2,14 +2,27 @@ from __future__ import annotations
 import pytest
 
 from src.core import (
-    InventoryManager, InventoryError,
-    PurchaseManager, PurchaseItem,
+    InventoryManager,
+    InventoryError,
+    PurchaseManager,
+    PurchaseItem,
+    PurchaseError,
 )
 from src.data.models import Product, Supplier
 
 
 def seed_basic(session):
     """Crea un producto y un proveedor base."""
+    s = Supplier(
+        razon_social="Proveedor Salud SPA",
+        rut="76.000.000-0",
+        contacto="Ventas",
+        telefono="+56 2 1234567",
+        email="ventas@saludspa.cl",
+    )
+    session.add(s)
+    session.flush()  # obtener s.id para FK
+
     p = Product(
         nombre="Mascarilla Quirúrgica",
         sku="MQ-001",
@@ -17,9 +30,9 @@ def seed_basic(session):
         precio_venta=100.0,
         stock_actual=0,
         unidad_medida="unidad",
+        id_proveedor=s.id,
     )
-    s = Supplier(nombre="Proveedor Salud SPA")
-    session.add_all([p, s])
+    session.add(p)
     session.commit()
     session.refresh(p)
     session.refresh(s)
@@ -31,12 +44,16 @@ def test_inventory_entry_exit_updates_stock(session):
     inv = InventoryManager(session)
 
     # Entrada +10
-    inv.register_entry(product_id=p.id, cantidad=10, motivo="Ajuste inicial")
-    assert inv.get_stock(p.id) == 10
+    entrada = inv.register_entry(product_id=p.id, cantidad=10, motivo="Ajuste inicial")
+    assert entrada.new_stock == 10
+    session.refresh(p)
+    assert p.stock_actual == 10
 
     # Salida -4
-    inv.register_exit(product_id=p.id, cantidad=4, motivo="Consumo interno")
-    assert inv.get_stock(p.id) == 6
+    salida = inv.register_exit(product_id=p.id, cantidad=4, motivo="Consumo interno")
+    assert salida.new_stock == 6
+    session.refresh(p)
+    assert p.stock_actual == 6
 
 
 def test_inventory_exit_insufficient_stock_raises(session):
@@ -62,8 +79,8 @@ def test_purchase_manager_creates_purchase_and_updates_stock(session):
     assert purchase.id is not None
 
     # Stock actualizado por entradas automáticas
-    inv = InventoryManager(session)
-    assert inv.get_stock(p.id) == 25
+    session.refresh(p)
+    assert p.stock_actual == 25
 
     # Segunda compra pendiente que NO impacta stock
     purchase2 = pm.create_purchase(
@@ -73,4 +90,48 @@ def test_purchase_manager_creates_purchase_and_updates_stock(session):
         apply_to_stock=False,
     )
     assert purchase2.id is not None
-    assert inv.get_stock(p.id) == 25  # sin cambios
+    session.refresh(p)
+    assert p.stock_actual == 25  # sin cambios
+
+
+def test_purchase_manager_rejects_unknown_supplier(session):
+    p, _ = seed_basic(session)
+    pm = PurchaseManager(session)
+
+    with pytest.raises(PurchaseError):
+        pm.create_purchase(
+            supplier_id=999999,
+            items=[PurchaseItem(product_id=p.id, cantidad=1, precio_unitario=10)],
+        )
+
+
+def test_purchase_manager_rejects_items_with_wrong_supplier(session):
+    p, s1 = seed_basic(session)
+    pm = PurchaseManager(session)
+
+    s2 = Supplier(
+        razon_social="Proveedor Secundario",
+        rut="76.111.222-3",
+        contacto="QA",
+        email="qa@secundario.cl",
+    )
+    session.add(s2)
+    session.commit()
+
+    with pytest.raises(PurchaseError) as excinfo:
+        pm.create_purchase(
+            supplier_id=s2.id,
+            items=[PurchaseItem(product_id=p.id, cantidad=1, precio_unitario=10)],
+        )
+    assert "no corresponde al proveedor" in str(excinfo.value)
+
+
+def test_purchase_manager_validates_item_quantities(session):
+    p, s = seed_basic(session)
+    pm = PurchaseManager(session)
+
+    with pytest.raises(PurchaseError):
+        pm.create_purchase(
+            supplier_id=s.id,
+            items=[PurchaseItem(product_id=p.id, cantidad=0, precio_unitario=10)],
+        )
