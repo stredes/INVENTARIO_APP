@@ -1,11 +1,17 @@
+﻿from __future__ import annotations
 """
-Generador de Cotización con estilo y métricas correctas.
-- Corrige acentos en etiquetas.
-- Encabezados largos en dos líneas (evita recortes).
-- Descripción envuelta; columnas numéricas alineadas a la derecha.
+Generador de Cotizacion (PDF) con etiquetas en ASCII para evitar caracteres extraÃ±os.
+
+API principal:
+    generate_quote_to_downloads(quote_number, supplier, items, currency="CLP", notes=None, auto_open=True)
+
+Estructuras esperadas:
+    supplier: { nombre, contacto, telefono, direccion, pago }
+    items: [ { id, codigo, nombre, cantidad, precio, descuento_porcentaje?, subtotal? } ]
+        - precio: precio de venta (neto) mostrado en la UI
+        - subtotal (opcional): si viene, se usa tal cual; si no, se calcula
 """
 
-from __future__ import annotations
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 from datetime import datetime
@@ -15,19 +21,11 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+from src.utils.po_generator import open_file
 from reportlab.lib.styles import ParagraphStyle
 
 from src.utils.helpers import get_company_info, get_downloads_dir, get_po_payment_method
-from src.utils.money import D, q2, q0, vat_breakdown
-
-
-def _downloads_dir() -> Path:
-    home = Path.home()
-    for cand in ("Downloads", "Descargas", "downloads", "DESCARGAS"):
-        p = home / cand
-        if p.exists():
-            return p
-    return home
+from src.utils.money import D, q2, q0
 
 
 def _fmt_moneda(n, currency: str = "CLP") -> str:
@@ -64,7 +62,7 @@ def _header(company: Dict[str, Any], quote_number: str):
     if logo_path and Path(logo_path).exists():
         try:
             img = Image(logo_path)
-            img._restrictSize(35 * mm, 20 * mm)
+            img._restrictSize(60 * mm, 25 * mm)
             logo_cell = img
         except Exception:
             logo_cell = Paragraph(company.get("name", ""), h1)
@@ -78,7 +76,7 @@ def _header(company: Dict[str, Any], quote_number: str):
         " | ".join([x for x in [f"Tel: {company.get('phone','')}" if company.get('phone') else '', company.get('email','')] if x]),
     ]
     comp_html = "<br/>".join([x for x in comp_lines if x])
-    right = Paragraph(f"<b>COTIZACIÓN</b><br/>Nº {quote_number}", h1)
+    right = Paragraph(f"<b>COTIZACION</b><br/>No. {quote_number}", h1)
     header_tbl = Table([[logo_cell, Paragraph(comp_html, p), right]], colWidths=[45 * mm, 90 * mm, 45 * mm])
     header_tbl.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -87,56 +85,44 @@ def _header(company: Dict[str, Any], quote_number: str):
     return header_tbl
 
 
-def _items_table_net(items: List[Dict[str, object]], currency: str) -> Table:
-    """Tabla de ítems mostrando precio unitario y total SIN IVA.
-    Encabezado en 2 líneas para evitar recortes.
-    """
+def _items_table(items: List[Dict[str, object]], currency: str) -> Table:
     hdr = ParagraphStyle(name="hdr", fontName="Helvetica-Bold", fontSize=8, leading=9, alignment=1)
     cell = ParagraphStyle(name="cell", fontName="Helvetica", fontSize=9, leading=11)
-    # Columnas deben sumar 182 mm (A4 con márgenes 14+14)
-    col_widths = [8, 16, 70, 12, 16, 28, 10, 22]
+    # Ajuste de anchos (mm): más espacio a precios y descuento
+    col_widths = [8, 18, 68, 12, 14, 30, 14, 18]
     assert sum(col_widths) == 182
     headers = [
-        Paragraph("Ítem", hdr),
-        Paragraph("Código", hdr),
-        Paragraph("Descripción", hdr),
-        Paragraph("Unidad", hdr),
-        Paragraph("Cantidad", hdr),
-        Paragraph("Precio Unit.<br/>(sin IVA)", hdr),
-        Paragraph("Dcto", hdr),
-        Paragraph("Total<br/>(sin IVA)", hdr),
+        Paragraph("Item", hdr), Paragraph("Codigo", hdr), Paragraph("Descripcion", hdr), Paragraph("Unidad", hdr),
+        Paragraph("Cantidad", hdr), Paragraph("Precio Venta", hdr), Paragraph("Dcto (%)", hdr), Paragraph("Total", hdr)
     ]
     data = [headers]
-    iva_rate = D("0.19")
     for idx, it in enumerate(items, start=1):
         cant = D(it.get("cantidad", 0) or 0)
-        precio_bruto = D(it.get("precio", 0) or 0)
+        precio = D(it.get("precio", 0) or 0)
         dcto = D(it.get("descuento_porcentaje", it.get("dcto", 0)) or 0)
-        precio_neto_raw = precio_bruto / (D(1) + iva_rate)
-        precio_neto = (q0(precio_neto_raw) if currency.upper() == "CLP" else q2(precio_neto_raw))
-        sub_neto_raw = cant * precio_neto * (D(1) - dcto / D(100))
-        sub_neto = (q0(sub_neto_raw) if currency.upper() == "CLP" else q2(sub_neto_raw))
+        if it.get("subtotal") is not None:
+            sub_line = D(it.get("subtotal") or 0)
+        else:
+            sub_line = cant * precio * (D(1) - dcto / D(100))
+        precio_mostrar = q0(precio) if currency.upper() == "CLP" else q2(precio)
+        sub_line = q0(sub_line) if currency.upper() == "CLP" else q2(sub_line)
         data.append([
             str(idx),
-            str(it.get("id", "")),
+            str(it.get("codigo") or it.get("id", "")),
             Paragraph(str(it.get("nombre", "")), cell),
             str(it.get("unidad", "U") or "U"),
             f"{int(cant) if cant == cant.to_integral_value() else cant}",
-            _fmt_moneda(precio_neto, currency),
-            Paragraph(f"{dcto} %", cell),
-            _fmt_moneda(sub_neto, currency),
+            _fmt_moneda(precio_mostrar, currency),
+            Paragraph(f"{float(dcto):.0f} %", cell),
+            _fmt_moneda(sub_line, currency),
         ])
-    tbl = Table(
-        data,
-        colWidths=[w * mm for w in col_widths],
-        repeatRows=1,
-    )
+    tbl = Table(data, colWidths=[w * mm for w in col_widths], repeatRows=1)
     tbl.setStyle(TableStyle([
         ("GRID", (0, 0), (-1, -1), 0.4, colors.black),
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E6EFF7")),
         ("ALIGN", (4, 1), (-1, -1), "RIGHT"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("FONTSIZE", (0, 0), (-1, 0), 8),  # header más pequeño
+        ("FONTSIZE", (0, 0), (-1, 0), 8),
         ("FONTSIZE", (0, 1), (-1, -1), 9),
         ("LEADING", (0, 0), (-1, -1), 11),
     ]))
@@ -144,25 +130,23 @@ def _items_table_net(items: List[Dict[str, object]], currency: str) -> Table:
 
 
 def _totals_block(company: Dict[str, Any], items: List[Dict[str, object]], currency: str):
-    # Recalcular totales consistentes con lo mostrado por línea (precio sin IVA redondeado)
+    # Precio de venta incluye IVA: sumar subtotales BRUTOS y derivar Neto/IVA
     iva_rate = D("0.19")
-    net_total = D(0)
     gross_total = D(0)
     for it in items:
         cant = D(it.get("cantidad", 0) or 0)
-        precio_bruto = D(it.get("precio", 0) or 0)
+        precio = D(it.get("precio", 0) or 0)
         dcto = D(it.get("descuento_porcentaje", it.get("dcto", 0)) or 0)
-        precio_neto_raw = precio_bruto / (D(1) + iva_rate)
-        precio_neto = q0(precio_neto_raw) if currency.upper() == "CLP" else q2(precio_neto_raw)
-        sub_neto_raw = cant * precio_neto * (D(1) - dcto / D(100))
-        sub_neto = q0(sub_neto_raw) if currency.upper() == "CLP" else q2(sub_neto_raw)
-        net_total += sub_neto
-        sub_bruto = D(it.get("subtotal", (cant * precio_bruto)))
+        if it.get("subtotal") is not None:
+            sub_bruto = D(it.get("subtotal") or 0)
+        else:
+            sub_bruto = cant * precio * (D(1) - dcto / D(100))
         sub_bruto = q0(sub_bruto) if currency.upper() == "CLP" else q2(sub_bruto)
         gross_total += sub_bruto
-    neto = net_total
     total = gross_total
-    iva = (total - neto) if currency.upper() != "CLP" else q0(total - neto)
+    neto = q0(total / (D(1) + iva_rate)) if currency.upper() == "CLP" else q2(total / (D(1) + iva_rate))
+    iva = q0(total - neto) if currency.upper() == "CLP" else q2(total - neto)
+
     p = ParagraphStyle(name="p", fontName="Helvetica", fontSize=10, leading=13)
     tot_tbl = Table([
         [Paragraph("<b>Neto :</b>", p), Paragraph(_fmt_moneda(neto, currency), p)],
@@ -176,16 +160,10 @@ def _totals_block(company: Dict[str, Any], items: List[Dict[str, object]], curre
         ("BOX", (0, 0), (-1, -1), 0.25, colors.grey),
     ]))
 
-    left_lines = [
-        f"<b>Facturar a:</b> {company.get('name','')}",
-        f"RUT: {company.get('rut','-')}",
-        "Presentar factura en:",
-        company.get('address',''),
-    ]
-    left = Paragraph("<br/>".join([x for x in left_lines if x]), p)
-    tbl = Table([[left, tot_tbl]], colWidths=[110 * mm, 70 * mm])
-    tbl.setStyle(TableStyle([["VALIGN", (0, 0), (-1, -1), "TOP"]]))
-    return [tbl]
+    # Mostrar totales pegados a la derecha: envolver en tabla de 2 columnas
+    wrap = Table([["", tot_tbl]], colWidths=[110 * mm, 70 * mm])
+    wrap.setStyle(TableStyle([["VALIGN", (0, 0), (-1, -1), "TOP"]]))
+    return [wrap]
 
 
 def generate_quote_to_downloads(
@@ -197,27 +175,23 @@ def generate_quote_to_downloads(
     notes: Optional[str] = None,
     auto_open: bool = True,
 ) -> str:
-    out_dir = _downloads_dir(); out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{quote_number}.pdf"
+    out_dir = get_downloads_dir(); Path(out_dir).mkdir(parents=True, exist_ok=True)
+    out_path = Path(out_dir) / f"{quote_number}.pdf"
 
     company = get_company_info()
     story: List = []
-    # Encabezado + aviso
     story.append(_header(company, quote_number))
-    story.append(Spacer(1, 4))
-    warn = ParagraphStyle(name="warn", fontName="Helvetica-Bold", fontSize=12, textColor=colors.HexColor("#1E6AA8"), alignment=1)
-    story.append(Paragraph("*Documento sujeto a modificación (Provisorio)*", warn))
-    story.append(Spacer(1, 4))
+    story.append(Spacer(1, 6))
 
     # Detalles generales
     story.append(_band("Detalles generales"))
     story.append(Spacer(1, 2))
     p = ParagraphStyle(name="p", fontName="Helvetica", fontSize=10, leading=13)
     left_lines = [
-        ("Señor(es):", supplier.get('nombre') or "-"),
-        ("Atención:", supplier.get('contacto') or "-"),
-        ("Teléfono:", supplier.get('telefono') or "-"),
-        ("Dirección:", supplier.get('direccion') or "-"),
+        ("Senor(es):", supplier.get('nombre') or "-"),
+        ("Atencion:", supplier.get('contacto') or "-"),
+        ("Telefono:", supplier.get('telefono') or "-"),
+        ("Direccion:", supplier.get('direccion') or "-"),
     ]
     right_lines = [
         ("Fecha Documento:", datetime.now().strftime("%d/%m/%Y")),
@@ -228,16 +202,13 @@ def generate_quote_to_downloads(
         for a, b in rows:
             data.append([Paragraph(f"<b>{a}</b>", p), Paragraph(str(b), p)])
         return Table(data, colWidths=[w_label_mm * mm, w_val_mm * mm])
-    details = Table(
-        [[ _two_col(left_lines, 34, 78), _two_col(right_lines, 28, 40) ]],
-        colWidths=[112 * mm, 68 * mm]
-    )
+    details = Table([[ _two_col(left_lines, 34, 78), _two_col(right_lines, 28, 40) ]], colWidths=[112 * mm, 68 * mm])
     details.setStyle(TableStyle([["VALIGN", (0, 0), (-1, -1), "TOP"]]))
     story.append(details)
     story.append(Spacer(1, 4))
 
-    # Ítems + totales
-    story.append(_items_table_net(items, currency))
+    # Items + totales
+    story.append(_items_table(items, currency))
     story.append(Spacer(1, 4))
     story += _totals_block(company, items, currency)
 
@@ -253,14 +224,15 @@ def generate_quote_to_downloads(
         pagesize=A4,
         leftMargin=14 * mm, rightMargin=14 * mm,
         topMargin=14 * mm, bottomMargin=14 * mm,
-        title="Cotización", author="Inventario App",
+        title="Cotizacion", author="Inventario App",
     )
     doc.build(story)
 
     if auto_open:
         try:
-            webbrowser.open(out_path.as_uri())
+            open_file(str(out_path))
         except Exception:
             pass
     return str(out_path)
+
 

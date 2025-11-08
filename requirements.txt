@@ -1,0 +1,19 @@
+# Runtime dependencies for the desktop app
+# Use `pip install -r requirements.txt`
+
+SQLAlchemy>=2.0
+reportlab>=4.2.0
+openpyxl>=3.1.2
+pillow>=10.0
+python-barcode>=0.15.1
+
+# Windows-only printing integrations
+pywin32>=306 ; sys_platform == "win32"
+
+# Optional UX extras (safe to remove if not needed)
+tksheet>=6.5.0
+bleak>=0.22.0
+
+# Optional: PostgreSQL driver (only if using DATABASE_URL with Postgres)
+psycopg2-binary>=2.9
+

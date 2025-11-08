@@ -10,6 +10,7 @@ from src.data.repository import ProductRepository, CustomerRepository
 from src.core import SalesManager, SaleItem
 from src.utils.so_generator import generate_so_to_downloads
 from src.utils.quote_generator import generate_quote_to_downloads
+from src.utils.helpers import make_quote_number
 from src.gui.widgets.autocomplete_combobox import AutoCompleteCombobox
 from src.reports.sales_report_pdf import generate_sales_report_to_downloads
 from sqlalchemy import and_
@@ -126,7 +127,7 @@ class SalesView(ttk.Frame):
         self.var_prod_code = tk.StringVar(value="")
         self.var_prod_desc = tk.StringVar(value="")
         self.var_unidad = tk.StringVar(value="Unidades")
-        self.var_desc_tipo = tk.StringVar(value="Monto")
+        self.var_desc_tipo = tk.StringVar(value="Porcentaje")
         self.var_desc_val = tk.DoubleVar(value=0.0)
         self.var_ccosto = tk.StringVar(value="1001 - Ventas")
         self.var_moneda = tk.StringVar(value="PESO CHILENO")
@@ -146,9 +147,9 @@ class SalesView(ttk.Frame):
         cb_unid.grid(row=2, column=1, sticky="w", padx=4, pady=4)
         ttk.Label(det, text="Tipo desc").grid(row=2, column=2, sticky="e", padx=4, pady=4)
         cb_tipo = ttk.Combobox(det, textvariable=self.var_desc_tipo, state="readonly",
-                                values=["Monto", "Porcentaje"])
+                                values=["Porcentaje"])
         cb_tipo.grid(row=2, column=3, sticky="w", padx=4, pady=4)
-        ttk.Label(det, text="Descuento").grid(row=2, column=4, sticky="e", padx=4, pady=4)
+        ttk.Label(det, text="Descuento (%)").grid(row=2, column=4, sticky="e", padx=4, pady=4)
         ent_desc = ttk.Entry(det, textvariable=self.var_desc_val, width=12)
         ent_desc.grid(row=2, column=5, sticky="w", padx=4, pady=4)
         ttk.Label(det, text="Monto neto").grid(row=2, column=6, sticky="e", padx=4, pady=4)
@@ -186,6 +187,12 @@ class SalesView(ttk.Frame):
             pass
 
         # ---------- Total + Acciones ----------
+        # Observación (para cotización)
+        obs_frame = ttk.Labelframe(self, text="Observación", padding=6)
+        obs_frame.pack(fill="x", expand=False, pady=(10, 0))
+        self.txt_obs = tk.Text(obs_frame, height=3, wrap="word")
+        self.txt_obs.pack(fill="x", expand=True)
+
         bottom = ttk.Frame(self)
         bottom.pack(fill="x", expand=False, pady=10)
         self.lbl_total = ttk.Label(bottom, text="Total: 0.00", font=("", 11, "bold"))
@@ -302,7 +309,7 @@ class SalesView(ttk.Frame):
         self.var_prod_code = tk.StringVar(value="")
         self.var_prod_desc = tk.StringVar(value="")
         self.var_unidad = tk.StringVar(value="Unidades")
-        self.var_desc_tipo = tk.StringVar(value="Monto")  # Monto | Porcentaje
+        self.var_desc_tipo = tk.StringVar(value="Porcentaje")  # Monto | Porcentaje
         self.var_desc_val = tk.DoubleVar(value=0.0)
         self.var_ccosto = tk.StringVar(value="1001 - Ventas")
         self.var_moneda = tk.StringVar(value="PESO CHILENO")
@@ -323,9 +330,9 @@ class SalesView(ttk.Frame):
                      values=["Unidades", "Caja", "Bolsa", "kg", "lt", "ml"]).grid(row=2, column=1, sticky="w", padx=4, pady=4)
         ttk.Label(det, text="Tipo desc").grid(row=2, column=2, sticky="e", padx=4, pady=4)
         cb_tipo = ttk.Combobox(det, textvariable=self.var_desc_tipo, state="readonly", width=12,
-                               values=["Monto", "Porcentaje"])
+                               values=["Porcentaje"])
         cb_tipo.grid(row=2, column=3, sticky="w", padx=4, pady=4)
-        ttk.Label(det, text="Descuento").grid(row=2, column=4, sticky="e", padx=4, pady=4)
+        ttk.Label(det, text="Descuento (%)").grid(row=2, column=4, sticky="e", padx=4, pady=4)
         ent_desc = ttk.Entry(det, textvariable=self.var_desc_val, width=12)
         ent_desc.grid(row=2, column=5, sticky="w", padx=4, pady=4)
         ttk.Label(det, text="Monto neto").grid(row=2, column=6, sticky="e", padx=4, pady=4)
@@ -717,7 +724,7 @@ class SalesView(ttk.Frame):
                 desc_val = float(self.var_desc_val.get() or 0)
             except Exception:
                 desc_val = 0.0
-            desc_tipo = (self.var_desc_tipo.get() or 'Monto').strip()
+            desc_tipo = "Porcentaje"
             disc = 0.0  # porcentaje equivalente para la columna
             eff_price = D(price)
             if desc_tipo == 'Monto':
@@ -781,7 +788,7 @@ class SalesView(ttk.Frame):
     def _recalc_net(self):
         try:
             price = float(self.ent_price.get() or 0)
-            desc_tipo = (self.var_desc_tipo.get() or 'Monto').strip()
+            desc_tipo = "Porcentaje"
             desc_val = float(self.var_desc_val.get() or 0)
             neto = price
             pct = 0.0
@@ -817,6 +824,13 @@ class SalesView(ttk.Frame):
         items: List[dict] = []
         for iid in self.tree.get_children():
             prod_id, name, qty, price, disc, sub = self.tree.item(iid, "values")
+            # Buscar código/SKU del producto para la columna Código de la cotización
+            codigo = ""
+            try:
+                p = self.repo_prod.get(int(prod_id))
+                codigo = getattr(p, "sku", None) or getattr(p, "codigo", None) or ""
+            except Exception:
+                pass
             items.append({
                 "id": int(prod_id),
                 "nombre": str(name),
@@ -825,6 +839,7 @@ class SalesView(ttk.Frame):
                 "precio": q2(D(price)),
                 "descuento_porcentaje": float(disc or 0),
                 "subtotal": D(sub),
+                "codigo": codigo,
             })
         return items
 
@@ -893,13 +908,24 @@ class SalesView(ttk.Frame):
                 cust["pago"] = self.cmb_pago.get()
             except Exception:
                 pass
-            so_number = f"OV-{cust['id']}-{self._stamp()}"
+            # Número de OV seriado (00001, 00002, ...)
+            try:
+                from src.utils.helpers import make_so_number
+                so_number = make_so_number(width=5)
+            except Exception:
+                so_number = f"OV-{cust['id']}-{self._stamp()}"
+            # Toma observación de la caja de texto si existe
+            try:
+                notes = (self.txt_obs.get("1.0", "end").strip() or None)
+            except Exception:
+                notes = None
+
             out = generate_so_to_downloads(
                 so_number=so_number,
                 customer=cust,
                 items=items,
                 currency="CLP",
-                notes=None,
+                notes=notes,
                 auto_open=True,
             )
             self._info(f"Orden de Venta creada en Descargas:\n{out}")
@@ -918,13 +944,18 @@ class SalesView(ttk.Frame):
                 cust["pago"] = self.cmb_pago.get()
             except Exception:
                 pass
-            quote_number = f"COTV-{cust.get('id','')}-{self._stamp()}"
+            # Número de cotización seriado (0001, 0002, ...)
+            quote_number = make_quote_number(width=4)
+            try:
+                notes = (self.txt_obs.get("1.0", "end").strip() or None)
+            except Exception:
+                notes = None
             out = generate_quote_to_downloads(
                 quote_number=quote_number,
                 supplier=cust,
                 items=items,
                 currency="CLP",
-                notes=None,
+                notes=notes,
                 auto_open=True,
             )
             self._info(f"Cotización de venta creada en Descargas:\n{out}")
@@ -1202,4 +1233,5 @@ class SalesView(ttk.Frame):
     def _stamp() -> str:
         from datetime import datetime
         return datetime.now().strftime("%Y%m%d-%H%M%S")
+
 

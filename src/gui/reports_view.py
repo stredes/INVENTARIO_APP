@@ -9,6 +9,7 @@ from src.data.database import get_session
 from src.data.models import Customer, Supplier
 from src.gui.widgets.grid_table import GridTable
 from src.gui.printer_select_dialog import PrinterSelectDialog
+from src.utils.printers import get_document_printer
 
 # Agregador de reportes
 from src.reports.report_center import (
@@ -227,12 +228,14 @@ class ReportsView(ttk.Frame):
             return
         filters = self._collect_filters()
 
-        # Seleccionar impresora
-        dlg = PrinterSelectDialog(self)
-        self.wait_window(dlg)
-        if not getattr(dlg, "result", None):
-            return
-        printer = dlg.result
+        # Seleccionar impresora (usar predeterminada si está configurada)
+        printer = get_document_printer()
+        if not printer:
+            dlg = PrinterSelectDialog(self)
+            self.wait_window(dlg)
+            if not getattr(dlg, "result", None):
+                return
+            printer = dlg.result
 
         try:
             print_report_generic(self.session, self._current_key, filters, printer_name=printer)

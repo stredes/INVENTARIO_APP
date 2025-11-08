@@ -111,6 +111,98 @@ def make_po_number(prefix: str = "OC-", width: int = 6) -> str:
         return f"{prefix}{n}"
 
 # -----------------------------
+# SECUENCIA PARA COTIZACIÓN (ui_state.ini)
+# -----------------------------
+def get_next_quote_sequence() -> int:
+    """Lee la secuencia actual (siguiente) para Cotización.
+    Comienza en 1 por defecto para que el primer número sea 0001.
+    """
+    cfg = configparser.ConfigParser(strict=False)
+    p = _external_ui_state_path()
+    if p.exists():
+        cfg.read(p, encoding="utf-8")
+    if "seq" not in cfg:
+        cfg["seq"] = {}
+    try:
+        return int(cfg["seq"].get("quote_next", "1"))
+    except Exception:
+        return 1
+
+
+def bump_quote_sequence() -> int:
+    """Incrementa la secuencia de cotización y la guarda; retorna el valor usado."""
+    cfg = configparser.ConfigParser(strict=False)
+    p = _external_ui_state_path()
+    if p.exists():
+        cfg.read(p, encoding="utf-8")
+    if "seq" not in cfg:
+        cfg["seq"] = {}
+    try:
+        current = int(cfg["seq"].get("quote_next", "1"))
+    except Exception:
+        current = 1
+    cfg["seq"]["quote_next"] = str(current + 1)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("w", encoding="utf-8") as f:
+        cfg.write(f)
+    return current
+
+
+def make_quote_number(prefix: str = "", width: int = 4) -> str:
+    """Genera un número de Cotización secuencial: 0001, 0002, ... (con prefijo opcional)."""
+    n = bump_quote_sequence()
+    try:
+        return f"{prefix}{n:0{width}d}"
+    except Exception:
+        return f"{prefix}{n}"
+
+# -----------------------------
+# SECUENCIA PARA ORDEN DE VENTA (ui_state.ini)
+# -----------------------------
+def get_next_so_sequence() -> int:
+    """Lee la secuencia actual (siguiente) para OV.
+    Comienza en 1 para que el primer número sea 00001.
+    """
+    cfg = configparser.ConfigParser(strict=False)
+    p = _external_ui_state_path()
+    if p.exists():
+        cfg.read(p, encoding="utf-8")
+    if "seq" not in cfg:
+        cfg["seq"] = {}
+    try:
+        return int(cfg["seq"].get("so_next", "1"))
+    except Exception:
+        return 1
+
+
+def bump_so_sequence() -> int:
+    """Incrementa la secuencia de OV y la guarda; retorna el valor usado."""
+    cfg = configparser.ConfigParser(strict=False)
+    p = _external_ui_state_path()
+    if p.exists():
+        cfg.read(p, encoding="utf-8")
+    if "seq" not in cfg:
+        cfg["seq"] = {}
+    try:
+        current = int(cfg["seq"].get("so_next", "1"))
+    except Exception:
+        current = 1
+    cfg["seq"]["so_next"] = str(current + 1)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("w", encoding="utf-8") as f:
+        cfg.write(f)
+    return current
+
+
+def make_so_number(prefix: str = "", width: int = 5) -> str:
+    """Genera un número de Orden de Venta secuencial: 00001, 00002, ..."""
+    n = bump_so_sequence()
+    try:
+        return f"{prefix}{n:0{width}d}"
+    except Exception:
+        return f"{prefix}{n}"
+
+# -----------------------------
 # UI STATE (helpers simples)
 # -----------------------------
 def _read_ui_state() -> configparser.ConfigParser:

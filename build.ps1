@@ -50,13 +50,13 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # Verificar dependencias Python requeridas en el mismo entorno del build
-Write-Info "Verificando dependencias de Python (sqlalchemy, reportlab, pillow, openpyxl, python-barcode)..."
+Write-Info "Verificando dependencias de Python (sqlalchemy, reportlab, pillow, openpyxl, python-barcode, pywin32)..."
 
-$mods = "'sqlalchemy','reportlab','PIL','openpyxl','barcode'"
+$mods = "'sqlalchemy','reportlab','PIL','openpyxl','barcode','win32com.client','win32api','win32print'"
 & $py "-c" "import importlib.util,sys;mods=[$mods];missing=[m for m in mods if importlib.util.find_spec(m) is None];
 print('Faltan:', missing) if missing else print('OK deps');sys.exit(1 if missing else 0)" | Out-Null
 if ($LASTEXITCODE -ne 0) {
-  Write-Err "Faltan paquetes de Python en el entorno actual. Instala: pip install sqlalchemy reportlab pillow openpyxl python-barcode"
+  Write-Err "Faltan paquetes de Python en el entorno actual. Instala: pip install sqlalchemy reportlab pillow openpyxl python-barcode pywin32"
   exit 1
 }
 
@@ -89,8 +89,11 @@ $argsList += @("--hidden-import=win32com.client")
 $argsList += @("--hidden-import=reportlab")
 $argsList += @("--hidden-import=openpyxl")
 $argsList += @("--hidden-import=barcode")
+$argsList += @("--hidden-import=win32api")
+$argsList += @("--hidden-import=win32print")
 $argsList += @("--hidden-import=scripts.seed_surt_ventas")
  $argsList += @("--hidden-import=src.gui.sql_importer_dialog")
+ $argsList += @("--hidden-import=src.gui.bluetooth_scan_dialog")
 
 # Recolectar paquetes (si PyInstaller moderno)
 $argsList += @("--collect-all", "reportlab")

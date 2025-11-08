@@ -55,7 +55,9 @@ def generar_pdf(conn: sqlite3.Connection, id_documento: int, *, auto_open: bool 
     }
     items = [
         {
+            # Mantener 'id' para compatibilidad (no usado para mostrar código)
             "id": r["codigo_item"] or "",
+            "codigo": r["codigo_item"] or "",
             "nombre": r["descripcion"] or "",
             "cantidad": r["cantidad"],
             "precio": r["precio_unitario"],

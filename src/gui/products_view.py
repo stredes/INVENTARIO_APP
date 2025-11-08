@@ -14,6 +14,7 @@ from src.gui.widgets.product_image_box import ProductImageBox  # <-- recuadro im
 # Grilla tipo hoja (tksheet si está, o fallback Treeview)
 from src.gui.widgets.grid_table import GridTable
 from sqlalchemy import func  # para filtros (like case-insensitive)
+from src.utils.printers import get_label_printer, print_file_windows
 
 
 def calcular_precios(pc: float, iva: float, margen: float) -> tuple[float, float, float]:
@@ -428,8 +429,15 @@ class ProductsView(ttk.Frame):
             copies = max(1, int(self.var_bar_copies.get() or 1))
             from src.reports.barcode_label import generate_label_pdf
             text = (self.var_nombre.get().strip() if self.var_bar_text.get() else None) or None
-            out = generate_label_pdf(code, text=text, symbology="code128", label_w_mm=w_mm, label_h_mm=h_mm, copies=copies, auto_open=True)
-            messagebox.showinfo("Etiquetas", f"PDF generado:\n{out}")
+            out = generate_label_pdf(code, text=text, symbology="code128", label_w_mm=w_mm, label_h_mm=h_mm, copies=copies, auto_open=False)
+            prn = get_label_printer()
+            try:
+                print_file_windows(out, printer_name=prn)
+                messagebox.showinfo("Etiquetas", f"Enviado a '{prn or 'predeterminada'}'.\nArchivo: {out}")
+            except Exception:
+                import webbrowser
+                webbrowser.open(str(out))
+                messagebox.showinfo("Etiquetas", f"PDF generado (abra el visor para imprimir):\n{out}")
         except Exception as ex:
             messagebox.showerror("Etiquetas", f"No se pudo generar etiquetas:\n{ex}")
 

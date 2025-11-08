@@ -21,6 +21,13 @@ from src.gui.theme_manager import ThemeManager
 from src.gui.widgets.status_bar import StatusBar
 from src.gui.widgets.toast import Toast
 from src.gui.widgets.command_palette import CommandPalette, CommandAction
+from src.utils.printers import (
+    get_document_printer,
+    set_document_printer,
+    get_label_printer,
+    set_label_printer,
+    print_file_windows,
+)
 
 UI_STATE_PATH = Path("config/ui_state.ini")
 
@@ -113,6 +120,17 @@ class MainWindow(ttk.Frame):
 
         ThemeManager.build_menu(menubar)
 
+        # Menú de Impresoras (Windows/Bluetooth)
+        m_prn = Menu(menubar, tearoff=False)
+        m_prn.add_command(label="Impresora de documentos…", command=self._choose_document_printer)
+        m_prn.add_command(label="Impresora de etiquetas…", command=self._choose_label_printer)
+        m_prn.add_separator()
+        m_prn.add_command(label="Probar impresión de documento", command=self._test_print_document)
+        m_prn.add_command(label="Probar impresión de etiqueta", command=self._test_print_label)
+        m_prn.add_separator()
+        m_prn.add_command(label="Explorar Bluetooth (experimental)…", command=self._open_bt_scan)
+        menubar.add_cascade(label="Impresora", menu=m_prn)
+
         m_tools = Menu(menubar, tearoff=False)
         m_tools.add_command(label="Nuevo (Ctrl+N)", command=self._new_current)
         m_tools.add_command(label="Guardar (Ctrl+S)", command=self._save_current)
@@ -143,6 +161,116 @@ class MainWindow(ttk.Frame):
         m_view.add_command(label="Editor de información…", command=self._open_company_editor)
         m_view.add_command(label="Ir a Informes", command=self.show_report_center)
         menubar.add_cascade(label="Ver", menu=m_view)
+
+    # ---------------- Impresoras: seleccionar / probar ---------------- #
+    def _choose_document_printer(self) -> None:
+        try:
+            from src.gui.printer_select_dialog import PrinterSelectDialog
+        except Exception as ex:
+            try:
+                Toast.show(self.app_root, f"No se pudo abrir selector: {ex}", kind="danger")
+            except Exception:
+                pass
+            return
+        initial = get_document_printer() or None
+        dlg = PrinterSelectDialog(self, initial=initial)
+        self.wait_window(dlg)
+        if getattr(dlg, "result", None):
+            set_document_printer(dlg.result)
+            try:
+                Toast.show(self.app_root, f"Impresora de documentos: {dlg.result}", kind="success")
+            except Exception:
+                pass
+
+    def _choose_label_printer(self) -> None:
+        try:
+            from src.gui.printer_select_dialog import PrinterSelectDialog
+        except Exception as ex:
+            try:
+                Toast.show(self.app_root, f"No se pudo abrir selector: {ex}", kind="danger")
+            except Exception:
+                pass
+            return
+        initial = get_label_printer() or None
+        dlg = PrinterSelectDialog(self, initial=initial)
+        self.wait_window(dlg)
+        if getattr(dlg, "result", None):
+            set_label_printer(dlg.result)
+            try:
+                Toast.show(self.app_root, f"Impresora de etiquetas: {dlg.result}", kind="success")
+            except Exception:
+                pass
+
+    def _test_print_document(self) -> None:
+        prn = get_document_printer()
+        if not prn:
+            try:
+                Toast.show(self.app_root, "Configure primero la impresora de documentos.", kind="warning")
+            except Exception:
+                pass
+            return
+        # Crear un XLSX mínimo y enviarlo a imprimir
+        try:
+            from openpyxl import Workbook  # type: ignore
+            from pathlib import Path
+            from tempfile import gettempdir
+            from src.reports.print_backend import print_xlsx
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Prueba"
+            ws.cell(row=1, column=1).value = "Prueba de impresión"
+            ws.cell(row=2, column=1).value = "Si ves esta hoja, la integración funciona."
+            out = Path(gettempdir()) / "test_print.xlsx"
+            wb.save(out)
+            print_xlsx(out, printer_name=prn)
+            try:
+                Toast.show(self.app_root, f"Enviado a '{prn}'", kind="success")
+            except Exception:
+                pass
+        except Exception as ex:
+            try:
+                Toast.show(self.app_root, f"Fallo prueba: {ex}", kind="danger")
+            except Exception:
+                pass
+
+    def _test_print_label(self) -> None:
+        prn = get_label_printer()
+        try:
+            from src.reports.barcode_label import generate_label_pdf
+            from tempfile import gettempdir
+            from pathlib import Path
+            pdf = generate_label_pdf("TEST-123", text="Etiqueta de prueba", label_w_mm=50, label_h_mm=30, copies=1, auto_open=False)
+            # Intentar envío directo en Windows si hay impresora definida
+            try:
+                print_file_windows(pdf, printer_name=prn)
+                Toast.show(self.app_root, f"Etiqueta enviada a '{prn or 'predeterminada'}'", kind="success")
+            except Exception as ex:
+                # Abrir para impresión manual
+                try:
+                    Toast.show(self.app_root, f"No se pudo enviar directo: {ex}. Abriendo visor.", kind="warning")
+                except Exception:
+                    pass
+                try:
+                    import webbrowser
+                    webbrowser.open(str(pdf))
+                except Exception:
+                    pass
+        except Exception as ex:
+            try:
+                Toast.show(self.app_root, f"Fallo prueba etiquetas: {ex}", kind="danger")
+            except Exception:
+                pass
+
+    def _open_bt_scan(self) -> None:
+        """Explorador básico de dispositivos Bluetooth (si 'bleak' está disponible)."""
+        try:
+            from src.gui.bluetooth_scan_dialog import BluetoothScanDialog
+            BluetoothScanDialog(self)
+        except Exception as ex:
+            try:
+                Toast.show(self.app_root, f"Bluetooth no disponible: {ex}", kind="warning")
+            except Exception:
+                pass
 
     def _setup_shortcuts(self) -> None:
         self.bind_all("<Control-k>", lambda e: self._open_palette())

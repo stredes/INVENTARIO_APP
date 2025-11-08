@@ -24,6 +24,7 @@ from src.reports.inventory_reports import (
 from src.gui.inventory_filters_dialog import InventoryFiltersDialog
 from src.utils.inventory_thresholds import get_thresholds as _get_prod_limits, set_thresholds as _set_prod_limits
 from src.gui.printer_select_dialog import PrinterSelectDialog
+from src.utils.printers import get_document_printer, get_label_printer, print_file_windows
 
 # Rejilla real (tksheet) o fallback Treeview
 from src.gui.widgets.grid_table import GridTable
@@ -524,8 +525,16 @@ class InventoryView(ttk.Frame):
         try:
             from src.reports.barcode_label import generate_label_pdf
             text = (p.nombre or '') if self._bar_show_text.get() else None
-            out = generate_label_pdf(code, text=text, symbology='code128', label_w_mm=50, label_h_mm=30, copies=copies, auto_open=True)
-            messagebox.showinfo('Etiquetas', f'PDF generado:\n{out}')
+            out = generate_label_pdf(code, text=text, symbology='code128', label_w_mm=50, label_h_mm=30, copies=copies, auto_open=False)
+            # Intentar enviar a impresora de etiquetas si está configurada
+            prn = get_label_printer()
+            try:
+                print_file_windows(out, printer_name=prn)
+                messagebox.showinfo('Etiquetas', f"Enviado a '{prn or 'predeterminada'}'.\nArchivo: {out}")
+            except Exception:
+                import webbrowser
+                webbrowser.open(str(out))
+                messagebox.showinfo('Etiquetas', f'PDF generado (abra el visor para imprimir):\n{out}')
         except Exception as ex:
             messagebox.showerror('Etiquetas', f'No se pudo generar etiquetas:\n{ex}')
             return
@@ -685,12 +694,13 @@ class InventoryView(ttk.Frame):
         if ids:
             flt = InventoryFilter(**{**flt.__dict__, "ids_in": ids})
 
-        dlg = PrinterSelectDialog(self)
-        self.wait_window(dlg)
-        if not dlg.result:
-            return
-
-        printer_name = dlg.result
+        printer_name = get_document_printer()
+        if not printer_name:
+            dlg = PrinterSelectDialog(self)
+            self.wait_window(dlg)
+            if not dlg.result:
+                return
+            printer_name = dlg.result
         try:
             path = print_inventory_report(self.session, flt, "Listado de Inventario", printer_name=printer_name)
             messagebox.showinfo("Impresión", f"Enviado a '{printer_name}'.\nArchivo: {path}")

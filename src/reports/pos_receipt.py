@@ -1,4 +1,4 @@
-# src/reports/pos_receipt.py
+﻿# src/reports/pos_receipt.py
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
@@ -29,11 +29,11 @@ def _fmt_clp0(value: float | int) -> str:
 
 
 def _text_fit(c: canvas.Canvas, text: str, max_w: float, font: str = "Helvetica", size: int = 8) -> str:
-    """Trunca texto para que quepa en max_w (puntos) agregando '…' si es necesario."""
+    """Trunca texto para que quepa en max_w (puntos) agregando 'â€¦' si es necesario."""
     c.setFont(font, size)
     if c.stringWidth(text, font, size) <= max_w:
         return text
-    ell = "…"
+    ell = "â€¦"
     for i in range(len(text), 0, -1):
         s = text[:i] + ell
         if c.stringWidth(s, font, size) <= max_w:
@@ -48,14 +48,14 @@ def generate_pos_ticket_to_downloads(
     customer: Optional[Dict[str, Any]],
     items: List[Dict[str, Any]],  # {codigo, descripcion, cantidad, precio, subtotal}
     payment: Optional[str] = None,
-    width_mm: float = 80.0,  # típico rollo 80mm (también 58mm)
+    width_mm: float = 80.0,  # tÃ­pico rollo 80mm (tambiÃ©n 58mm)
     iva_percent: float = 19.0,
     auto_open: bool = True,
 ) -> Path:
     """
     Genera un ticket tipo POS (boleta) compacto en la carpeta Descargas.
     - width_mm: ancho del papel
-    - alto se calcula según cantidad de ítems
+    - alto se calcula segÃºn cantidad de Ã­tems
     """
     # Totales
     total = sum(float(it.get("subtotal", 0) or 0) for it in items)
@@ -68,7 +68,7 @@ def generate_pos_ticket_to_downloads(
 
     # Medidas y salida
     w_pt = width_mm * mm
-    # Alto base + por ítem
+    # Alto base + por Ã­tem
     base_h_mm = 100.0
     per_item_mm = 6.0
     totals_mm = 28.0
@@ -81,7 +81,7 @@ def generate_pos_ticket_to_downloads(
 
     c = canvas.Canvas(str(out_path), pagesize=(w_pt, h_pt))
 
-    # Márgenes y cursor
+    # MÃ¡rgenes y cursor
     m = 4 * mm
     y = h_pt - m
 
@@ -90,7 +90,7 @@ def generate_pos_ticket_to_downloads(
     c.drawCentredString(w_pt / 2, y, "BOLETA DE VENTA")
     y -= 12
     c.setFont("Helvetica", 8)
-    c.drawCentredString(w_pt / 2, y, f"Nº {folio}")
+    c.drawCentredString(w_pt / 2, y, f"NÂº {folio}")
     y -= 12
     c.drawCentredString(w_pt / 2, y, fecha.strftime("%d/%m/%Y %H:%M"))
     y -= 16
@@ -113,12 +113,12 @@ def generate_pos_ticket_to_downloads(
 
     # Cabeceras
     c.setFont("Helvetica-Bold", 8)
-    c.drawString(m, y, "Descripción")
+    c.drawString(m, y, "DescripciÃ³n")
     c.drawRightString(w_pt - m, y, "Cant  Precio  Subtotal")
     y -= 10
     c.setFont("Helvetica", 8)
 
-    # Ítems
+    # Ãtems
     for it in items:
         if y < 30 * mm:  # Evitar desbordes (muy conservador)
             break
@@ -127,12 +127,12 @@ def generate_pos_ticket_to_downloads(
         precio = float(it.get("precio", 0) or 0)
         sub = float(it.get("subtotal", 0) or 0)
 
-        # Línea descripción (ajustar ancho)
+        # LÃ­nea descripciÃ³n (ajustar ancho)
         desc_fit = _text_fit(c, desc, w_pt - 2 * m)
         c.drawString(m, y, desc_fit)
         y -= 10
 
-        # Línea cantidades/precios
+        # LÃ­nea cantidades/precios
         right = f"{qty}  {_fmt_clp0(precio)}  {_fmt_clp0(sub)}"
         c.drawRightString(w_pt - m, y, right)
         y -= 12
@@ -164,9 +164,10 @@ def generate_pos_ticket_to_downloads(
 
     if auto_open:
         try:
-            webbrowser.open(str(out_path))
+            __try_open(str(out_path))
         except Exception:
             pass
 
     return out_path
+
 
