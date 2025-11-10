@@ -1,0 +1,25 @@
+﻿        iva_ref = float(self.var_iva.get() or 19.0)
+
+        self._rows_cache = []
+        self._id_by_index = []
+
+        for p in prods:
+            pc = float(p.precio_compra or 0)
+            iva_monto, p_mas_iva, _ = calcular_precios(pc, iva_ref, 0)
+            try:
+                pv = float(p.precio_venta or 0)
+                margen = max(0.0, (pv / max(1.0, p_mas_iva) - 1.0) * 100.0)
+            except Exception:
+                pv = float(p.precio_venta or 0)
+                margen = 0.0
+            etiqueta = "âœ“" if getattr(p, 'barcode', None) else ""
+            row = [
+                p.id,
+                p.nombre or "",
+                p.sku or "",
+                f"{pc:.0f}",
+                f"{iva_ref:.1f}",
+                f"{iva_monto:.0f}",
+                f"{p_mas_iva:.0f}",
+                f"{round(margen):.0f}",
+                f"{pv:.0f}",

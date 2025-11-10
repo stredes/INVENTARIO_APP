@@ -39,6 +39,7 @@ class SalesView(ttk.Frame):
 
         self.products: List[Product] = []
         self.customers: List[Customer] = []
+        self._edit_iid: Optional[str] = None
 
         # ---------- Encabezado ----------
         top = ttk.Labelframe(self, text="Encabezado de venta", padding=10)
@@ -112,8 +113,13 @@ class SalesView(ttk.Frame):
         self.ent_price.insert(0, "0")
         self.ent_price.grid(row=0, column=5, sticky="w", padx=4, pady=4)
 
-        ttk.Button(det, text="Agregar ítem", command=self._on_add_item)\
-            .grid(row=0, column=8, padx=8)
+        self.btn_add_item = ttk.Button(det, text="Agregar ítem", command=self._on_add_item)
+        self.btn_add_item.grid(row=0, column=8, padx=8)
+        try:
+            # Normalizar a ASCII para evitar mojibake en Windows
+            self.btn_add_item.configure(text="Agregar item")
+        except Exception:
+            pass
 
         # Campos ampliados
         self.var_det_nro = tk.StringVar(value="1")
@@ -145,7 +151,7 @@ class SalesView(ttk.Frame):
         ttk.Label(det, text="Descuento (%)").grid(row=2, column=4, sticky="e", padx=4, pady=4)
         ent_desc = ttk.Entry(det, textvariable=self.var_desc_val, width=12)
         ent_desc.grid(row=2, column=5, sticky="w", padx=4, pady=4)
-        ttk.Label(det, text="Monto neto").grid(row=2, column=6, sticky="e", padx=4, pady=4)
+        ttk.Label(det, text="Precio Neto (sin IVA)").grid(row=2, column=6, sticky="e", padx=4, pady=4)
         ttk.Entry(det, textvariable=self.var_monto_neto, width=14, state="readonly").grid(row=2, column=7, sticky="w", padx=4, pady=4)
 
         # ---------- Tabla ----------
@@ -173,6 +179,11 @@ class SalesView(ttk.Frame):
         self.tree.bind("<MouseWheel>", self._on_mousewheel)
         self.tree.bind("<Button-4>", self._on_mousewheel)
         self.tree.bind("<Button-5>", self._on_mousewheel)
+        # Doble click para editar cantidad / precio / descuento
+        try:
+            self.tree.bind("<Double-1>", self._on_tree_dblclick)
+        except Exception:
+            pass
         try:
             from src.gui.treeview_utils import enable_treeview_sort
             enable_treeview_sort(self.tree)
@@ -293,8 +304,12 @@ class SalesView(ttk.Frame):
 
         # (Se eliminó el campo duplicado de Dcto (%) en cabecera)
 
-        ttk.Button(det, text="Agregar ítem", command=self._on_add_item)\
-            .grid(row=0, column=8, padx=8)
+        self.btn_add_item = ttk.Button(det, text="Agregar ítem", command=self._on_add_item)
+        self.btn_add_item.grid(row=0, column=8, padx=8)
+        try:
+            self.btn_add_item.configure(text="Agregar item")
+        except Exception:
+            pass
 
         # ----- Campos ampliados de Detalle (como en la referencia) -----
         # Variables de estado
@@ -379,6 +394,10 @@ class SalesView(ttk.Frame):
         self.tree.bind("<MouseWheel>", self._on_mousewheel)
         self.tree.bind("<Button-4>", self._on_mousewheel)   # Linux scroll up
         self.tree.bind("<Button-5>", self._on_mousewheel)   # Linux scroll down
+        try:
+            self.tree.bind("<Double-1>", self._on_tree_dblclick)
+        except Exception:
+            pass
         # Ordenar por click en encabezados
         try:
             from src.gui.treeview_utils import enable_treeview_sort
@@ -453,7 +472,7 @@ class SalesView(ttk.Frame):
 
             # ¿Ya existe en la tabla? -> incrementa cantidad
             iid_found = None
-            for iid in self.tree.get_children():
+            for iid in (self.tree.get_children() if getattr(self, "_edit_iid", None) is None else ()): 
                 try:
                     if str(self.tree.item(iid, "values")[0]) == str(p.id):
                         iid_found = iid
@@ -686,10 +705,23 @@ class SalesView(ttk.Frame):
     def _on_add_item(self):
         """Agrega un ítem validando duplicados y valores."""
         try:
-            p = self._selected_product()
-            if not p:
-                self._warn("Seleccione un producto.")
-                return
+            edit_iid = getattr(self, "_edit_iid", None)
+            p = None
+            if edit_iid:
+                try:
+                    vals_row = list(self.tree.item(edit_iid, "values"))
+                    prod_id = int(float(vals_row[0]))
+                    try:
+                        p = self.repo_prod.get(prod_id)
+                    except Exception:
+                        p = None
+                except Exception:
+                    p = None
+            if p is None:
+                p = self._selected_product()
+                if not p:
+                    self._warn("Seleccione un producto.")
+                    return
 
             # Cantidad (entera para stock)
             try:
@@ -728,15 +760,20 @@ class SalesView(ttk.Frame):
                 disc = max(0.0, min(100.0, float(desc_val)))
                 eff_price = q2(D(price) * D(1 - disc/100))
 
-            # Evita duplicados
-            for iid in self.tree.get_children():
-                if str(p.id) == str(self.tree.item(iid, "values")[0]):
-                    self._warn("Este producto ya está en la tabla.")
-                    return
-
+            # Evita duplicados (si NO estamos editando esta misma fila)
+            if getattr(self, "_edit_iid", None) is None:
+                for iid in self.tree.get_children():
+                    if str(p.id) == str(self.tree.item(iid, "values")[0]):
+                        self._warn("Este producto ya esta en la tabla.")
+                        return
             subtotal = q2(D(qty) * eff_price)
-            self.tree.insert("", "end",
-                             values=(p.id, p.nombre, qty, fmt_2(price), f"{disc:.1f}", fmt_2(subtotal)))
+            if getattr(self, "_edit_iid", None):
+                iid = self._edit_iid
+                self.tree.item(iid, values=(p.id, p.nombre, qty, fmt_2(price), f"{disc:.1f}", fmt_2(subtotal)))
+                self._exit_edit_mode()
+            else:
+                self.tree.insert("", "end",
+                                 values=(p.id, p.nombre, qty, fmt_2(price), f"{disc:.1f}", fmt_2(subtotal)))
             self._update_total()
 
             self.ent_qty.delete(0, "end"); self.ent_qty.insert(0, "1")
@@ -777,23 +814,65 @@ class SalesView(ttk.Frame):
                 pass
         self.lbl_total.config(text=f"Total: {fmt_2(total)}")
 
-    # ---- Calcular neto unitario desde precio + tipo de descuento ----
+    # ---- Edición inline por doble click ----
+    def _enter_edit_mode(self):
+        try:
+            # Mostrar en ASCII para entornos Windows con fuentes limitadas
+            self.btn_add_item.configure(text="Actualizar item")
+        except Exception:
+            pass
+
+    def _exit_edit_mode(self):
+        self._edit_iid = None
+        try:
+            self.btn_add_item.configure(text="Agregar item")
+        except Exception:
+            pass
+
+    def _on_tree_dblclick(self, event=None):
+        try:
+            iid = None
+            if event is not None:
+                iid = self.tree.identify_row(event.y)
+            if not iid:
+                sel = self.tree.selection()
+                iid = sel[0] if sel else None
+            if not iid:
+                return
+            vals = list(self.tree.item(iid, "values"))
+            # 0=id, 1=nombre, 2=cantidad, 3=precio, 4=dcto, 5=subtotal
+            prod_id, name, qty_s, price_s, dcto_s, _sub = vals
+
+            # Carga directa en el formulario superior
+            try:
+                self.ent_qty.delete(0, "end"); self.ent_qty.insert(0, str(qty_s))
+            except Exception:
+                pass
+            try:
+                self.ent_price.delete(0, "end"); self.ent_price.insert(0, str(price_s))
+            except Exception:
+                pass
+            try:
+                self.var_desc_val.set(float(str(dcto_s).replace('%','').strip() or 0))
+            except Exception:
+                self.var_desc_val.set(0.0)
+            try:
+                self.cmb_product.set(str(name))
+            except Exception:
+                pass
+            self._recalc_net()
+
+            self._edit_iid = iid
+            self._enter_edit_mode()
+        except Exception:
+            pass
+
+    # ---- Calcular Precio Neto (sin IVA) desde Precio Venta ----
     def _recalc_net(self):
         try:
             price = float(self.ent_price.get() or 0)
-            desc_tipo = "Porcentaje"
-            desc_val = float(self.var_desc_val.get() or 0)
-            neto = price
-            pct = 0.0
-            if desc_tipo == 'Monto':
-                neto = max(0.0, price - desc_val)
-                if price > 0:
-                    pct = max(0.0, min(100.0, (desc_val / price) * 100.0))
-            else:
-                pct = max(0.0, min(100.0, desc_val))
-                neto = max(0.0, price * (1 - pct/100.0))
+            neto = price / 1.19 if price else 0.0
             self.var_monto_neto.set(float(q2(D(neto))))
-            # La columna Dcto % en la tabla se calcula al agregar el ítem.
         except Exception:
             pass
 
@@ -833,6 +912,7 @@ class SalesView(ttk.Frame):
                 "descuento_porcentaje": float(disc or 0),
                 "subtotal": D(sub),
                 "codigo": codigo,
+                "costo": float(getattr(p, "precio_compra", 0) or 0),
             })
         return items
 
@@ -1226,5 +1306,8 @@ class SalesView(ttk.Frame):
     def _stamp() -> str:
         from datetime import datetime
         return datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+
 
 

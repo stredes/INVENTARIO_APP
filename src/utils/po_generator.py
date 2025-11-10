@@ -130,9 +130,7 @@ def generate_po_pdf(
 
     story.append(_header(comp, po_number))
     story.append(Spacer(1, 4 * mm))
-    warn = ParagraphStyle(name="warn", fontName="Helvetica-Bold", fontSize=12, textColor=colors.HexColor("#1E6AA8"), alignment=1)
-    story.append(Paragraph("*Documento sujeto a modificacion (Provisorio)*", warn))
-    story.append(Spacer(1, 4 * mm))
+    # Se elimina leyenda de documento provisorio
 
     # Detalles generales
     story.append(_band("Detalles generales"))
@@ -195,7 +193,7 @@ def generate_po_pdf(
     cell = ParagraphStyle(name="cell", fontName="Helvetica", fontSize=9, leading=11)
     headers = [
         Paragraph("Item", hdr), Paragraph("Codigo", hdr), Paragraph("Descripcion", hdr), Paragraph("Unidad", hdr),
-        Paragraph("Cantidad", hdr), Paragraph("Precio Unit.<br/>(sin IVA)", hdr), Paragraph("Dcto (%)", hdr), Paragraph("Total<br/>(sin IVA)", hdr)
+        Paragraph("Cantidad", hdr), Paragraph("Precio Unit.", hdr), Paragraph("Dcto (%)", hdr), Paragraph("Total", hdr)
     ]
     data = [headers]
     net_total = D(0)

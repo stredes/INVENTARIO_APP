@@ -24,7 +24,11 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from src.utils.po_generator import open_file
 from reportlab.lib.styles import ParagraphStyle
 
-from src.utils.helpers import get_company_info, get_downloads_dir, get_po_payment_method
+from src.utils.helpers import (
+    get_company_info,
+    get_downloads_dir,
+    get_po_payment_method,
+)
 from src.utils.money import D, q2, q0
 
 
@@ -89,32 +93,33 @@ def _items_table(items: List[Dict[str, object]], currency: str) -> Table:
     hdr = ParagraphStyle(name="hdr", fontName="Helvetica-Bold", fontSize=8, leading=9, alignment=1)
     cell = ParagraphStyle(name="cell", fontName="Helvetica", fontSize=9, leading=11)
     # Ajuste de anchos (mm): más espacio a precios y descuento
-    col_widths = [8, 18, 68, 12, 14, 30, 14, 18]
+    col_widths = [8, 16, 60, 10, 14, 30, 14, 30]
     assert sum(col_widths) == 182
     headers = [
         Paragraph("Item", hdr), Paragraph("Codigo", hdr), Paragraph("Descripcion", hdr), Paragraph("Unidad", hdr),
-        Paragraph("Cantidad", hdr), Paragraph("Precio Venta", hdr), Paragraph("Dcto (%)", hdr), Paragraph("Total", hdr)
+        Paragraph("Cantidad", hdr), Paragraph("Precio Neto", hdr) , Paragraph("Dcto (%)", hdr), Paragraph("Total (N)", hdr)
     ]
     data = [headers]
     for idx, it in enumerate(items, start=1):
         cant = D(it.get("cantidad", 0) or 0)
-        precio = D(it.get("precio", 0) or 0)
+        precio_bruto = D(it.get("precio", 0) or 0)
         dcto = D(it.get("descuento_porcentaje", it.get("dcto", 0)) or 0)
-        if it.get("subtotal") is not None:
-            sub_line = D(it.get("subtotal") or 0)
-        else:
-            sub_line = cant * precio * (D(1) - dcto / D(100))
-        precio_mostrar = q0(precio) if currency.upper() == "CLP" else q2(precio)
-        sub_line = q0(sub_line) if currency.upper() == "CLP" else q2(sub_line)
+        iva_rate = D("0.19")
+        precio_neto = precio_bruto / (D(1) + iva_rate)
+        sub_line_neto = cant * precio_neto * (D(1) - dcto / D(100))
+
+        precio_neto_fmt = q0(precio_neto) if currency.upper() == "CLP" else q2(precio_neto)
+        sub_line_fmt = q0(sub_line_neto) if currency.upper() == "CLP" else q2(sub_line_neto)
+
         data.append([
             str(idx),
             str(it.get("codigo") or it.get("id", "")),
             Paragraph(str(it.get("nombre", "")), cell),
             str(it.get("unidad", "U") or "U"),
             f"{int(cant) if cant == cant.to_integral_value() else cant}",
-            _fmt_moneda(precio_mostrar, currency),
+            _fmt_moneda(precio_neto_fmt, currency),
             Paragraph(f"{float(dcto):.0f} %", cell),
-            _fmt_moneda(sub_line, currency),
+            _fmt_moneda(sub_line_fmt, currency),
         ])
     tbl = Table(data, colWidths=[w * mm for w in col_widths], repeatRows=1)
     tbl.setStyle(TableStyle([
@@ -132,18 +137,14 @@ def _items_table(items: List[Dict[str, object]], currency: str) -> Table:
 def _totals_block(company: Dict[str, Any], items: List[Dict[str, object]], currency: str):
     # Precio de venta incluye IVA: sumar subtotales BRUTOS y derivar Neto/IVA
     iva_rate = D("0.19")
-    gross_total = D(0)
+    total_bruto = D(0)
     for it in items:
         cant = D(it.get("cantidad", 0) or 0)
-        precio = D(it.get("precio", 0) or 0)
+        precio_bruto = D(it.get("precio", 0) or 0)
         dcto = D(it.get("descuento_porcentaje", it.get("dcto", 0)) or 0)
-        if it.get("subtotal") is not None:
-            sub_bruto = D(it.get("subtotal") or 0)
-        else:
-            sub_bruto = cant * precio * (D(1) - dcto / D(100))
-        sub_bruto = q0(sub_bruto) if currency.upper() == "CLP" else q2(sub_bruto)
-        gross_total += sub_bruto
-    total = gross_total
+        sub_bruto = cant * precio_bruto * (D(1) - dcto / D(100))
+        total_bruto += sub_bruto
+    total = q0(total_bruto) if currency.upper() == "CLP" else q2(total_bruto)
     neto = q0(total / (D(1) + iva_rate)) if currency.upper() == "CLP" else q2(total / (D(1) + iva_rate))
     iva = q0(total - neto) if currency.upper() == "CLP" else q2(total - neto)
 
@@ -234,5 +235,7 @@ def generate_quote_to_downloads(
         except Exception:
             pass
     return str(out_path)
+
+
 
 

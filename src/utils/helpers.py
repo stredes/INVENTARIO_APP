@@ -293,6 +293,21 @@ def unique_path(base_dir: Path, filename: str) -> Path:
     p = base_dir / filename
     if not p.exists():
         return p
+    
+
+
+# -----------------------------
+# PRICING: Margen por defecto
+# -----------------------------
+def get_default_margin_pct() -> float:
+    """Lee el margen de ganancia por defecto desde settings.ini [pricing].
+    Si no existe, retorna 30.0
+    """
+    cfg = read_config()
+    try:
+        return float(cfg.get("pricing", "margin_pct", fallback="30.0"))
+    except Exception:
+        return 30.0
 
     stem = p.stem
     suffix = p.suffix

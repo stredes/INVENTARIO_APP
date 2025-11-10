@@ -182,9 +182,23 @@ def generate_so_pdf(
             _fmt_money(precio_mostrar, currency), f"{float(dcto):.0f} %", _fmt_money(subtotal_linea, currency),
         ])
 
+    # Rehacer tabla de items para mostrar Neto (precio/total)
+    data2 = [[Paragraph("ítem", hdr), Paragraph("Código", hdr), Paragraph("Descripción", hdr), Paragraph("Unidad", hdr), Paragraph("Cantidad", hdr), Paragraph("Precio Neto", hdr), Paragraph("Dcto (%)", hdr), Paragraph("Total (N)", hdr)]]
+    for idx, it in enumerate(items, start=1):
+        cantidad = D(it.get("cantidad", 0) or 0)
+        precio_bruto = D(it.get("precio", 0) or 0)
+        dcto = D(it.get("descuento_porcentaje", 0) or 0)
+        precio_neto = precio_bruto / (D(1) + iva_rate)
+        subtotal_neto = cantidad * precio_neto * (D(1) - dcto / D(100))
+        data2.append([
+            str(idx), str(it.get("codigo") or it.get("id", "") or ""), Paragraph(it.get("nombre", "") or "", cell), it.get("unidad", "U") or "U",
+            f"{int(cantidad) if cantidad == cantidad.to_integral_value() else cantidad}",
+            _fmt_money(precio_neto, currency), f"{float(dcto):.0f} %", _fmt_money(subtotal_neto, currency),
+        ])
+
     items_table = Table(
-        data,
-        colWidths=[8 * mm, 18 * mm, 68 * mm, 12 * mm, 14 * mm, 30 * mm, 14 * mm, 18 * mm],
+        data2,
+        colWidths=[8 * mm, 18 * mm, 60 * mm, 12 * mm, 14 * mm, 30 * mm, 14 * mm, 26 * mm],
         repeatRows=1,
     )
     items_table.setStyle(TableStyle([
@@ -205,7 +219,14 @@ def generate_so_pdf(
     # Totales: Neto / IVA / Total (Neto + 19%)
     story.append(_band("Facturación"))
     story.append(Spacer(1, 2 * mm))
-    total_v = q2(suma_neto)
+    # Recalcular sobre BRUTO para alinear con SII
+    total_bruto = D(0)
+    for it in items:
+        cantidad = D(it.get("cantidad", 0) or 0)
+        precio_bruto = D(it.get("precio", 0) or 0)
+        dcto = D(it.get("descuento_porcentaje", 0) or 0)
+        total_bruto += cantidad * precio_bruto * (D(1) - dcto / D(100))
+    total_v = q2(total_bruto)
     neto = q2(total_v / (D(1) + iva_rate))
     iva = q2(total_v - neto)
     p2 = ParagraphStyle(name="p2", fontName="Helvetica", fontSize=10, leading=13)
@@ -240,6 +261,8 @@ def generate_so_pdf(
 
     doc.build(story)
     return str(output_path)
+
+
 
 
 
