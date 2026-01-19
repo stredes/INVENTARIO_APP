@@ -525,7 +525,11 @@ class SalesView(ttk.Frame):
 
             # 2) Construir items para SalesManager
             sm_items = [
-                SaleItem(product_id=it["id"], cantidad=it["cantidad"], precio_unitario=it["precio"])
+                SaleItem(
+                    product_id=it["id"],
+                    cantidad=it["cantidad"],
+                    precio_unitario=it.get("precio_eff", it["precio"]),
+                )
                 for it in items
             ]
 
@@ -558,7 +562,7 @@ class SalesView(ttk.Frame):
                         "codigo": sku,
                         "descripcion": it["nombre"],
                         "cantidad": it["cantidad"],
-                        "precio": float(it["precio"]),
+                        "precio": float(it.get("precio_eff", it["precio"])),
                         "subtotal": float(it["subtotal"]),
                     })
 
@@ -749,7 +753,7 @@ class SalesView(ttk.Frame):
                 desc_val = float(self.var_desc_val.get() or 0)
             except Exception:
                 desc_val = 0.0
-            desc_tipo = "Porcentaje"
+            desc_tipo = (self.var_desc_tipo.get() or "Porcentaje").strip()
             disc = 0.0  # porcentaje equivalente para la columna
             eff_price = D(price)
             if desc_tipo == 'Monto':
@@ -759,6 +763,9 @@ class SalesView(ttk.Frame):
             else:
                 disc = max(0.0, min(100.0, float(desc_val)))
                 eff_price = q2(D(price) * D(1 - disc/100))
+            if eff_price <= 0:
+                self._warn("El descuento deja el precio en 0 o negativo.")
+                return
 
             # Evita duplicados (si NO estamos editando esta misma fila)
             if getattr(self, "_edit_iid", None) is None:
@@ -898,21 +905,40 @@ class SalesView(ttk.Frame):
             prod_id, name, qty, price, disc, sub = self.tree.item(iid, "values")
             # Buscar código/SKU del producto para la columna Código de la cotización
             codigo = ""
+            p = None
             try:
                 p = self.repo_prod.get(int(prod_id))
                 codigo = getattr(p, "sku", None) or getattr(p, "codigo", None) or ""
             except Exception:
                 pass
+            try:
+                qty_i = int(float(qty))
+            except Exception:
+                qty_i = 0
+            try:
+                sub_val = D(sub)
+            except Exception:
+                sub_val = D(0)
+            try:
+                price_val = q2(D(price))
+            except Exception:
+                price_val = D(0)
+            # Precio efectivo: usa el subtotal ya calculado en la UI
+            if qty_i > 0 and sub_val > 0:
+                price_eff = q2(sub_val / D(qty_i))
+            else:
+                price_eff = price_val
             items.append({
                 "id": int(prod_id),
                 "nombre": str(name),
-                "cantidad": int(float(qty)),
-                # precio efectivo con descuento
-                "precio": q2(D(price)),
+                "cantidad": qty_i,
+                # precio mostrado (lista) y precio efectivo con descuento
+                "precio": price_val,
+                "precio_eff": price_eff,
                 "descuento_porcentaje": float(disc or 0),
-                "subtotal": D(sub),
+                "subtotal": sub_val,
                 "codigo": codigo,
-                "costo": float(getattr(p, "precio_compra", 0) or 0),
+                "costo": float(getattr(p, "precio_compra", 0) or 0) if p else 0.0,
             })
         return items
 
@@ -949,7 +975,11 @@ class SalesView(ttk.Frame):
                 return
 
             sm_items = [
-                SaleItem(product_id=it["id"], cantidad=it["cantidad"], precio_unitario=it["precio"])
+                SaleItem(
+                    product_id=it["id"],
+                    cantidad=it["cantidad"],
+                    precio_unitario=it.get("precio_eff", it["precio"]),
+                )
                 for it in items
             ]
 

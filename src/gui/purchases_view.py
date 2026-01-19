@@ -153,6 +153,18 @@ class PurchasesView(ttk.Frame):
         self.var_ajimp = tk.StringVar(value="0")
         ttk.Entry(head, textvariable=self.var_ajimp, width=10).grid(row=4, column=5, sticky="w")
 
+        # Historial de documentos relacionados (solo Recepcion)
+        ttk.Label(head, text="Docs relacionados:").grid(row=6, column=0, sticky="e", padx=4, pady=(6, 2))
+        self.var_doc_history = tk.StringVar(value="")
+        self.lbl_doc_history = ttk.Label(
+            head,
+            textvariable=self.var_doc_history,
+            anchor="w",
+            justify="left",
+            wraplength=520,
+        )
+        self.lbl_doc_history.grid(row=6, column=1, columnspan=7, sticky="w", padx=4, pady=(6, 2))
+
         # ---- Trazabilidad (solo Recepción): Lote / Serie / Vencimiento ----
         # (Deprecated en header) Lote/Serie/Venc — se muestran ahora en el bloque Detalle
         self.var_lote = tk.StringVar(); self.var_serie = tk.StringVar(); self.var_has_venc = tk.BooleanVar(value=False); self.var_venc = tk.StringVar()
@@ -209,6 +221,15 @@ class PurchasesView(ttk.Frame):
                 rc = (int(gi.get('row', -1)), int(gi.get('column', -1)))
                 if rc in coords:
                     self._receipt_only_widgets.append(w)
+        except Exception:
+            pass
+        # Agregar historial de documentos al set de widgets solo Recepcion
+        try:
+            self._receipt_only_widgets.append(self.lbl_doc_history)
+            for w in head.winfo_children():
+                if getattr(w, "cget", None) and w.cget("text") == "Docs relacionados:":
+                    self._receipt_only_widgets.append(w)
+                    break
         except Exception:
             pass
         # Aplicar visibilidad inicial según modo guardado
@@ -357,7 +378,8 @@ class PurchasesView(ttk.Frame):
         ttk.Button(bottom, text="Limpiar tabla", command=self._on_clear_table).pack(side="right", padx=6)
         ttk.Button(bottom, text="Generar OC (PDF en Descargas)", command=self._on_generate_po_downloads).pack(side="right", padx=6)
         ttk.Button(bottom, text="Generar Cotización (PDF)", command=self._on_generate_quote_downloads).pack(side="right", padx=6)
-        ttk.Button(bottom, text="Guardar compra", command=self._on_confirm_purchase).pack(side="right", padx=6)
+        self._btn_confirm = ttk.Button(bottom, text="Guardar compra", command=self._on_confirm_purchase)
+        self._btn_confirm.pack(side="right", padx=6)
 
         # Inicializa proveedores y dataset de productos (filtrado)
         self.refresh_lookups()
@@ -441,6 +463,20 @@ class PurchasesView(ttk.Frame):
         # Visibilidad
         is_receipt = mode.lower().startswith("recep")
         try:
+            if is_receipt:
+                self._btn_confirm.config(text="Confirmar recepción")
+            else:
+                self._btn_confirm.config(text="Guardar compra")
+        except Exception:
+            pass
+        try:
+            if is_receipt:
+                self._update_doc_history(getattr(self, "_current_po_id", None))
+            else:
+                self._update_doc_history(None)
+        except Exception:
+            pass
+        try:
             for w in getattr(self, "_receipt_only_widgets", []) or []:
                 try:
                     if is_receipt:
@@ -476,6 +512,40 @@ class PurchasesView(ttk.Frame):
         if rut and rs:
             return f"{rut} - {rs}"
         return rs or rut or f"Proveedor {s.id}"
+
+    def _update_doc_history(self, purchase_id: Optional[int]) -> None:
+        if not purchase_id:
+            self.var_doc_history.set("")
+            return
+        try:
+            from src.data.models import Reception
+            recs = (
+                self.session.query(Reception)
+                .filter(Reception.id_compra == int(purchase_id))
+                .order_by(Reception.id.desc())
+                .all()
+            )
+            if not recs:
+                self.var_doc_history.set("Sin documentos asociados.")
+                return
+            parts = []
+            for r in recs:
+                tipo = (getattr(r, "tipo_doc", "") or "").strip() or "Documento"
+                num = (getattr(r, "numero_documento", "") or "").strip()
+                fecha = getattr(r, "fecha", None)
+                fecha_s = ""
+                try:
+                    if fecha and hasattr(fecha, "strftime"):
+                        fecha_s = fecha.strftime("%Y-%m-%d")
+                except Exception:
+                    fecha_s = ""
+                label = f"{tipo} {num}".strip()
+                if fecha_s:
+                    label = f"{label} ({fecha_s})"
+                parts.append(label)
+            self.var_doc_history.set(" | ".join(parts))
+        except Exception:
+            self.var_doc_history.set("")
 
     # ======================== Precio con IVA ========================
     def _price_with_iva(self, p: Product) -> Decimal:
@@ -730,6 +800,7 @@ class PurchasesView(ttk.Frame):
                         self._apply_reception_for_po(po, tipo_doc=tipo_doc)
                         return
                 # Fallback: entradas simples con trazabilidad por ítem seleccionado
+                any_received = False
                 for iid in self.tree.get_children():
                     vals = self.tree.item(iid, "values")
                     try:
@@ -754,12 +825,16 @@ class PurchasesView(ttk.Frame):
                         loc_id = None
                     if lote and serie:
                         serie = None
-                self.inv.register_entry(
-                    product_id=prod_id, cantidad=qty, motivo=f"Recepción {self._stamp()}",
+                    self.inv.register_entry(
+                        product_id=prod_id, cantidad=qty, motivo=f"Recepción {self._stamp()}",
                         lote=str(lote) if lote else None, serie=str(serie) if serie else None, fecha_vencimiento=venc,
                         reception_id=getattr(self, '_current_reception_id', None),
                         location_id=loc_id
                     )
+                    any_received = True
+                if not any_received:
+                    self._warn("No hay cantidades para recepcionar.")
+                    return
                 try:
                     self.session.commit()
                 except Exception:
@@ -1056,6 +1131,10 @@ class PurchasesView(ttk.Frame):
                 self._current_reception_id = int(rec_id) if rec_id is not None else None
             except Exception:
                 self._current_reception_id = None
+            try:
+                self._update_doc_history(int(po.id))
+            except Exception:
+                pass
             self._update_total()
             # Si es Guía, permitir edición de cantidades a recepcionar por línea
             is_guia = False
@@ -1082,6 +1161,91 @@ class PurchasesView(ttk.Frame):
         except Exception as ex:
             self._error(f"No se pudo preparar la recepción:\n{ex}")
 
+    def load_reception_for_edit(self, rec_id: int) -> None:
+        """Abre una recepción existente para editar trazabilidad."""
+        try:
+            from src.data.models import Reception, StockEntry
+            rec = self.session.get(Reception, int(rec_id))
+            if not rec:
+                self._error("Recepción no encontrada.")
+                return
+            po = self.session.get(Purchase, int(rec.id_compra))
+            if not po:
+                self._error("Compra asociada no encontrada.")
+                return
+            try:
+                self.var_mode.set("Recepcion")
+                self._on_mode_change()
+            except Exception:
+                pass
+            self.refresh_lookups()
+            try:
+                pid = int(po.id_proveedor)
+                idx = next((i for i, s in enumerate(self.suppliers) if int(s.id) == pid), -1)
+                if idx >= 0:
+                    self.cmb_supplier.current(idx)
+            except Exception:
+                pass
+            for iid in self.tree.get_children():
+                self.tree.delete(iid)
+            self._trace_by_prod = {}
+            try:
+                self.var_numdoc.set(getattr(rec, "numero_documento", "") or "")
+            except Exception:
+                pass
+            try:
+                self._current_reception_id = int(rec.id)
+                self._current_po_id = int(po.id)
+                self._edit_reception_mode = True
+                self._on_mode_change()
+            except Exception:
+                self._current_reception_id = None
+                self._current_po_id = int(po.id)
+                self._edit_reception_mode = False
+
+            qty_by_prod: Dict[int, int] = {}
+            prod_by_id: Dict[int, Product] = {}
+            q = (
+                self.session.query(StockEntry, Product)
+                .join(Product, Product.id == StockEntry.id_producto)
+                .filter(StockEntry.id_recepcion == int(rec.id))
+                .order_by(StockEntry.id.asc())
+            )
+            for se, prod in q:
+                qty_by_prod[int(prod.id)] = qty_by_prod.get(int(prod.id), 0) + int(getattr(se, "cantidad", 0) or 0)
+                prod_by_id[int(prod.id)] = prod
+
+            if not qty_by_prod:
+                self._warn("Recepción sin movimientos asociados.")
+
+            for prod_id, qty in qty_by_prod.items():
+                prod = prod_by_id.get(int(prod_id)) or self.session.get(Product, int(prod_id))
+                if not prod:
+                    continue
+                det = None
+                try:
+                    det = (
+                        self.session.query(PurchaseDetail)
+                        .filter(PurchaseDetail.id_compra == int(po.id))
+                        .filter(PurchaseDetail.id_producto == int(prod_id))
+                        .first()
+                    )
+                except Exception:
+                    det = None
+                if det is not None and getattr(det, "precio_unitario", None) is not None:
+                    price = D(det.precio_unitario)
+                else:
+                    price = self._price_with_iva(prod)
+                subtotal = q2(D(qty) * D(price))
+                self.tree.insert("", "end", values=(int(prod_id), str(prod.nombre), int(qty), fmt_2(price), "0", fmt_2(subtotal)))
+            self._update_total()
+            try:
+                self._update_doc_history(int(po.id))
+            except Exception:
+                pass
+        except Exception as ex:
+            self._error(f"No se pudo abrir la recepción:\n{ex}")
+
     def _apply_reception_for_po(self, po: Purchase, *, received_by_prod: Dict[int, int] | None = None, tipo_doc: str | None = None) -> None:
         """
         Aplica la recepción a la OC:
@@ -1092,8 +1256,9 @@ class PurchasesView(ttk.Frame):
             * Factura -> 'Completada'
             * Guía    -> 'Por pagar'
         """
-        estado_actual = str(getattr(po, "estado", "")).strip()
-        add_stock = estado_actual in ("Pendiente", "Incompleta")
+        estado_actual = str(getattr(po, "estado", "") or "").strip()
+        estado_norm = estado_actual.lower()
+        add_stock = estado_norm in ("pendiente", "incompleta")
         any_received = False
         try:
             # Cargar trazabilidad por producto (si existe guardada en el editor)
@@ -1222,21 +1387,32 @@ class PurchasesView(ttk.Frame):
                     break
             if all_rec and any_received:
                 td = (tipo_doc or "").lower()
-                if td.startswith("fact"):
+                if td.startswith("fact") or td.startswith("gu"):
                     po.estado = "Completada"
-                elif td.startswith("gu"):
-                    po.estado = "Por pagar"
                 else:
                     # Fallback
                     if add_stock:
-                        po.estado = "Por pagar"
+                        po.estado = "Completada"
             elif any_received:
                 # Recepción parcial
                 po.estado = "Incompleta"
 
             self.session.commit()
             self._on_clear_table()
-            self._info(f"Recepción de OC {po.id} confirmada.")
+            try:
+                self._update_doc_history(int(po.id))
+            except Exception:
+                pass
+            if any_received and not all_rec:
+                try:
+                    tipo_label = (tipo_doc or "Documento").strip() or "Documento"
+                    num_doc = (self.var_numdoc.get() or "").strip()
+                    doc = f"{tipo_label} {num_doc}".strip()
+                except Exception:
+                    doc = (tipo_doc or "Documento").strip() or "Documento"
+                self._info(f"Recepción parcial registrada ({doc}). Queda pendiente por recepcionar.")
+            else:
+                self._info(f"Recepción de OC {po.id} confirmada.")
         except Exception as ex:
             self.session.rollback()
             self._error(f"No se pudo confirmar la recepción:\n{ex}")
@@ -1271,12 +1447,24 @@ class PurchasesView(ttk.Frame):
                     .first()
                 )
                 if se is not None:
+                    try:
+                        from sqlalchemy import func
+                        qty_sum = (
+                            self.session.query(func.sum(StockEntry.cantidad))
+                            .filter(StockEntry.id_recepcion == rec_id)
+                            .filter(StockEntry.id_producto == int(pid))
+                            .scalar()
+                        )
+                    except Exception:
+                        qty_sum = None
                     tr = {
                         'lote': getattr(se, 'lote', None) or None,
                         'serie': getattr(se, 'serie', None) or None,
                         'venc': getattr(se, 'fecha_vencimiento', None) or None,
                         'loc_id': getattr(se, 'id_ubicacion', None) or None,
                     }
+                    if qty_sum is not None:
+                        tr['qty'] = int(qty_sum or 0)
                     self._trace_by_prod[int(pid)] = tr
             except Exception:
                 pass

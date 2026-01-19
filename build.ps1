@@ -17,7 +17,8 @@ param(
   [switch]$Console,
   [string]$Icon,
   [switch]$OneDir,
-  [switch]$NoClean
+  [switch]$NoClean,
+  [switch]$InstallMissing
 )
 
 function Write-Info($msg) { Write-Host "[INFO] $msg" -ForegroundColor Cyan }
@@ -41,6 +42,24 @@ if (-not $py) {
   exit 1
 }
 
+# Instalacion opcional de herramientas/dep si se solicita (-InstallMissing)
+if ($InstallMissing) {
+  Write-Info "Comprobando e instalando herramientas requeridas (-InstallMissing)..."
+  # PyInstaller
+  & $py "-c" "import importlib.util,sys;sys.exit(0 if importlib.util.find_spec('PyInstaller') else 1)" | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    Write-Info "Instalando PyInstaller..."
+    & $py -m pip install -U pyinstaller pyinstaller-hooks-contrib
+    if ($LASTEXITCODE -ne 0) { Write-Err "No se pudo instalar PyInstaller"; exit 1 }
+  }
+  # Dependencias runtime
+  & $py "-c" "import importlib.util,sys;mods=['sqlalchemy','reportlab','PIL','openpyxl','barcode','win32com.client','win32api','win32print'];missing=[m for m in mods if importlib.util.find_spec(m) is None];sys.exit(0 if not missing else 1)" | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    Write-Info "Instalando dependencias (sqlalchemy, reportlab, pillow, openpyxl, python-barcode, pywin32)..."
+    & $py -m pip install -U sqlalchemy reportlab pillow openpyxl python-barcode pywin32
+    if ($LASTEXITCODE -ne 0) { Write-Err "No se pudieron instalar dependencias"; exit 1 }
+  }
+}
 # Verificar PyInstaller en ese mismo Python
 Write-Info "Verificando PyInstaller en el mismo intérprete..."
 & $py "-c" "import sys; import importlib.util as i; sys.exit(0 if i.find_spec('PyInstaller') else 1)" | Out-Null

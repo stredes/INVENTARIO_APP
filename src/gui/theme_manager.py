@@ -207,7 +207,9 @@ class ThemeManager:
     _current: str = "Light"
     _density: str = "comfortable"  # comfortable | compact
     _font_size: str = "md"         # sm | md | lg | xl
-    _scaling: float = 1.0           # tk scaling (DPI)
+    _scaling: float = 1.0          # tk scaling (DPI)
+    _auto_scaling: bool = True
+    _auto_scale_base: tuple[int, int] = (1366, 768)
 
     # Métricas por densidad
     DENSITY = {
@@ -262,6 +264,7 @@ class ThemeManager:
         cls._density = cfg.get("ui", "density", fallback=cls._density)
         cls._font_size = cfg.get("ui", "font_size", fallback=cls._font_size)
         cls._scaling = cfg.getfloat("ui", "scaling", fallback=cls._scaling)
+        cls._auto_scaling = cfg.getboolean("ui", "auto_scaling", fallback=cls._auto_scaling)
 
         if cls._current not in cls.THEMES:
             cls._current = "Light"
@@ -272,6 +275,8 @@ class ThemeManager:
 
         # Aplicar escala DPI ANTES de derivar fuentes
         try:
+            if cls._auto_scaling:
+                cls._scaling = cls._compute_auto_scaling(root)
             root.tk.call("tk", "scaling", cls._scaling)
         except Exception:
             pass
@@ -513,6 +518,8 @@ class ThemeManager:
         if not cls._root:
             return
         cls._scaling = float(value)
+        if persist:
+            cls._auto_scaling = False
         try:
             cls._root.tk.call("tk", "scaling", cls._scaling)
         except Exception:
@@ -652,9 +659,38 @@ class ThemeManager:
         cfg["ui"]["density"] = cls._density
         cfg["ui"]["font_size"] = cls._font_size
         cfg["ui"]["scaling"] = str(cls._scaling)
+        cfg["ui"]["auto_scaling"] = "true" if cls._auto_scaling else "false"
         cfg_path.parent.mkdir(parents=True, exist_ok=True)
         with cfg_path.open("w", encoding="utf-8") as f:
             cfg.write(f)
+
+    # --------------------------------------------------------------------- #
+    # Auto-Scaling
+    # --------------------------------------------------------------------- #
+    @classmethod
+    def _compute_auto_scaling(cls, root: Tk) -> float:
+        try:
+            sw = int(root.winfo_screenwidth() or 0)
+            sh = int(root.winfo_screenheight() or 0)
+        except Exception:
+            sw, sh = 0, 0
+        base_w, base_h = cls._auto_scale_base
+        if sw <= 0 or sh <= 0:
+            return cls._scaling
+        ratio = min(sw / base_w, sh / base_h)
+        return max(0.8, min(1.4, ratio))
+
+    @classmethod
+    def apply_auto_scaling(cls) -> None:
+        if not cls._root or not cls._auto_scaling:
+            return
+        try:
+            scale = cls._compute_auto_scaling(cls._root)
+            if abs(scale - cls._scaling) < 0.02:
+                return
+            cls._apply_scaling(scale, persist=False)
+        except Exception:
+            pass
 
     # --------------------------------------------------------------------- #
     # Contraste y utilitarios de color

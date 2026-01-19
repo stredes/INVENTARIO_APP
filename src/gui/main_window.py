@@ -16,6 +16,7 @@ from src.gui.inventory_view import InventoryView
 from src.gui.orders_admin_view import OrdersAdminView
 from src.reports.report_center import ReportCenter  # â† NUEVO
 from src.gui.catalog_view import CatalogView
+from src.gui.tutorial_center import TutorialCenter
 
 from src.gui.theme_manager import ThemeManager
 from src.gui.widgets.status_bar import StatusBar
@@ -42,6 +43,8 @@ class MainWindow(ttk.Frame):
         # Tema y menú
         ThemeManager.attach(self.app_root)
         self._build_menu()
+        self._tutorial_window = None
+        self._build_top_bar()
 
         # Notebook + tabs
         self.notebook = ttk.Notebook(self)
@@ -70,6 +73,20 @@ class MainWindow(ttk.Frame):
         self.notebook.add(self.orders_admin_tab, text="Órdenes")
         self.notebook.add(self.report_center_tab, text="Informes")  # â† NUEVO
         self.notebook.add(self.catalog_tab, text="Catálogo")
+
+        self._tutorial_modules = self._build_tutorial_modules()
+        self._tutorial_tab_by_name = {
+            "Productos": self.products_tab,
+            "Proveedores": self.suppliers_tab,
+            "Clientes": self.customers_tab,
+            "Compras": self.purchases_tab,
+            "Ventas": self.sales_tab,
+            "Inventario": self.inventory_tab,
+            "Ordenes": self.orders_admin_tab,
+            "Informes": self.report_center_tab,
+            "Catalogo": self.catalog_tab,
+        }
+        self._tutorial_name_by_tab = {v: k for k, v in self._tutorial_tab_by_name.items()}
 
         self.notebook.pack(fill="both", expand=True)
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_change)
@@ -107,6 +124,13 @@ class MainWindow(ttk.Frame):
             Toast.show(self.app_root, f"No se pudo cargar el diálogo de DB: {ex}", kind="danger")
             return
         DBConnectionDialog(self)
+
+    def _build_top_bar(self) -> None:
+        bar = ttk.Frame(self)
+        bar.pack(fill="x", expand=False, pady=(0, 6))
+        self._tutorial_btn = ttk.Button(bar, text="?", width=3, command=self._open_tutorial_center)
+        self._tutorial_btn.pack(side="right")
+        ttk.Label(bar, text="Tutoriales").pack(side="right", padx=(0, 6))
 
     def _build_menu(self) -> None:
         menubar = Menu(self.app_root)
@@ -161,6 +185,10 @@ class MainWindow(ttk.Frame):
         m_view.add_command(label="Editor de información…", command=self._open_company_editor)
         m_view.add_command(label="Ir a Informes", command=self.show_report_center)
         menubar.add_cascade(label="Ver", menu=m_view)
+
+        m_help = Menu(menubar, tearoff=False)
+        m_help.add_command(label="Tutoriales...", command=self._open_tutorial_center)
+        menubar.add_cascade(label="Ayuda", menu=m_help)
 
     # ---------------- Impresoras: seleccionar / probar ---------------- #
     def _choose_document_printer(self) -> None:
@@ -400,6 +428,7 @@ class MainWindow(ttk.Frame):
     def _build_actions(self) -> list[CommandAction]:
         view = self._current_view()
         actions: list[CommandAction] = [
+            CommandAction("open_tutorials", "Tutoriales", callback=self._open_tutorial_center, keywords=["ayuda", "tutorial"]),
             CommandAction("go_products", "Ir a Productos", callback=self.show_products, keywords=["inventario", "stock"]),
             CommandAction("go_suppliers", "Ir a Proveedores", callback=self.show_suppliers, keywords=["proveedores"]),
             CommandAction("go_customers", "Ir a Clientes", callback=self.show_customers, keywords=["clientes"]),
@@ -420,6 +449,102 @@ class MainWindow(ttk.Frame):
             except Exception:
                 pass
         return actions
+
+    def _build_tutorial_modules(self) -> dict[str, list[str]]:
+        return {
+            "Productos": [
+                "Filtra la grilla por ID, codigo o nombre para ubicar productos.",
+                "Completa el formulario con nombre, SKU, proveedor y unidad.",
+                "Define precio compra, IVA y margen para recalcular precio venta.",
+                "Carga imagen o imprime etiquetas desde el panel de codigo de barras.",
+                "Guarda; doble clic en una fila para editar o actualizar.",
+            ],
+            "Proveedores": [
+                "Registra razon social, RUT y datos de contacto.",
+                "Usa Agregar para crear un proveedor nuevo.",
+                "Doble clic en una fila para editar y Guardar cambios.",
+                "Elimina registros o limpia el formulario cuando termines.",
+            ],
+            "Clientes": [
+                "Registra razon social, RUT y datos de contacto.",
+                "Usa Agregar para crear clientes nuevos.",
+                "Doble clic en una fila para editar y Guardar cambios.",
+                "Elimina registros o limpia el formulario cuando termines.",
+            ],
+            "Compras": [
+                "Selecciona proveedor y agrega items en el detalle.",
+                "Define estado, forma de pago y si suma stock.",
+                "Modo Compra: confirma compra y genera OC o cotizacion.",
+                "Modo Recepcion: vincula OC y documento (factura o guia).",
+                "Confirma recepcion para sumar stock y dejar historial.",
+            ],
+            "Ventas": [
+                "Selecciona cliente y agrega productos con cantidad y precio.",
+                "Define estado y pago; activa descuento de stock si aplica.",
+                "Genera OV o cotizacion desde los botones del modulo.",
+                "Modo cajero: escanea SKU y cobra rapido con F12.",
+                "Confirma para registrar la venta y actualizar el stock.",
+            ],
+            "Inventario": [
+                "Revisa stock en la grilla y usa filtros para acotar.",
+                "Configura min/max para resaltar niveles criticos.",
+                "Imprime reportes o exporta XLSX cuando lo necesites.",
+                "Selecciona un producto para ver/imprimir codigo de barras.",
+                "Ajusta el auto refresco segun tu ritmo de trabajo.",
+            ],
+            "Ordenes": [
+                "Usa las pestañas para ver todas, compras, ventas y recepciones.",
+                "Doble clic abre el detalle de una orden o recepcion.",
+                "Cambia estados para confirmar, completar o cancelar.",
+                "En recepciones revisa documentos vinculados a la OC.",
+            ],
+            "Informes": [
+                "Elige el tipo de informe en el selector superior.",
+                "Configura filtros de fecha, estado, tercero o producto.",
+                "Ejecuta el informe y revisa los resultados en la tabla.",
+                "Exporta el reporte para compartir o archivar.",
+            ],
+            "Catalogo": [
+                "Define copias, IVA, diseno, titulo y familia.",
+                "Elige que campos mostrar (empresa, SKU, stock, precios).",
+                "Genera una vista previa para validar el diseno.",
+                "Imprime o guarda el PDF del catalogo.",
+            ],
+        }
+
+    def _open_tutorial_center(self) -> None:
+        try:
+            if self._tutorial_window and self._tutorial_window.winfo_exists():
+                self._tutorial_window.lift()
+                self._tutorial_window.focus_force()
+                return
+        except Exception:
+            pass
+
+        start_module = self._current_tutorial_module()
+        self._tutorial_window = TutorialCenter(
+            self.app_root,
+            modules=self._tutorial_modules,
+            start_module=start_module,
+            on_open_module=self._open_tutorial_module,
+        )
+        try:
+            self._tutorial_window.bind("<Destroy>", self._on_tutorial_destroy, add="+")
+        except Exception:
+            pass
+
+    def _on_tutorial_destroy(self, event) -> None:
+        if event.widget is self._tutorial_window:
+            self._tutorial_window = None
+
+    def _current_tutorial_module(self) -> str | None:
+        view = self._current_view()
+        return self._tutorial_name_by_tab.get(view)
+
+    def _open_tutorial_module(self, name: str) -> None:
+        widget = self._tutorial_tab_by_name.get(name)
+        if widget is not None:
+            self._select_tab_by_widget(widget)
 
     def _current_view(self) -> ttk.Frame:
         sel = self.notebook.select()

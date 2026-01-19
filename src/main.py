@@ -33,12 +33,14 @@ def _setup_windows_dpi_awareness() -> None:
 
 
 def _apply_tk_scaling(root: tk.Tk) -> None:
-    """Ajusta el 'tk scaling' según los DPI efectivos del monitor actual.
-    Esto reduce problemas de "colapso"/corte al mover la app entre
-    monitores con diferente escala.
-    """
+    """Auto-ajusta el escalado en función del tamaño de pantalla actual."""
     try:
-        px_per_in = root.winfo_fpixels('1i')  # pixels por pulgada
+        ThemeManager.apply_auto_scaling()
+        return
+    except Exception:
+        pass
+    try:
+        px_per_in = root.winfo_fpixels('1i')  # fallback por DPI
         scaling = max(0.8, min(3.0, px_per_in / 72.0))  # 72 pt = 1 in
         root.tk.call('tk', 'scaling', scaling)
     except Exception:
@@ -54,7 +56,6 @@ def main():
     root = tk.Tk()
     root.title("Inventario App - Tkinter")
     root.geometry("1100x720")
-    _apply_tk_scaling(root)
 
     # Menú principal de la ventana
     menubar = Menu(root)
@@ -63,6 +64,7 @@ def main():
     # Tema: adjunta el gestor y construye el menú "Tema"
     ThemeManager.attach(root)          # aplica el tema guardado (por defecto "Light")
     ThemeManager.build_menu(menubar)   # añade el submenú "Tema" al menubar
+    _apply_tk_scaling(root)
 
     # Ventana principal (Notebook con pestañas)
     app = MainWindow(root)

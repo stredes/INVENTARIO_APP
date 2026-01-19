@@ -934,6 +934,10 @@ class OrdersAdminView(ttk.Frame):
 
         def action():
             for det in pur.details:
+                remaining = int(det.cantidad or 0) - int(getattr(det, "received_qty", 0) or 0)
+                if remaining <= 0:
+                    det.received_qty = int(det.cantidad or 0)
+                    continue
                 # Usar ubicación por defecto del producto si existe
                 try:
                     prod = self.session.get(Product, int(det.id_producto))
@@ -942,10 +946,11 @@ class OrdersAdminView(ttk.Frame):
                     loc_id = None
                 self.inventory.register_entry(
                     product_id=det.id_producto,
-                    cantidad=det.cantidad,
+                    cantidad=remaining,
                     motivo=f"Compra {pur.id}",
                     location_id=loc_id,
                 )
+                det.received_qty = int(det.cantidad or 0)
             pur.estado = "Completada"
 
         self._handle_db_action(
@@ -1057,7 +1062,16 @@ class OrdersAdminView(ttk.Frame):
                 return
             def action_pp():
                 for det in p.details:
-                    self.inventory.register_entry(product_id=det.id_producto, cantidad=det.cantidad, motivo=f"Compra {p.id}")
+                    remaining = int(det.cantidad or 0) - int(getattr(det, "received_qty", 0) or 0)
+                    if remaining <= 0:
+                        det.received_qty = int(det.cantidad or 0)
+                        continue
+                    self.inventory.register_entry(
+                        product_id=det.id_producto,
+                        cantidad=remaining,
+                        motivo=f"Compra {p.id}",
+                    )
+                    det.received_qty = int(det.cantidad or 0)
                 p.estado = "Por pagar"
             self._handle_db_action(action_pp, f"Compra {p.id} marcada como POR PAGAR y stock actualizado.", self._load_purchases)
         elif target == "Cancelada":
@@ -1067,7 +1081,15 @@ class OrdersAdminView(ttk.Frame):
             if cur_state.lower() in ("completada", "por pagar"):
                 def action():
                     for det in pur.details:
-                        self.inventory.register_exit(product_id=det.id_producto, cantidad=det.cantidad, motivo=f"Reversa compra {pur.id}")
+                        received = int(getattr(det, "received_qty", 0) or 0)
+                        if received <= 0:
+                            continue
+                        self.inventory.register_exit(
+                            product_id=det.id_producto,
+                            cantidad=received,
+                            motivo=f"Reversa compra {pur.id}",
+                        )
+                        det.received_qty = 0
                     pur.estado = "Pendiente"
                 self._handle_db_action(action, f"Compra {pur.id} marcada como PENDIENTE y stock revertido.", self._load_purchases)
             else:
@@ -1097,8 +1119,8 @@ class OrdersAdminView(ttk.Frame):
         elif target == "Eliminada":
             self._sale_delete()
         elif target == "Reservada":
-            # Si estaba confirmada, devolver stock
-            if cur_state.lower() == "confirmada":
+            # Si estaba confirmada/pagada, devolver stock
+            if cur_state.lower() in ("confirmada", "pagada"):
                 def action():
                     for det in sale.details:
                         self.inventory.register_entry(product_id=det.id_producto, cantidad=det.cantidad, motivo=f"Reversa venta {sale.id}")
@@ -1194,17 +1216,19 @@ class OrdersAdminView(ttk.Frame):
         if not sale:
             messagebox.showwarning("Ventas", "Seleccione una venta.")
             return
-        if str(sale.estado).strip().lower() == "confirmada":
+        cur_state = str(sale.estado).strip().lower()
+        if cur_state == "confirmada":
             messagebox.showinfo("Ventas", "Esta venta ya está CONFIRMADA.")
             return
 
         def action():
-            for det in sale.details:
-                self.inventory.register_exit(
-                    product_id=det.id_producto,
-                    cantidad=det.cantidad,
-                    motivo=f"Venta {sale.id}",
-                )
+            if cur_state not in ("confirmada", "pagada"):
+                for det in sale.details:
+                    self.inventory.register_exit(
+                        product_id=det.id_producto,
+                        cantidad=det.cantidad,
+                        motivo=f"Venta {sale.id}",
+                    )
             sale.estado = "Confirmada"
 
         self._handle_db_action(
