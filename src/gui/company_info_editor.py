@@ -55,7 +55,7 @@ class CompanyInfoEditor(tk.Toplevel):
 
         btns = ttk.Frame(frm)
         btns.grid(row=row, column=0, columnspan=3, sticky="e", pady=(8, 0))
-        ttk.Button(btns, text="Guardar", command=self._save).pack(side="left", padx=4)
+        ttk.Button(btns, text="Guardar", style="Success.TButton", command=self._save).pack(side="left", padx=4)
         ttk.Button(btns, text="Cerrar", command=self.destroy).pack(side="left", padx=4)
 
     # ----- helpers -----

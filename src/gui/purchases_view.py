@@ -201,35 +201,12 @@ class PurchasesView(ttk.Frame):
         # Widgets visibles solo en modo Recepción (marcados por coordenadas)
         self._receipt_only_widgets = []
         try:
-            coords = {
-                (1,0),(1,1),  # Nº doc
-                (1,2),(1,3),  # F. documento
-                (1,4),(1,5),  # F. contable
-                (1,6),(1,7),  # F. venc.
-                (2,0),(2,1),  # Moneda
-                (2,2),(2,3),  # Tasa cambio
-                (2,4),(2,5),  # U. negocio
-                (2,6),(2,7),  # Proporcionalidad
-                (3,0),(3,1),  # Tipo dcto
-                (3,2),(3,3),  # Descuento
-                (3,4),(3,5),  # Ajuste IVA
-                (3,6),(3,7),  # Stock
-                (4,4),(4,5),  # Ajuste imp
-            }
+            coords = set()
             for w in head.winfo_children():
                 gi = w.grid_info()
                 rc = (int(gi.get('row', -1)), int(gi.get('column', -1)))
                 if rc in coords:
                     self._receipt_only_widgets.append(w)
-        except Exception:
-            pass
-        # Agregar historial de documentos al set de widgets solo Recepcion
-        try:
-            self._receipt_only_widgets.append(self.lbl_doc_history)
-            for w in head.winfo_children():
-                if getattr(w, "cget", None) and w.cget("text") == "Docs relacionados:":
-                    self._receipt_only_widgets.append(w)
-                    break
         except Exception:
             pass
         # Aplicar visibilidad inicial según modo guardado
@@ -238,7 +215,24 @@ class PurchasesView(ttk.Frame):
         except Exception:
             pass
 
-        # ---------- Detalle ----------
+        # Ocultar campos no requeridos en el encabezado
+        self._head_hide_coords = {
+            (0,2),
+            (2,0),(2,1),(2,2),(2,3),(2,4),(2,5),(2,6),(2,7),
+            (3,0),(3,1),(3,2),(3,3),(3,4),(3,5),
+            (4,0),(4,1),(4,4),(4,5),
+            (6,0),(6,1),
+        }
+        try:
+            for w in head.winfo_children():
+                gi = w.grid_info()
+                rc = (int(gi.get('row', -1)), int(gi.get('column', -1)))
+                if rc in self._head_hide_coords:
+                    w.grid_remove()
+        except Exception:
+            pass
+
+# ---------- Detalle ----------
         det = ttk.Labelframe(self, text="Detalle de compra", padding=10)
         det.pack(fill="x", expand=False, pady=(8, 0))
 
@@ -302,7 +296,7 @@ class PurchasesView(ttk.Frame):
             self._loc_name_by_id = {}
             self._loc_id_by_name = {}
         self._tr_btns = ttk.Frame(self._trace_frame)
-        ttk.Button(self._tr_btns, text="Guardar", command=self._on_trace_save).pack(side="left", padx=2)
+        ttk.Button(self._tr_btns, text="Guardar", style="Success.TButton", command=self._on_trace_save).pack(side="left", padx=2)
         ttk.Button(self._tr_btns, text="Limpiar", command=self._on_trace_clear).pack(side="left", padx=2)
         # Layout (grilla interna)
         self._tr_lbl_l.grid(row=0, column=0, sticky="e", padx=4, pady=2)
@@ -374,12 +368,18 @@ class PurchasesView(ttk.Frame):
         self.lbl_total = ttk.Label(bottom, text="Total: 0.00", font=("", 11, "bold"))
         self.lbl_total.pack(side="left")
 
-        ttk.Button(bottom, text="Eliminar ítem", command=self._on_delete_item).pack(side="right", padx=6)
+        ttk.Button(bottom, text="Eliminar ítem", style="Danger.TButton", command=self._on_delete_item).pack(side="right", padx=6)
         ttk.Button(bottom, text="Limpiar tabla", command=self._on_clear_table).pack(side="right", padx=6)
         ttk.Button(bottom, text="Generar OC (PDF en Descargas)", command=self._on_generate_po_downloads).pack(side="right", padx=6)
         ttk.Button(bottom, text="Generar Cotización (PDF)", command=self._on_generate_quote_downloads).pack(side="right", padx=6)
-        self._btn_confirm = ttk.Button(bottom, text="Guardar compra", command=self._on_confirm_purchase)
+        self._btn_confirm = ttk.Button(bottom, text="Guardar compra", style="Success.TButton", command=self._on_confirm_purchase)
         self._btn_confirm.pack(side="right", padx=6)
+        self._btn_cancel_reception = ttk.Button(bottom, text="Cancelar recepcion", style="Danger.TButton", command=self._on_cancel_reception)
+        self._btn_cancel_reception.pack(side="right", padx=6)
+        try:
+            self._btn_cancel_reception.pack_forget()
+        except Exception:
+            pass
 
         # Inicializa proveedores y dataset de productos (filtrado)
         self.refresh_lookups()
@@ -503,6 +503,48 @@ class PurchasesView(ttk.Frame):
                     self._trace_frame.grid_remove()
                 except Exception:
                     pass
+        except Exception:
+            pass
+        try:
+            if is_receipt:
+                if str(self._btn_cancel_reception.winfo_manager()) != "pack":
+                    self._btn_cancel_reception.pack(side="right", padx=6)
+            else:
+                if str(self._btn_cancel_reception.winfo_manager()) == "pack":
+                    self._btn_cancel_reception.pack_forget()
+        except Exception:
+            pass
+
+    def _on_cancel_reception(self) -> None:
+        try:
+            if not messagebox.askyesno("Recepción", "Cancelar la recepción actual?"):
+                return
+        except Exception:
+            pass
+        try:
+            self._on_clear_table()
+        except Exception:
+            pass
+        try:
+            self._on_trace_clear()
+        except Exception:
+            pass
+        try:
+            self.var_numdoc.set("")
+            self.var_fdoc.set("")
+            self.var_fcont.set("")
+            self.var_fvenc.set("")
+        except Exception:
+            pass
+        try:
+            self._current_reception_id = None
+            self._current_po_id = None
+            self._edit_reception_mode = False
+        except Exception:
+            pass
+        try:
+            self.var_mode.set("Compra")
+            self._on_mode_change()
         except Exception:
             pass
 
@@ -852,8 +894,9 @@ class PurchasesView(ttk.Frame):
                     return
 
             estado = (getattr(self, 'cmb_estado', None).get() if hasattr(self, 'cmb_estado') else "Completada") or "Completada"
-            # Unifica política de movimiento de stock: usa el checkbox var_apply
-            apply_to_stock = bool(getattr(self, 'var_apply', tk.BooleanVar(value=True)).get()) and (estado in ("Completada", "Por pagar"))
+            # Unifica política de movimiento de stock: usa la selección de stock (Mueve/No Mueve)
+            stockpol = (getattr(self, 'var_stockpol', tk.StringVar(value='No Mueve')).get() or 'No Mueve')
+            apply_to_stock = stockpol.lower().startswith("mueve") and (estado in ("Completada", "Por pagar"))
 
             pur = self.pm.create_purchase(
                 supplier_id=sup.id,

@@ -84,7 +84,7 @@ class DBConnectionDialog(tk.Toplevel):
         btns = ttk.Frame(frm)
         btns.grid(row=4, column=0, columnspan=3, sticky="e", pady=(8, 0))
         ttk.Button(btns, text="Probar conexión", command=self._test_connection).pack(side="left", padx=4)
-        ttk.Button(btns, text="Guardar", command=self._save).pack(side="left", padx=4)
+        ttk.Button(btns, text="Guardar", style="Success.TButton", command=self._save).pack(side="left", padx=4)
         ttk.Button(btns, text="Cerrar", command=self.destroy).pack(side="left", padx=4)
 
         # Acomodar visibilidad por motor y establecer URL

@@ -208,7 +208,7 @@ class ThemeManager:
     _density: str = "comfortable"  # comfortable | compact
     _font_size: str = "md"         # sm | md | lg | xl
     _scaling: float = 1.0          # tk scaling (DPI)
-    _auto_scaling: bool = True
+    _auto_scaling: bool = False
     _auto_scale_base: tuple[int, int] = (1366, 768)
 
     # Métricas por densidad

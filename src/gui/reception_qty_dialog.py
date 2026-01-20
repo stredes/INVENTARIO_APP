@@ -45,7 +45,7 @@ class ReceptionQtyDialog(tk.Toplevel):
 
         ctrl = ttk.Frame(frm)
         ctrl.grid(row=2, column=0, sticky="e", pady=(8, 0))
-        ttk.Button(ctrl, text="Cancelar", command=self._cancel).pack(side="right", padx=4)
+        ttk.Button(ctrl, text="Cancelar", style="Danger.TButton", command=self._cancel).pack(side="right", padx=4)
         ttk.Button(ctrl, text="Aceptar", command=self._ok).pack(side="right", padx=4)
 
         self.bind("<Return>", lambda _e=None: self._ok())

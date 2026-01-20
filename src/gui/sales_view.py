@@ -70,12 +70,13 @@ class SalesView(ttk.Frame):
         self._cashier_mode = tk.BooleanVar(value=False)
         cashier_bar = ttk.Frame(self)
         cashier_bar.pack(fill="x", expand=False, pady=(8, 0))
-        ttk.Checkbutton(
+        self._cashier_toggle = ttk.Checkbutton(
             cashier_bar,
             text="Modo cajero de ventas",
             variable=self._cashier_mode,
             command=lambda: self._toggle_cashier_ui(),
-        ).pack(side="left")
+        )
+        self._cashier_toggle.pack(side="left")
 
         self._cashier_frame = ttk.Labelframe(self, text="Cajero de ventas", padding=8)
         self._cashier_frame.pack_forget()
@@ -202,7 +203,7 @@ class SalesView(ttk.Frame):
         self.lbl_total = ttk.Label(bottom, text="Total: 0.00", font=("", 11, "bold"))
         self.lbl_total.pack(side="left")
 
-        ttk.Button(bottom, text="Eliminar ítem", command=self._on_delete_item)\
+        ttk.Button(bottom, text="Eliminar ítem", style="Danger.TButton", command=self._on_delete_item)\
             .pack(side="right", padx=6)
         ttk.Button(bottom, text="Limpiar tabla", command=self._on_clear_table)\
             .pack(side="right", padx=6)
@@ -210,8 +211,8 @@ class SalesView(ttk.Frame):
             .pack(side="right", padx=6)
         ttk.Button(bottom, text="Generar OV (PDF en Descargas)", command=self._on_generate_so_downloads)\
             .pack(side="right", padx=6)
-        ttk.Button(bottom, text="Guardar venta", command=self._on_confirm_sale)\
-            .pack(side="right", padx=6)
+        self._btn_confirm = ttk.Button(bottom, text="Guardar venta", style="Success.TButton", command=self._on_confirm_sale)
+        self._btn_confirm.pack(side="right", padx=6)
 
         self.refresh_lookups()
 
@@ -413,7 +414,7 @@ class SalesView(ttk.Frame):
 
         # Estado ya está en el encabezado; no lo repetimos en el footer
 
-        ttk.Button(bottom, text="Eliminar ítem", command=self._on_delete_item)\
+        ttk.Button(bottom, text="Eliminar ítem", style="Danger.TButton", command=self._on_delete_item)\
             .pack(side="right", padx=6)
         ttk.Button(bottom, text="Limpiar tabla", command=self._on_clear_table)\
             .pack(side="right", padx=6)
@@ -421,7 +422,7 @@ class SalesView(ttk.Frame):
             .pack(side="right", padx=6)
         ttk.Button(bottom, text="Generar OV (PDF en Descargas)", command=self._on_generate_so_downloads)\
             .pack(side="right", padx=6)
-        ttk.Button(bottom, text="Guardar venta", command=self._on_confirm_sale)\
+        ttk.Button(bottom, text="Guardar venta", style="Success.TButton", command=self._on_confirm_sale)\
             .pack(side="right", padx=6)
 
         # (Se removieron los paneles de Administración e Informe de Ventas)
@@ -614,7 +615,12 @@ class SalesView(ttk.Frame):
         if self.customers and not self.cmb_customer.get():
             self.cmb_customer.current(0)
 
-        self.products = self.session.query(Product).order_by(Product.nombre.asc()).all()
+        self.products = (
+            self.session.query(Product)
+            .filter(Product.stock_actual > 0)
+            .order_by(Product.nombre.asc())
+            .all()
+        )
 
         def _disp(p: Product) -> str:
             sku = getattr(p, "sku", "") or ""

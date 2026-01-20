@@ -59,8 +59,8 @@ class FamiliesManager(tk.Toplevel):
         btns.grid(row=2, column=0, sticky="we", pady=(6, 0))
         ttk.Button(btns, text="Importar desde productos", command=self._on_import_from_products).pack(side="left", padx=4)
         ttk.Button(btns, text="Nuevo", command=self._on_new).pack(side="left", padx=4)
-        ttk.Button(btns, text="Guardar", command=self._on_save).pack(side="left", padx=4)
-        ttk.Button(btns, text="Eliminar", command=self._on_delete).pack(side="left", padx=4)
+        ttk.Button(btns, text="Guardar", style="Success.TButton", command=self._on_save).pack(side="left", padx=4)
+        ttk.Button(btns, text="Eliminar", style="Danger.TButton", command=self._on_delete).pack(side="left", padx=4)
         ttk.Button(btns, text="Cerrar", command=self.destroy).pack(side="right", padx=4)
 
         self.tree.bind("<<TreeviewSelect>>", self._on_select)

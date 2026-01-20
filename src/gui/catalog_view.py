@@ -23,31 +23,31 @@ class CatalogView(ttk.Frame):
 
         ttk.Label(self, text="Generador de Catálogo de Productos", font=("", 12, "bold")).pack(anchor="w")
 
-        actions = ttk.LabelFrame(self, text="Acciones de catálogo", padding=8)
-        actions.pack(fill="x", pady=(6, 8))
+        self._actions_frame = ttk.LabelFrame(self, text="Acciones de catálogo", padding=8)
+        self._actions_frame.pack(fill="x", pady=(6, 8))
 
-        ttk.Label(actions, text="Copias:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
+        ttk.Label(self._actions_frame, text="Copias:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
         self.var_copies = tk.IntVar(value=1)
-        ttk.Spinbox(actions, from_=1, to=50, textvariable=self.var_copies, width=5).grid(row=0, column=1, sticky="w")
+        ttk.Spinbox(self._actions_frame, from_=1, to=50, textvariable=self.var_copies, width=5).grid(row=0, column=1, sticky="w")
 
-        ttk.Label(actions, text="IVA % (para neto):").grid(row=0, column=2, sticky="e", padx=8)
+        ttk.Label(self._actions_frame, text="IVA % (para neto):").grid(row=0, column=2, sticky="e", padx=8)
         self.var_iva = tk.DoubleVar(value=19.0)
-        ttk.Spinbox(actions, from_=0, to=100, increment=0.5, textvariable=self.var_iva, width=6).grid(row=0, column=3, sticky="w")
+        ttk.Spinbox(self._actions_frame, from_=0, to=100, increment=0.5, textvariable=self.var_iva, width=6).grid(row=0, column=3, sticky="w")
 
-        ttk.Label(actions, text="Diseño:").grid(row=0, column=4, sticky="e", padx=8)
+        ttk.Label(self._actions_frame, text="Diseño:").grid(row=0, column=4, sticky="e", padx=8)
         self.var_layout = tk.StringVar(value="3 x 4")
-        ttk.Combobox(actions, textvariable=self.var_layout, values=["3 x 4", "2 x 3", "4 x 5"], state="readonly", width=8).grid(row=0, column=5, sticky="w")
+        ttk.Combobox(self._actions_frame, textvariable=self.var_layout, values=["3 x 4", "2 x 3", "4 x 5"], state="readonly", width=8).grid(row=0, column=5, sticky="w")
 
-        ttk.Label(actions, text="Título:").grid(row=1, column=0, sticky="e", padx=4, pady=4)
+        ttk.Label(self._actions_frame, text="Título:").grid(row=1, column=0, sticky="e", padx=4, pady=4)
         self.var_title = tk.StringVar(value="Catálogo de Productos")
-        ttk.Entry(actions, textvariable=self.var_title, width=36).grid(row=1, column=1, columnspan=3, sticky="we")
+        ttk.Entry(self._actions_frame, textvariable=self.var_title, width=36).grid(row=1, column=1, columnspan=3, sticky="we")
 
         # Filtro por familia (opcional)
-        ttk.Label(actions, text="Familia:").grid(row=1, column=4, sticky="e", padx=8)
+        ttk.Label(self._actions_frame, text="Familia:").grid(row=1, column=4, sticky="e", padx=8)
         self.var_family = tk.StringVar(value="(todas)")
-        self.cmb_family = ttk.Combobox(actions, textvariable=self.var_family, values=["(todas)"], width=18)
+        self.cmb_family = ttk.Combobox(self._actions_frame, textvariable=self.var_family, values=["(todas)"], width=18)
         self.cmb_family.grid(row=1, column=5, sticky="w")
-        ttk.Button(actions, text="Admin. familias...", command=self._open_families_manager).grid(row=1, column=6, sticky="w", padx=(6,0))
+        ttk.Button(self._actions_frame, text="Admin. familias...", command=self._open_families_manager).grid(row=1, column=6, sticky="w", padx=(6,0))
         try:
             self._refresh_family_list()
         except Exception:
@@ -59,14 +59,14 @@ class CatalogView(ttk.Frame):
         self.var_show_stock = tk.BooleanVar(value=True)
         self.var_show_net = tk.BooleanVar(value=True)
         self.var_show_gross = tk.BooleanVar(value=False)
-        ttk.Checkbutton(actions, text="Mostrar empresa", variable=self.var_show_company).grid(row=2, column=0, sticky="w")
-        ttk.Checkbutton(actions, text="SKU", variable=self.var_show_sku).grid(row=2, column=1, sticky="w")
-        ttk.Checkbutton(actions, text="Stock", variable=self.var_show_stock).grid(row=2, column=2, sticky="w")
-        ttk.Checkbutton(actions, text="Precio sin IVA", variable=self.var_show_net).grid(row=2, column=3, sticky="w")
-        ttk.Checkbutton(actions, text="Precio con IVA", variable=self.var_show_gross).grid(row=2, column=4, sticky="w")
+        ttk.Checkbutton(self._actions_frame, text="Mostrar empresa", variable=self.var_show_company).grid(row=2, column=0, sticky="w")
+        ttk.Checkbutton(self._actions_frame, text="SKU", variable=self.var_show_sku).grid(row=2, column=1, sticky="w")
+        ttk.Checkbutton(self._actions_frame, text="Stock", variable=self.var_show_stock).grid(row=2, column=2, sticky="w")
+        ttk.Checkbutton(self._actions_frame, text="Precio sin IVA", variable=self.var_show_net).grid(row=2, column=3, sticky="w")
+        ttk.Checkbutton(self._actions_frame, text="Precio con IVA", variable=self.var_show_gross).grid(row=2, column=4, sticky="w")
 
-        ttk.Button(actions, text="Vista previa", command=self._on_preview).grid(row=2, column=5, padx=(12, 4))
-        ttk.Button(actions, text="Imprimir (PDF)", command=self._on_generate).grid(row=2, column=6, padx=4)
+        ttk.Button(self._actions_frame, text="Vista previa", command=self._on_preview).grid(row=2, column=5, padx=(12, 4))
+        ttk.Button(self._actions_frame, text="Imprimir (PDF)", command=self._on_generate).grid(row=2, column=6, padx=4)
 
         # Ãrea de vista previa con scroll
         host = ttk.Frame(self)

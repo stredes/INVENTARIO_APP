@@ -51,8 +51,8 @@ class CustomersView(ttk.Frame):
         btns = ttk.Frame(frm)
         btns.grid(row=6, column=0, columnspan=2, pady=8)
         self.btn_save = ttk.Button(btns, text="Agregar", command=self._on_add)
-        self.btn_update = ttk.Button(btns, text="Guardar cambios", command=self._on_update, state="disabled")
-        self.btn_delete = ttk.Button(btns, text="Eliminar", command=self._on_delete, state="disabled")
+        self.btn_update = ttk.Button(btns, text="Guardar cambios", style="Success.TButton", command=self._on_update, state="disabled")
+        self.btn_delete = ttk.Button(btns, text="Eliminar", style="Danger.TButton", command=self._on_delete, state="disabled")
         self.btn_clear = ttk.Button(btns, text="Limpiar", command=self._clear_form)
         for b in (self.btn_save, self.btn_update, self.btn_delete, self.btn_clear):
             b.pack(side="left", padx=4)

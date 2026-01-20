@@ -17,6 +17,7 @@ from src.gui.orders_admin_view import OrdersAdminView
 from src.reports.report_center import ReportCenter  # â† NUEVO
 from src.gui.catalog_view import CatalogView
 from src.gui.tutorial_center import TutorialCenter
+from src.gui.tutorial_tour import InteractiveTour
 
 from src.gui.theme_manager import ThemeManager
 from src.gui.widgets.status_bar import StatusBar
@@ -44,7 +45,7 @@ class MainWindow(ttk.Frame):
         ThemeManager.attach(self.app_root)
         self._build_menu()
         self._tutorial_window = None
-        self._build_top_bar()
+        self._active_tour = None
 
         # Notebook + tabs
         self.notebook = ttk.Notebook(self)
@@ -74,7 +75,8 @@ class MainWindow(ttk.Frame):
         self.notebook.add(self.report_center_tab, text="Informes")  # â† NUEVO
         self.notebook.add(self.catalog_tab, text="Catálogo")
 
-        self._tutorial_modules = self._build_tutorial_modules()
+        self._tour_steps = self._build_tour_steps()
+        self._tutorial_modules = self._build_tutorial_modules(self._tour_steps)
         self._tutorial_tab_by_name = {
             "Productos": self.products_tab,
             "Proveedores": self.suppliers_tab,
@@ -124,13 +126,6 @@ class MainWindow(ttk.Frame):
             Toast.show(self.app_root, f"No se pudo cargar el diálogo de DB: {ex}", kind="danger")
             return
         DBConnectionDialog(self)
-
-    def _build_top_bar(self) -> None:
-        bar = ttk.Frame(self)
-        bar.pack(fill="x", expand=False, pady=(0, 6))
-        self._tutorial_btn = ttk.Button(bar, text="?", width=3, command=self._open_tutorial_center)
-        self._tutorial_btn.pack(side="right")
-        ttk.Label(bar, text="Tutoriales").pack(side="right", padx=(0, 6))
 
     def _build_menu(self) -> None:
         menubar = Menu(self.app_root)
@@ -450,67 +445,173 @@ class MainWindow(ttk.Frame):
                 pass
         return actions
 
-    def _build_tutorial_modules(self) -> dict[str, list[str]]:
+    def _build_tour_steps(self) -> dict[str, list[dict]]:
         return {
             "Productos": [
-                "Filtra la grilla por ID, codigo o nombre para ubicar productos.",
-                "Completa el formulario con nombre, SKU, proveedor y unidad.",
-                "Define precio compra, IVA y margen para recalcular precio venta.",
-                "Carga imagen o imprime etiquetas desde el panel de codigo de barras.",
-                "Guarda; doble clic en una fila para editar o actualizar.",
+                {
+                    "title": "Filtros",
+                    "body": "Usa los filtros para encontrar productos por ID, codigo o nombre.",
+                    "target": lambda: getattr(self.products_tab, "_filter_frame", None),
+                },
+                {
+                    "title": "Formulario",
+                    "body": "Completa los campos y usa Agregar o Guardar cambios.",
+                    "target": lambda: getattr(self.products_tab, "btn_save", None),
+                },
+                {
+                    "title": "Listado",
+                    "body": "Aqui ves el listado. Doble clic para editar.",
+                    "target": lambda: getattr(self.products_tab, "table", None),
+                },
+                {
+                    "title": "Imagen",
+                    "body": "Carga o revisa la imagen del producto.",
+                    "target": lambda: getattr(self.products_tab, "img_box", None),
+                },
+                {
+                    "title": "Codigo de barras",
+                    "body": "Genera y imprime etiquetas desde este panel.",
+                    "target": lambda: getattr(self.products_tab, "_bar_container", None),
+                },
             ],
             "Proveedores": [
-                "Registra razon social, RUT y datos de contacto.",
-                "Usa Agregar para crear un proveedor nuevo.",
-                "Doble clic en una fila para editar y Guardar cambios.",
-                "Elimina registros o limpia el formulario cuando termines.",
+                {
+                    "title": "Formulario",
+                    "body": "Registra razon social, RUT y datos de contacto.",
+                    "target": lambda: getattr(self.suppliers_tab, "btn_save", None),
+                },
+                {
+                    "title": "Listado",
+                    "body": "Doble clic en una fila para editar.",
+                    "target": lambda: getattr(self.suppliers_tab, "table", None),
+                },
             ],
             "Clientes": [
-                "Registra razon social, RUT y datos de contacto.",
-                "Usa Agregar para crear clientes nuevos.",
-                "Doble clic en una fila para editar y Guardar cambios.",
-                "Elimina registros o limpia el formulario cuando termines.",
+                {
+                    "title": "Formulario",
+                    "body": "Registra razon social, RUT y datos de contacto.",
+                    "target": lambda: getattr(self.customers_tab, "btn_save", None),
+                },
+                {
+                    "title": "Listado",
+                    "body": "Doble clic en una fila para editar.",
+                    "target": lambda: getattr(self.customers_tab, "table", None),
+                },
             ],
             "Compras": [
-                "Selecciona proveedor y agrega items en el detalle.",
-                "Define estado, forma de pago y si suma stock.",
-                "Modo Compra: confirma compra y genera OC o cotizacion.",
-                "Modo Recepcion: vincula OC y documento (factura o guia).",
-                "Confirma recepcion para sumar stock y dejar historial.",
+                {
+                    "title": "Proveedor",
+                    "body": "Selecciona el proveedor para iniciar una compra.",
+                    "target": lambda: getattr(self.purchases_tab, "cmb_supplier", None),
+                },
+                {
+                    "title": "Modo",
+                    "body": "Elige Compra o Recepcion segun el flujo.",
+                    "target": lambda: getattr(self.purchases_tab, "cmb_mode", None),
+                },
+                {
+                    "title": "Detalle",
+                    "body": "Agrega productos, cantidades y precios.",
+                    "target": lambda: getattr(self.purchases_tab, "tree", None),
+                },
+                {
+                    "title": "Confirmar",
+                    "body": "Guarda la compra o confirma la recepcion.",
+                    "target": lambda: getattr(self.purchases_tab, "_btn_confirm", None),
+                },
             ],
             "Ventas": [
-                "Selecciona cliente y agrega productos con cantidad y precio.",
-                "Define estado y pago; activa descuento de stock si aplica.",
-                "Genera OV o cotizacion desde los botones del modulo.",
-                "Modo cajero: escanea SKU y cobra rapido con F12.",
-                "Confirma para registrar la venta y actualizar el stock.",
+                {
+                    "title": "Cliente",
+                    "body": "Selecciona el cliente para la venta.",
+                    "target": lambda: getattr(self.sales_tab, "cmb_customer", None),
+                },
+                {
+                    "title": "Producto",
+                    "body": "Agrega items al detalle con cantidad y precio.",
+                    "target": lambda: getattr(self.sales_tab, "btn_add_item", None),
+                },
+                {
+                    "title": "Detalle",
+                    "body": "Revisa los items y el total de la venta.",
+                    "target": lambda: getattr(self.sales_tab, "tree", None),
+                },
+                {
+                    "title": "Confirmar",
+                    "body": "Guarda la venta y actualiza el stock.",
+                    "target": lambda: getattr(self.sales_tab, "_btn_confirm", None),
+                },
+                {
+                    "title": "Modo cajero",
+                    "body": "Activa el modo cajero para ventas rapidas.",
+                    "target": lambda: getattr(self.sales_tab, "_cashier_toggle", None),
+                },
             ],
             "Inventario": [
-                "Revisa stock en la grilla y usa filtros para acotar.",
-                "Configura min/max para resaltar niveles criticos.",
-                "Imprime reportes o exporta XLSX cuando lo necesites.",
-                "Selecciona un producto para ver/imprimir codigo de barras.",
-                "Ajusta el auto refresco segun tu ritmo de trabajo.",
+                {
+                    "title": "Tabla",
+                    "body": "Consulta el stock real y los niveles criticos.",
+                    "target": lambda: getattr(self.inventory_tab, "table", None),
+                },
+                {
+                    "title": "Acciones",
+                    "body": "Filtra, exporta o imprime el inventario.",
+                    "target": lambda: getattr(self.inventory_tab, "_actions_frame", None),
+                },
+                {
+                    "title": "Codigo de barras",
+                    "body": "Genera e imprime etiquetas desde este panel.",
+                    "target": lambda: getattr(self.inventory_tab, "_bar_canvas", None),
+                },
             ],
             "Ordenes": [
-                "Usa las pestañas para ver todas, compras, ventas y recepciones.",
-                "Doble clic abre el detalle de una orden o recepcion.",
-                "Cambia estados para confirmar, completar o cancelar.",
-                "En recepciones revisa documentos vinculados a la OC.",
+                {
+                    "title": "Pestanias",
+                    "body": "Explora compras, ventas y recepciones desde aqui.",
+                    "target": lambda: getattr(self.orders_admin_tab, "_nb", None),
+                },
+                {
+                    "title": "Listado",
+                    "body": "Selecciona una orden para ver su detalle.",
+                    "target": lambda: getattr(self.orders_admin_tab, "tbl_all", None),
+                },
             ],
             "Informes": [
-                "Elige el tipo de informe en el selector superior.",
-                "Configura filtros de fecha, estado, tercero o producto.",
-                "Ejecuta el informe y revisa los resultados en la tabla.",
-                "Exporta el reporte para compartir o archivar.",
+                {
+                    "title": "Selector",
+                    "body": "Elige el tipo de informe que quieres generar.",
+                    "target": lambda: getattr(self.report_center_tab, "cmb_report", None),
+                },
+                {
+                    "title": "Resultados",
+                    "body": "Ejecuta y revisa los datos del informe.",
+                    "target": lambda: getattr(self.report_center_tab, "table", None),
+                },
+                {
+                    "title": "Exportar",
+                    "body": "Exporta el informe cuando lo necesites.",
+                    "target": lambda: getattr(self.report_center_tab, "btn_export", None),
+                },
             ],
             "Catalogo": [
-                "Define copias, IVA, diseno, titulo y familia.",
-                "Elige que campos mostrar (empresa, SKU, stock, precios).",
-                "Genera una vista previa para validar el diseno.",
-                "Imprime o guarda el PDF del catalogo.",
+                {
+                    "title": "Opciones",
+                    "body": "Configura el diseno y los campos del catalogo.",
+                    "target": lambda: getattr(self.catalog_tab, "_actions_frame", None),
+                },
+                {
+                    "title": "Vista previa",
+                    "body": "Revisa la vista previa antes de imprimir.",
+                    "target": lambda: getattr(self.catalog_tab, "canvas", None),
+                },
             ],
         }
+
+    def _build_tutorial_modules(self, steps: dict[str, list[dict]]) -> dict[str, list[str]]:
+        modules: dict[str, list[str]] = {}
+        for name, items in steps.items():
+            modules[name] = [step.get("body", "") for step in items]
+        return modules
 
     def _open_tutorial_center(self) -> None:
         try:
@@ -527,9 +628,43 @@ class MainWindow(ttk.Frame):
             modules=self._tutorial_modules,
             start_module=start_module,
             on_open_module=self._open_tutorial_module,
+            on_start_tour=self._start_tour_for_module,
         )
         try:
             self._tutorial_window.bind("<Destroy>", self._on_tutorial_destroy, add="+")
+        except Exception:
+            pass
+
+    def _start_tour_for_module(self, name: str) -> None:
+        try:
+            if self._active_tour:
+                self._active_tour.close()
+        except Exception:
+            pass
+
+        self._open_tutorial_module(name)
+        steps = self._tour_steps.get(name, [])
+        if not steps:
+            return
+
+        self._active_tour = InteractiveTour(
+            self.app_root,
+            steps,
+            on_close=self._clear_active_tour,
+        )
+        try:
+            if self._tutorial_window and self._tutorial_window.winfo_exists():
+                self._tutorial_window.iconify()
+        except Exception:
+            pass
+
+    def _clear_active_tour(self) -> None:
+        self._active_tour = None
+        try:
+            if self._tutorial_window and self._tutorial_window.winfo_exists():
+                self._tutorial_window.deiconify()
+                self._tutorial_window.lift()
+                self._tutorial_window.focus_force()
         except Exception:
             pass
 

@@ -63,7 +63,7 @@ class PrinterSelectDialog(tk.Toplevel):
         btns = ttk.Frame(frm)
         btns.grid(row=1, column=0, columnspan=2, sticky="e", pady=(12, 0))
         btn_accept = ttk.Button(btns, text="Aceptar", command=self._on_accept)
-        btn_cancel = ttk.Button(btns, text="Cancelar", command=self._on_cancel)
+        btn_cancel = ttk.Button(btns, text="Cancelar", style="Danger.TButton", command=self._on_cancel)
         btn_accept.pack(side="right", padx=5)
         btn_cancel.pack(side="right")
 

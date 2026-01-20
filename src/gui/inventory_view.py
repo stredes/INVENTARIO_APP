@@ -73,13 +73,14 @@ class InventoryView(ttk.Frame):
         ).pack(side="left")
 
         # Bloque derecho: acciones
-        actions = ttk.Frame(header)
-        actions.pack(side="right")
-        ttk.Button(actions, text="Imprimir", command=self._on_print).pack(side="right", padx=4)
-        ttk.Button(actions, text="Exportar XLSX", command=self._on_export_xlsx).pack(side="right", padx=4)
-        ttk.Button(actions, text="Filtros…", command=self._on_filters).pack(side="right", padx=4)
-        ttk.Button(actions, text="Refrescar ahora", command=self.refresh_table).pack(side="right", padx=4)
-        ttk.Checkbutton(actions, text="Auto", variable=self._auto_enabled, command=self._on_toggle_auto).pack(side="right")
+        self._actions_frame = ttk.Frame(header)
+        self._actions_frame.pack(side="right")
+        ttk.Button(self._actions_frame, text="Imprimir", command=self._on_print).pack(side="right", padx=4)
+        ttk.Button(self._actions_frame, text="Exportar XLSX", command=self._on_export_xlsx).pack(side="right", padx=4)
+        self._btn_filters = ttk.Button(self._actions_frame, text="Filtros…", command=self._on_filters)
+        self._btn_filters.pack(side="right", padx=4)
+        ttk.Button(self._actions_frame, text="Refrescar ahora", command=self.refresh_table).pack(side="right", padx=4)
+        ttk.Checkbutton(self._actions_frame, text="Auto", variable=self._auto_enabled, command=self._on_toggle_auto).pack(side="right")
 
         # Manager de Código de Barras (top-right)
         bar = ttk.Labelframe(header, text="Código de barras", padding=6)
@@ -167,7 +168,7 @@ class InventoryView(ttk.Frame):
         ttk.Spinbox(prod_cfg, from_=0, to=999999, textvariable=self._sel_min, width=10).grid(row=0, column=1, sticky="w", padx=4, pady=4)
         ttk.Label(prod_cfg, text="Máximo:").grid(row=0, column=2, sticky="e", padx=4, pady=4)
         ttk.Spinbox(prod_cfg, from_=0, to=999999, textvariable=self._sel_max, width=10).grid(row=0, column=3, sticky="w", padx=4, pady=4)
-        ttk.Button(prod_cfg, text="Guardar límites del producto", command=self._on_save_selected_limits).grid(row=0, column=4, padx=8)
+        ttk.Button(prod_cfg, text="Guardar límites del producto", style="Success.TButton", command=self._on_save_selected_limits).grid(row=0, column=4, padx=8)
 
         # Primera carga + auto
         self.refresh_table()

@@ -32,7 +32,7 @@ class ReceptionLinkDialog(tk.Toplevel):
 
         btns = ttk.Frame(frm)
         btns.grid(row=2, column=0, columnspan=2, sticky="e", pady=(8, 0))
-        ttk.Button(btns, text="Cancelar", command=self._cancel).pack(side="right", padx=4)
+        ttk.Button(btns, text="Cancelar", style="Danger.TButton", command=self._cancel).pack(side="right", padx=4)
         ttk.Button(btns, text="Vincular", command=self._ok).pack(side="right", padx=4)
 
         self.bind("<Return>", lambda e: self._ok())

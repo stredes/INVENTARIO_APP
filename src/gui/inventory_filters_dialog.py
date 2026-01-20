@@ -109,7 +109,7 @@ class InventoryFiltersDialog(tk.Toplevel):
         # Botones
         btns = ttk.Frame(frm)
         btns.grid(row=11, column=0, columnspan=2, sticky="e", pady=(10, 0))
-        ttk.Button(btns, text="Cancelar", command=self._on_cancel).pack(side="right", padx=5)
+        ttk.Button(btns, text="Cancelar", style="Danger.TButton", command=self._on_cancel).pack(side="right", padx=5)
         ttk.Button(btns, text="Aceptar", command=self._on_accept).pack(side="right")
 
         for i in range(2):

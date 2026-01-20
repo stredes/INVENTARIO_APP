@@ -13,6 +13,7 @@ class TutorialCenter(tk.Toplevel):
         modules: Dict[str, List[str]],
         start_module: Optional[str] = None,
         on_open_module: Optional[Callable[[str], None]] = None,
+        on_start_tour: Optional[Callable[[str], None]] = None,
     ) -> None:
         super().__init__(parent)
         self.title("Tutoriales")
@@ -23,6 +24,7 @@ class TutorialCenter(tk.Toplevel):
         self._modules = modules
         self._module_names = list(modules.keys())
         self._on_open_module = on_open_module
+        self._on_start_tour = on_start_tour
         self._current_module = start_module if start_module in modules else self._module_names[0]
         self._step_index = 0
 
@@ -61,10 +63,12 @@ class TutorialCenter(tk.Toplevel):
         self.btn_next = ttk.Button(btns, text="Siguiente", command=self._next_step)
         self.btn_reset = ttk.Button(btns, text="Reiniciar", command=self._reset_steps)
         self.btn_open = ttk.Button(btns, text="Ir al modulo", command=self._open_module)
+        self.btn_start = ttk.Button(btns, text="Iniciar guia", command=self._start_tour)
 
         self.btn_prev.pack(side="left")
         self.btn_next.pack(side="left", padx=6)
         self.btn_reset.pack(side="left", padx=6)
+        self.btn_start.pack(side="right", padx=6)
         self.btn_open.pack(side="right")
 
         self.protocol("WM_DELETE_WINDOW", self.destroy)
@@ -119,5 +123,12 @@ class TutorialCenter(tk.Toplevel):
         if self._on_open_module:
             try:
                 self._on_open_module(self._current_module)
+            except Exception:
+                pass
+
+    def _start_tour(self) -> None:
+        if self._on_start_tour:
+            try:
+                self._on_start_tour(self._current_module)
             except Exception:
                 pass
