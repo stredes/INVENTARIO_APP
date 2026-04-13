@@ -64,27 +64,33 @@ class InteractiveTour:
         self.overlay.bind("<Button-1>", lambda _e: None)
 
     def _build_card(self) -> None:
+        style = ttk.Style(self.root)
+        style.configure("TourCard.TFrame", background="#FFFFFF")
+        style.configure("TourCard.TLabel", background="#FFFFFF", foreground="#16324F")
+        style.configure("TourTitle.TLabel", background="#FFFFFF", foreground="#0B2A4D", font=("", 11, "bold"))
+        style.configure("TourMuted.TLabel", background="#FFFFFF", foreground="#6A7F95")
+
         self.card_win = tk.Toplevel(self.root)
         self.card_win.overrideredirect(True)
         self.card_win.transient(self.root)
         self.card_win.bind("<Escape>", lambda _e: self.close())
 
-        frame = ttk.Frame(self.card_win, padding=12, relief="raised", borderwidth=1)
+        frame = ttk.Frame(self.card_win, padding=12, relief="raised", borderwidth=1, style="TourCard.TFrame")
         frame.pack(fill="both", expand=True)
 
-        header = ttk.Frame(frame)
+        header = ttk.Frame(frame, style="TourCard.TFrame")
         header.pack(fill="x")
-        self.lbl_title = ttk.Label(header, text="", font=("", 11, "bold"))
+        self.lbl_title = ttk.Label(header, text="", style="TourTitle.TLabel")
         self.lbl_title.pack(side="left")
         self.btn_close = ttk.Button(header, text="x", width=3, command=self.close)
         self.btn_close.pack(side="right")
 
-        self.lbl_body = ttk.Label(frame, text="", justify="left", wraplength=380)
+        self.lbl_body = ttk.Label(frame, text="", justify="left", wraplength=380, style="TourCard.TLabel")
         self.lbl_body.pack(fill="x", pady=(8, 8))
 
-        footer = ttk.Frame(frame)
+        footer = ttk.Frame(frame, style="TourCard.TFrame")
         footer.pack(fill="x")
-        self.lbl_counter = ttk.Label(footer, text="")
+        self.lbl_counter = ttk.Label(footer, text="", style="TourMuted.TLabel")
         self.lbl_counter.pack(side="left")
 
         self.btn_prev = ttk.Button(footer, text="Anterior", command=self.prev)

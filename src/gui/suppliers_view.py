@@ -49,22 +49,35 @@ class SuppliersView(ttk.Frame):
         self.var_email = tk.StringVar()
         self.var_Dirección = tk.StringVar()
 
-        def row(lbl: str, var: tk.StringVar, r: int, width: int = 40):
-            ttk.Label(frm, text=f"{lbl}:").grid(row=r, column=0, sticky="e", padx=4, pady=4)
-            ent = ttk.Entry(frm, textvariable=var, width=width)
-            ent.grid(row=r, column=1, sticky="w", padx=4, pady=4)
+        frm.columnconfigure(0, weight=1)
+        frm.columnconfigure(1, weight=1)
+
+        identity = ttk.LabelFrame(frm, text="Identificación", padding=10)
+        identity.grid(row=0, column=0, sticky="nsew", padx=(0, 8), pady=(0, 8))
+        contact = ttk.LabelFrame(frm, text="Contacto comercial", padding=10)
+        contact.grid(row=0, column=1, sticky="nsew", padx=(8, 0), pady=(0, 8))
+        address = ttk.LabelFrame(frm, text="Ubicación y notas", padding=10)
+        address.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+
+        for box in (identity, contact, address):
+            box.columnconfigure(1, weight=1)
+
+        def row(parent: ttk.Frame, lbl: str, var: tk.StringVar, r: int, width: int = 40):
+            ttk.Label(parent, text=f"{lbl}:").grid(row=r, column=0, sticky="w", padx=4, pady=4)
+            ent = ttk.Entry(parent, textvariable=var, width=width)
+            ent.grid(row=r, column=1, sticky="ew", padx=4, pady=4)
             return ent
 
-        self.ent_Razón = row("Razón social", self.var_Razón, 0)
-        self.ent_rut = row("RUT", self.var_rut, 1, width=20)
-        row("Contacto (vendedor)", self.var_contacto, 2)
-        row("Teléfono", self.var_Teléfono, 3)
-        row("Email", self.var_email, 4)
-        row("Dirección", self.var_Dirección, 5)
+        self.ent_Razón = row(identity, "Razón social", self.var_Razón, 0)
+        self.ent_rut = row(identity, "RUT", self.var_rut, 1, width=20)
+        row(contact, "Contacto (vendedor)", self.var_contacto, 0)
+        row(contact, "Teléfono", self.var_Teléfono, 1)
+        row(contact, "Email", self.var_email, 2)
+        row(address, "Dirección", self.var_Dirección, 0, width=90)
 
         # Botones
         btns = ttk.Frame(frm)
-        btns.grid(row=6, column=0, columnspan=2, pady=8)
+        btns.grid(row=2, column=0, columnspan=2, pady=8, sticky="w")
         self.btn_save = ttk.Button(btns, text="Agregar", command=self._on_add)
         self.btn_update = ttk.Button(btns, text="Guardar cambios", style="Success.TButton", command=self._on_update, state="disabled")
         self.btn_delete = ttk.Button(btns, text="Eliminar", style="Danger.TButton", command=self._on_delete, state="disabled")

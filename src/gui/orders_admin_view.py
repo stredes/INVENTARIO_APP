@@ -70,11 +70,6 @@ class OrdersAdminView(ttk.Frame):
         nb.pack(fill="both", expand=True)
         self._nb = nb
 
-        # --- TAB TODAS (Resumen de todas las órdenes) ---
-        self.tab_all = ttk.Frame(nb, padding=8)
-        nb.add(self.tab_all, text="Todas")
-        self._init_all_tab(self.tab_all)
-
         # --- TAB COMPRAS ---
         self.tab_compra = ttk.Frame(nb, padding=8)
         nb.add(self.tab_compra, text="Compras")
@@ -85,17 +80,10 @@ class OrdersAdminView(ttk.Frame):
         nb.add(self.tab_venta, text="Ventas")
         self._init_sales_tab(self.tab_venta)
 
-        # --- TAB RECEPCIONES ---
-        self.tab_recv = ttk.Frame(nb, padding=8)
-        nb.add(self.tab_recv, text="Recepciones")
-        self._init_receptions_tab(self.tab_recv)
-
         # carga inicial
         self._refresh_filter_lookups()
         self._load_purchases()
         self._load_sales()
-        self._load_receptions()
-        self._load_all()
 
     # =================== Inicialización pestaña TODAS ================== #
     ALL_COLS = ["Tipo", "ID", "Fecha", "Tercero", "Estado", "Total", "Ref"]
@@ -156,26 +144,6 @@ class OrdersAdminView(ttk.Frame):
                 "",
             ])
             self._all_rows_meta.append(("venta", int(sale.id)))
-        # Recepciones (se muestran como vínculos de OC)
-        q_r = (
-            self.session.query(Reception, Purchase, Supplier)
-            .join(Purchase, Purchase.id == Reception.id_compra)
-            .join(Supplier, Supplier.id == Purchase.id_proveedor)
-            .order_by(Reception.id.desc())
-        )
-        for rec, pur, sup in q_r:
-            ref = f"{getattr(rec,'tipo_doc','') or ''} {getattr(rec,'numero_documento','') or ''}".strip()
-            rows.append([
-                "Recepción",
-                rec.id,
-                rec.fecha.strftime("%Y-%m-%d %H:%M") if getattr(rec, 'fecha', None) else "",
-                getattr(sup, 'razon_social', '') or '',
-                getattr(pur, 'estado', '') or '',
-                format_currency(getattr(pur,'total_compra',0) or 0),
-                f"OC-{pur.id} {ref}".strip(),
-            ])
-            self._all_rows_meta.append(("recepcion", int(rec.id)))
-
         # Opcional: ordenar por fecha descendente (requiere parse)
         try:
             rows.sort(key=lambda r: r[2], reverse=True)
@@ -204,11 +172,6 @@ class OrdersAdminView(ttk.Frame):
                 nb.select(self.tab_venta)
                 self._select_row_by_id(self.tbl_sale, self._sale_ids, idv)
                 self._on_sale_selected()
-            elif tipo == "recepcion":
-                nb.select(self.tab_recv)
-                # Select row by reception id
-                self._select_reception_row(idv)
-                self._on_reception_selected()
         except Exception:
             pass
 
@@ -902,47 +865,10 @@ class OrdersAdminView(ttk.Frame):
         return self.session.get(Purchase, pid) if pid else None
 
     def _purchase_link_reception(self) -> None:
-        pur = self._get_selected_purchase()
-        if not pur:
-            messagebox.showwarning("Compras", "Seleccione una compra.")
-            return
-        try:
-            from src.gui.reception_link_dialog import ReceptionLinkDialog
-        except Exception:
-            messagebox.showerror("Compras", "No se pudo abrir el diálogo de vinculación.")
-            return
-        dlg = ReceptionLinkDialog(self)
-        self.wait_window(dlg)
-        if not dlg.result:
-            return
-        data = dlg.result
-        try:
-            from src.data.models import Reception
-            r = Reception(
-                id_compra=int(pur.id),
-                tipo_doc=str(data.get("tipo_doc") or ""),
-                numero_documento=str(data.get("numero_documento") or ""),
-            )
-            self.session.add(r)
-            self.session.commit()
-            messagebox.showinfo("Compras", f"Recepción vinculada a OC {pur.id}.")
-            try:
-                mw = self.master.master
-                if hasattr(mw, 'show_purchases'):
-                    mw.show_purchases()
-                pv = getattr(mw, 'purchases_tab', None)
-                if pv and hasattr(pv, 'load_purchase_for_reception'):
-                    pv.load_purchase_for_reception(
-                        int(pur.id),
-                        rec_id=int(r.id),
-                        tipo_doc=data.get('tipo_doc'),
-                        numero_doc=data.get('numero_documento'),
-                    )
-            except Exception:
-                pass
-        except Exception as ex:
-            self.session.rollback()
-            messagebox.showerror("Compras", f"No se pudo vincular la recepción:\n{ex}")
+        messagebox.showinfo(
+            "Compras",
+            "El flujo de recepción por tipo de orden fue retirado.\n\nUse 'Factura' para ingresar stock directo o 'Orden de compra' para registrar la orden sin mover inventario.",
+        )
 
     def _purchase_print_pdf(self):
         """Genera nuevamente el PDF de la OC para la compra seleccionada."""

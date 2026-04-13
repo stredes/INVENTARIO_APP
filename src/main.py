@@ -5,6 +5,8 @@ from tkinter import ttk, Menu  # ← añadimos Menu
 from src.data.database import init_db, dispose_engine
 from src.gui.main_window import MainWindow
 from src.gui.theme_manager import ThemeManager  # ← import del gestor de temas
+from src.app_meta import get_app_meta
+from src.utils.github_updater import check_for_updates_async
 
 
 def on_close(root: tk.Tk):
@@ -48,13 +50,14 @@ def _apply_tk_scaling(root: tk.Tk) -> None:
 
 
 def main():
+    meta = get_app_meta()
     # Inicializa DB (aplica schema.sql si está configurado; crea tablas ORM)
     init_db()
 
     # Tk App
     _setup_windows_dpi_awareness()
     root = tk.Tk()
-    root.title("Inventario App - Tkinter")
+    root.title(f"{meta.app_name} {meta.version}")
     root.geometry("1100x720")
 
     # Menú principal de la ventana
@@ -77,6 +80,10 @@ def main():
 
     # Cierre ordenado
     root.protocol("WM_DELETE_WINDOW", lambda: on_close(root))
+    try:
+        root.after(1200, lambda: check_for_updates_async(root, on_update_ready=app.set_update_release, auto_apply=False))
+    except Exception:
+        pass
     root.mainloop()
 
 

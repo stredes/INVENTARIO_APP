@@ -145,12 +145,15 @@ def test_reception_partial_sets_incompleta_and_stock(session):
 
 
 def test_reception_complete_factura_sets_completada(session):
-    purchase, p1, _ = seed_purchase_pending(session)
+    purchase, p1, p2 = seed_purchase_pending(session)
 
     rec = apply_reception(
         session,
         purchase.id,
-        items=[{"product_id": p1.id, "qty": 10}],
+        items=[
+            {"product_id": p1.id, "qty": 10},
+            {"product_id": p2.id, "qty": 5},
+        ],
         tipo_doc="Factura",
         apply_to_stock=True,
     )
@@ -159,11 +162,15 @@ def test_reception_complete_factura_sets_completada(session):
     assert str(purchase.estado).lower() == "completada"
 
     d1 = session.query(PurchaseDetail).filter_by(id_compra=purchase.id, id_producto=p1.id).one()
+    d2 = session.query(PurchaseDetail).filter_by(id_compra=purchase.id, id_producto=p2.id).one()
     assert int(d1.received_qty or 0) == 10
+    assert int(d2.received_qty or 0) == 5
 
     session.refresh(p1)
+    session.refresh(p2)
     assert p1.stock_actual == 10
-    assert session.query(StockEntry).filter(StockEntry.id_recepcion == rec.id).count() == 1
+    assert p2.stock_actual == 5
+    assert session.query(StockEntry).filter(StockEntry.id_recepcion == rec.id).count() == 2
 
 
 def test_reception_complete_guia_sets_por_pagar(session):

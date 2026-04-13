@@ -27,6 +27,7 @@ class SalesView(ttk.Frame):
     """
 
     ESTADOS = ["Pagada", "Confirmada", "Pendiente", "Cancelada", "Eliminada"]
+    _STOCK_STATES = {"Pagada", "Confirmada"}
 
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
@@ -40,24 +41,27 @@ class SalesView(ttk.Frame):
         self.products: List[Product] = []
         self.customers: List[Customer] = []
         self._edit_iid: Optional[str] = None
+        self._simple_sales_hidden: list[tk.Misc] = []
 
         # ---------- Encabezado ----------
         top = ttk.Labelframe(self, text="Encabezado de venta", padding=10)
         top.pack(fill="x", expand=False)
+        self.top_frame = top
 
         ttk.Label(top, text="Cliente:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
         self.cmb_customer = ttk.Combobox(top, state="readonly", width=50)
         self.cmb_customer.grid(row=0, column=1, sticky="w", padx=4, pady=4)
 
         self.var_apply = tk.BooleanVar(value=True)
-        ttk.Checkbutton(top, text="Descontar stock (Confirmada/Pagada)", variable=self.var_apply)\
-            .grid(row=0, column=2, padx=10)
+        self.chk_apply = ttk.Checkbutton(top, text="Descuento inmediato de stock", variable=self.var_apply)
+        self.chk_apply.grid(row=0, column=2, padx=10)
 
         # Estado y forma de pago en el encabezado (igual que Compras)
         ttk.Label(top, text="Estado:").grid(row=0, column=3, sticky="e", padx=4)
         self.cmb_estado = ttk.Combobox(top, state="readonly", width=14, values=self.ESTADOS)
-        self.cmb_estado.current(0)
+        self.cmb_estado.set("Pagada")
         self.cmb_estado.grid(row=0, column=4, sticky="w", padx=4)
+        self.cmb_estado.bind("<<ComboboxSelected>>", lambda _e=None: self._sync_stock_flow())
 
         ttk.Label(top, text="Pago:").grid(row=0, column=5, sticky="e", padx=4)
         self.PAGOS = ("Contado", "Débito", "Transferencia", "Crédito 30 días")
@@ -65,6 +69,7 @@ class SalesView(ttk.Frame):
         safe_set_combobox_values(self.cmb_pago, self.PAGOS)
         self.cmb_pago.set("Contado")
         self.cmb_pago.grid(row=0, column=6, sticky="w", padx=4)
+        self._sync_stock_flow()
 
         # ---------- Modo Cajero de ventas (POS) ----------
         self._cashier_mode = tk.BooleanVar(value=False)
@@ -195,6 +200,7 @@ class SalesView(ttk.Frame):
         # Observación (para cotización)
         obs_frame = ttk.Labelframe(self, text="Observación", padding=6)
         obs_frame.pack(fill="x", expand=False, pady=(10, 0))
+        self.obs_frame = obs_frame
         self.txt_obs = tk.Text(obs_frame, height=3, wrap="word")
         self.txt_obs.pack(fill="x", expand=True)
 
@@ -203,18 +209,65 @@ class SalesView(ttk.Frame):
         self.lbl_total = ttk.Label(bottom, text="Total: 0.00", font=("", 11, "bold"))
         self.lbl_total.pack(side="left")
 
-        ttk.Button(bottom, text="Eliminar ítem", style="Danger.TButton", command=self._on_delete_item)\
-            .pack(side="right", padx=6)
-        ttk.Button(bottom, text="Limpiar tabla", command=self._on_clear_table)\
-            .pack(side="right", padx=6)
-        ttk.Button(bottom, text="Generar Cotización (PDF)", command=self._on_generate_sales_quote)\
-            .pack(side="right", padx=6)
-        ttk.Button(bottom, text="Generar OV (PDF en Descargas)", command=self._on_generate_so_downloads)\
-            .pack(side="right", padx=6)
+        self.btn_delete_item = ttk.Button(bottom, text="Eliminar ítem", style="Danger.TButton", command=self._on_delete_item)
+        self.btn_delete_item.pack(side="right", padx=6)
+        self.btn_clear_items = ttk.Button(bottom, text="Limpiar tabla", command=self._on_clear_table)
+        self.btn_clear_items.pack(side="right", padx=6)
+        self.btn_quote = ttk.Button(bottom, text="Generar Cotización (PDF)", command=self._on_generate_sales_quote)
+        self.btn_quote.pack(side="right", padx=6)
+        self.btn_so = ttk.Button(bottom, text="Generar OV (PDF en Descargas)", command=self._on_generate_so_downloads)
+        self.btn_so.pack(side="right", padx=6)
         self._btn_confirm = ttk.Button(bottom, text="Guardar venta", style="Success.TButton", command=self._on_confirm_sale)
         self._btn_confirm.pack(side="right", padx=6)
 
         self.refresh_lookups()
+        self._apply_simple_sales_layout(det)
+
+    def _apply_simple_sales_layout(self, det: ttk.Labelframe) -> None:
+        """Oculta campos secundarios para un flujo corto de ventas."""
+        try:
+            for w in self.top_frame.winfo_children():
+                gi = w.grid_info()
+                if (int(gi.get("row", -1)), int(gi.get("column", -1))) in {(0, 2), (0, 3), (0, 4)}:
+                    w.grid_remove()
+        except Exception:
+            pass
+        try:
+            self._cashier_frame.pack_forget()
+            self._cashier_toggle.pack_forget()
+        except Exception:
+            pass
+        hide_rows = {1, 2}
+        try:
+            for w in det.winfo_children():
+                gi = w.grid_info()
+                if int(gi.get("row", -1)) in hide_rows:
+                    w.grid_remove()
+                    self._simple_sales_hidden.append(w)
+        except Exception:
+            pass
+        try:
+            self.obs_frame.pack_forget()
+        except Exception:
+            pass
+        for btn in (getattr(self, "btn_quote", None), getattr(self, "btn_so", None)):
+            try:
+                btn.pack_forget()
+            except Exception:
+                pass
+        try:
+            self._btn_confirm.configure(text="Registrar venta")
+        except Exception:
+            pass
+
+    def _sync_stock_flow(self) -> None:
+        estado = (self.cmb_estado.get() or "Pagada").strip()
+        apply = estado in self._STOCK_STATES
+        self.var_apply.set(apply)
+        try:
+            self.chk_apply.configure(state="disabled")
+        except Exception:
+            pass
 
     @staticmethod
     def _fmt_clp(value) -> str:
@@ -534,9 +587,9 @@ class SalesView(ttk.Frame):
                 for it in items
             ]
 
-            # 3) Crear venta como 'Pagada'
+            # 3) Crear venta como 'Pagada' con descuento inmediato de stock
             estado = "Pagada"
-            apply_to_stock = self.var_apply.get()  # Pagada descuenta stock si está activo
+            apply_to_stock = True
             create_fn = self._resolve_create_sale()
             sale = create_fn(
                 customer_id=cust.id,
@@ -989,9 +1042,8 @@ class SalesView(ttk.Frame):
                 for it in items
             ]
 
-            estado = (self.cmb_estado.get() or "Confirmada").strip()
-            # Descontar stock solo si está Confirmada o Pagada (compatibilidad)
-            apply_to_stock = self.var_apply.get() and (estado in ("Confirmada", "Pagada"))
+            estado = (self.cmb_estado.get() or "Pagada").strip()
+            apply_to_stock = estado in self._STOCK_STATES
 
             create_fn = self._resolve_create_sale()
             create_fn(
@@ -1002,7 +1054,10 @@ class SalesView(ttk.Frame):
             )
 
             self._on_clear_table()
-            self._info(f"Venta registrada ({estado}).")
+            if apply_to_stock:
+                self._info(f"Venta registrada ({estado}) y stock descontado instantáneamente.")
+            else:
+                self._info(f"Venta registrada ({estado}) sin afectar inventario.")
         except Exception as e:
             self._error(f"No se pudo confirmar la venta:\n{e}")
 

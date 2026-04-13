@@ -7,11 +7,13 @@ import tkinter as tk
 from tkinter import ttk, Menu
 from tkinter import filedialog, messagebox
 
+from src.app_meta import get_app_meta
 from src.gui.products_view import ProductsView
 from src.gui.suppliers_view import SuppliersView
 from src.gui.customers_view import CustomersView
 from src.gui.purchases_view import PurchasesView
 from src.gui.sales_view import SalesView
+from src.gui.home_view import HomeView
 from src.gui.inventory_view import InventoryView
 from src.gui.orders_admin_view import OrdersAdminView
 from src.reports.report_center import ReportCenter  # â† NUEVO
@@ -23,6 +25,7 @@ from src.gui.theme_manager import ThemeManager
 from src.gui.widgets.status_bar import StatusBar
 from src.gui.widgets.toast import Toast
 from src.gui.widgets.command_palette import CommandPalette, CommandAction
+from src.utils.github_updater import ReleaseInfo, apply_release_update
 from src.utils.printers import (
     get_document_printer,
     set_document_printer,
@@ -46,34 +49,69 @@ class MainWindow(ttk.Frame):
         self._build_menu()
         self._tutorial_window = None
         self._active_tour = None
+        self._current_section_var = tk.StringVar(value="Inicio")
+        self._app_meta = get_app_meta()
+        self._pending_release: ReleaseInfo | None = None
 
-        # Notebook + tabs
-        self.notebook = ttk.Notebook(self)
-        self.products_tab = ProductsView(self.notebook)
-        self.suppliers_tab = SuppliersView(self.notebook)
-        self.customers_tab = CustomersView(self.notebook)
-        self.purchases_tab = PurchasesView(self.notebook)
+        self._build_shell_layout()
+
+        # Vistas montadas sobre un contenedor persistente
+        self.products_tab = ProductsView(self.content_host)
+        self.suppliers_tab = SuppliersView(self.content_host)
+        self.customers_tab = CustomersView(self.content_host)
+        self.purchases_tab = PurchasesView(self.content_host)
         # Construcción segura de Ventas con fallback visible si hay error
         try:
-            self.sales_tab = SalesView(self.notebook)
+            self.sales_tab = SalesView(self.content_host)
         except Exception as ex:
-            err = ttk.Frame(self.notebook)
+            err = ttk.Frame(self.content_host)
             ttk.Label(err, text=f"No se pudo cargar 'Ventas':\n{ex}", foreground="#b00020").pack(padx=12, pady=12, anchor='w')
             self.sales_tab = err
-        self.inventory_tab = InventoryView(self.notebook)
-        self.orders_admin_tab = OrdersAdminView(self.notebook)
-        self.report_center_tab = ReportCenter(self.notebook)  # â† NUEVO
-        self.catalog_tab = CatalogView(self.notebook)
+        self.inventory_tab = InventoryView(self.content_host)
+        self.orders_admin_tab = OrdersAdminView(self.content_host)
+        self.report_center_tab = ReportCenter(self.content_host)  # â† NUEVO
+        self.catalog_tab = CatalogView(self.content_host)
 
-        self.notebook.add(self.products_tab, text="Productos")
-        self.notebook.add(self.suppliers_tab, text="Proveedores")
-        self.notebook.add(self.customers_tab, text="Clientes")
-        self.notebook.add(self.purchases_tab, text="Compras")
-        self.notebook.add(self.sales_tab, text="Ventas")
-        self.notebook.add(self.inventory_tab, text="Inventario")
-        self.notebook.add(self.orders_admin_tab, text="Órdenes")
-        self.notebook.add(self.report_center_tab, text="Informes")  # â† NUEVO
-        self.notebook.add(self.catalog_tab, text="Catálogo")
+        self.home_tab = HomeView(
+            self.content_host,
+            session=self.products_tab.session,
+            callbacks={
+                "home": self.show_home,
+                "products": self.show_products,
+                "suppliers": self.show_suppliers,
+                "customers": self.show_customers,
+                "purchases": self.show_purchases,
+                "sales": self.show_sales,
+                "inventory": self.show_inventory,
+                "orders": self.show_orders_admin,
+                "reports": self.show_report_center,
+                "catalog": self.show_catalog,
+                "tutorials": self._open_tutorial_center,
+                "refresh": self._refresh_all,
+                "exit": self.app_root.quit,
+            },
+            show_sidebar=False,
+        )
+
+        self._view_sequence = [
+            ("Inicio", self.home_tab),
+            ("Productos", self.products_tab),
+            ("Proveedores", self.suppliers_tab),
+            ("Clientes", self.customers_tab),
+            ("Compras", self.purchases_tab),
+            ("Ventas", self.sales_tab),
+            ("Inventario", self.inventory_tab),
+            ("Órdenes", self.orders_admin_tab),
+            ("Informes", self.report_center_tab),
+            ("Catálogo", self.catalog_tab),
+        ]
+        self._view_name_by_widget = {widget: name for name, widget in self._view_sequence}
+        self._view_index_by_widget = {widget: idx for idx, (_, widget) in enumerate(self._view_sequence)}
+        self._current_view_widget = self.home_tab
+        for _, widget in self._view_sequence:
+            widget.place(in_=self.content_host, x=0, y=0, relwidth=1, relheight=1)
+            widget.lower()
+        self.home_tab.lift()
 
         self._tour_steps = self._build_tour_steps()
         self._tutorial_modules = self._build_tutorial_modules(self._tour_steps)
@@ -90,9 +128,6 @@ class MainWindow(ttk.Frame):
         }
         self._tutorial_name_by_tab = {v: k for k, v in self._tutorial_tab_by_name.items()}
 
-        self.notebook.pack(fill="both", expand=True)
-        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_change)
-
         # Status bar
         self.status = StatusBar(self)
         self.status.pack(side="bottom", fill="x")
@@ -105,10 +140,129 @@ class MainWindow(ttk.Frame):
 
         # Persistencia
         self._restore_ui_state()
+        self._on_tab_change()
         self.app_root.bind("<Destroy>", self._on_root_destroy, add="+")
 
         # Toast de ayuda
         Toast.show(self.app_root, "Ctrl+K: Paleta de comandos", kind="info", ms=1800)
+
+    def _build_top_navigation(self) -> None:
+        self.top_nav = ttk.Frame(self.main_panel)
+        self.top_nav.pack(fill="x", pady=(0, 8))
+
+        self.btn_back_home = ttk.Button(
+            self.top_nav,
+            text="Volver a inicio",
+            style="Accent.TButton",
+            command=self.show_home,
+        )
+        self.btn_back_home.pack(side="left")
+
+        self.lbl_current_section = ttk.Label(
+            self.top_nav,
+            textvariable=self._current_section_var,
+            style="Badge.TLabel",
+        )
+        self.lbl_current_section.pack(side="left", padx=(10, 0), pady=2)
+
+        self._update_top_navigation("Inicio")
+
+    def _update_top_navigation(self, tab_text: str) -> None:
+        self._current_section_var.set(f"Módulo actual: {tab_text}")
+        if tab_text == "Inicio":
+            if self.top_nav.winfo_manager():
+                self.top_nav.pack_forget()
+        else:
+            if not self.top_nav.winfo_manager():
+                self.top_nav.pack(fill="x", pady=(0, 8), before=self.content_host)
+
+    def _build_shell_layout(self) -> None:
+        shell = ttk.Frame(self)
+        shell.pack(fill="both", expand=True)
+        shell.columnconfigure(1, weight=1)
+        shell.rowconfigure(0, weight=1)
+
+        self.sidebar = ttk.Frame(shell, style="HomeSidebar.TFrame", width=285, padding=14)
+        self.sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, 12))
+        self.sidebar.grid_propagate(False)
+        self.sidebar.columnconfigure(0, weight=1)
+
+        self.main_panel = ttk.Frame(shell)
+        self.main_panel.grid(row=0, column=1, sticky="nsew")
+        self.main_panel.columnconfigure(0, weight=1)
+        self.main_panel.rowconfigure(1, weight=1)
+
+        self._build_persistent_sidebar()
+        self._build_top_navigation()
+        self.content_host = ttk.Frame(self.main_panel)
+        self.content_host.pack(fill="both", expand=True)
+        self.content_host.columnconfigure(0, weight=1)
+        self.content_host.rowconfigure(0, weight=1)
+
+    def _build_persistent_sidebar(self) -> None:
+        brand = ttk.Frame(self.sidebar, style="HomeSidebarCard.TFrame", padding=18)
+        brand.grid(row=0, column=0, sticky="ew")
+        brand.columnconfigure(0, weight=1)
+
+        ttk.Label(brand, text=self._app_meta.company_name, style="HomeBrand.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(brand, text=f"Versión instalada: {self._app_meta.version}", style="HomeSmall.TLabel").grid(row=1, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(brand, text="Navegación principal", style="HomeSmall.TLabel").grid(row=2, column=0, sticky="w", pady=(10, 0))
+
+        ttk.Separator(self.sidebar).grid(row=1, column=0, sticky="ew", pady=(16, 10))
+        ttk.Label(self.sidebar, text="Acciones disponibles", style="HomeSection.TLabel").grid(row=2, column=0, sticky="w", pady=(0, 8))
+
+        nav_items = [
+            ("Inicio", self.show_home),
+            ("Productos", self.show_products),
+            ("Proveedores", self.show_suppliers),
+            ("Clientes", self.show_customers),
+            ("Compras", self.show_purchases),
+            ("Ventas", self.show_sales),
+            ("Inventario", self.show_inventory),
+            ("Órdenes", self.show_orders_admin),
+            ("Informes", self.show_report_center),
+            ("Catálogo", self.show_catalog),
+            ("Tutoriales", self._open_tutorial_center),
+        ]
+        row = 3
+        for label, command in nav_items:
+            ttk.Button(self.sidebar, text=label, style="HomeNav.TButton", command=command).grid(
+                row=row, column=0, sticky="ew", pady=6
+            )
+            row += 1
+
+        self.btn_update_release = ttk.Button(
+            self.sidebar,
+            text="Actualizar panel",
+            style="HomeUpdate.TButton",
+            command=self._on_sidebar_update_click,
+            state="disabled",
+        )
+        self.btn_update_release.grid(row=row, column=0, sticky="ew", pady=(14, 6))
+        self.sidebar.rowconfigure(row + 1, weight=1)
+        ttk.Button(self.sidebar, text="Salir", style="HomeExit.TButton", command=self.app_root.quit).grid(
+            row=row + 2, column=0, sticky="sew", pady=(10, 0)
+        )
+
+    def set_update_release(self, release: ReleaseInfo) -> None:
+        self._pending_release = release
+        try:
+            self.btn_update_release.configure(state="normal", text=f"Actualizar app {release.tag}")
+        except Exception:
+            pass
+        try:
+            self.status.flash(f"Nueva versión disponible: {release.tag}", kind="info", ms=2200)
+        except Exception:
+            pass
+
+    def _on_sidebar_update_click(self) -> None:
+        if self._pending_release is None:
+            return
+        if apply_release_update(self.app_root, self._pending_release):
+            try:
+                self.btn_update_release.configure(state="disabled", text="Descargando actualización...")
+            except Exception:
+                pass
 
     def _generate_catalog(self) -> None:
         """Genera catálogo PDF de productos (imagen, stock y precio sin IVA)."""
@@ -423,6 +577,7 @@ class MainWindow(ttk.Frame):
     def _build_actions(self) -> list[CommandAction]:
         view = self._current_view()
         actions: list[CommandAction] = [
+            CommandAction("go_home", "Ir a Inicio", callback=self.show_home, keywords=["inicio", "panel", "dashboard"]),
             CommandAction("open_tutorials", "Tutoriales", callback=self._open_tutorial_center, keywords=["ayuda", "tutorial"]),
             CommandAction("go_products", "Ir a Productos", callback=self.show_products, keywords=["inventario", "stock"]),
             CommandAction("go_suppliers", "Ir a Proveedores", callback=self.show_suppliers, keywords=["proveedores"]),
@@ -506,7 +661,7 @@ class MainWindow(ttk.Frame):
                 },
                 {
                     "title": "Modo",
-                    "body": "Elige Compra o Recepcion segun el flujo.",
+                    "body": "Elige Factura para ingresar stock directo u Orden de compra para dejarla pendiente.",
                     "target": lambda: getattr(self.purchases_tab, "cmb_mode", None),
                 },
                 {
@@ -516,7 +671,7 @@ class MainWindow(ttk.Frame):
                 },
                 {
                     "title": "Confirmar",
-                    "body": "Guarda la compra o confirma la recepcion.",
+                    "body": "Registra la factura o guarda la orden de compra segun el flujo elegido.",
                     "target": lambda: getattr(self.purchases_tab, "_btn_confirm", None),
                 },
             ],
@@ -567,12 +722,12 @@ class MainWindow(ttk.Frame):
             "Ordenes": [
                 {
                     "title": "Pestanias",
-                    "body": "Explora compras, ventas y recepciones desde aqui.",
+                    "body": "Explora compras y ventas registradas desde aqui.",
                     "target": lambda: getattr(self.orders_admin_tab, "_nb", None),
                 },
                 {
                     "title": "Listado",
-                    "body": "Selecciona una orden para ver su detalle.",
+                    "body": "Selecciona una orden para ver su detalle y su estado.",
                     "target": lambda: getattr(self.orders_admin_tab, "tbl_all", None),
                 },
             ],
@@ -608,9 +763,71 @@ class MainWindow(ttk.Frame):
         }
 
     def _build_tutorial_modules(self, steps: dict[str, list[dict]]) -> dict[str, list[str]]:
-        modules: dict[str, list[str]] = {}
-        for name, items in steps.items():
-            modules[name] = [step.get("body", "") for step in items]
+        modules: dict[str, list[str]] = {
+            "Flujo general": [
+                "La aplicación está pensada como una cadena simple de trabajo. Primero registras la base maestra en Productos, Proveedores y Clientes. Esa información alimenta directamente Compras y Ventas, y después todo impacta en Inventario, Órdenes e Informes.",
+                "Productos es el centro del flujo. Aquí defines nombre, código, proveedor, precios, unidad, familia y, si corresponde, etiquetas. Sin productos bien cargados, Compras y Ventas no pueden operar de forma fluida.",
+                "Proveedores se conecta con Compras. Cada producto queda asociado a un proveedor, por lo que al comprar solo ves los artículos válidos para ese proveedor. Esto evita errores de carga y hace que la factura o la orden de compra se armen más rápido.",
+                "Clientes se conecta con Ventas. La venta necesita un cliente seleccionado para registrar la operación, emitir documentos y dejar trazabilidad comercial. Si el cliente no existe, primero se crea aquí y luego ya puede usarse en Ventas.",
+                "Compras se conecta con Inventario. Si trabajas en modo Factura, al confirmar la compra el stock entra de inmediato. Si trabajas con Orden de compra, solo registras el compromiso de compra y el inventario no cambia en ese paso.",
+                "Ventas se conecta con Inventario en sentido contrario. Cuando confirmas o pagas una venta, el stock se descuenta automáticamente. Así el inventario refleja lo que entró por compras y lo que salió por ventas, sin pasos extra de recepción manual.",
+                "Inventario consolida todo lo anterior. Aquí revisas stock actual, niveles críticos, etiquetas y control general. Si ves una diferencia, normalmente el origen está en un producto mal configurado, una compra no registrada o una venta pendiente de confirmar.",
+                "Órdenes sirve para auditar y revisar el historial de compras y ventas. No es el punto principal para operar día a día, sino para consultar estados, revisar detalle y entender qué pasó antes o después de un movimiento.",
+                "Informes toma la información final de compras, ventas e inventario para mostrarla en reportes. El flujo natural es: registras datos base, operas compras/ventas, revisas inventario y luego consultas informes.",
+                "El recorrido recomendado es este: 1) carga maestros, 2) registra compra o venta, 3) verifica inventario, 4) revisa órdenes si necesitas trazabilidad, 5) usa informes para cierre o control."
+            ],
+            "Productos": [
+                "Productos es la base de toda la operación. Aquí se crea cada artículo con su nombre, código, proveedor, unidad, precios y datos complementarios como familia o etiqueta. Todo lo que se use en Compras, Ventas e Inventario nace desde este módulo.",
+                "El flujo interno recomendado en Productos es: completar la identificación del producto, definir su configuración comercial y luego revisar los precios calculados. Esa secuencia evita que queden artículos incompletos o mal valorizados.",
+                "La relación más importante es con Proveedores. Cada producto debe quedar ligado a un proveedor para que luego Compras filtre correctamente qué artículos se pueden cargar en una factura u orden.",
+                "Después de registrar un producto, normalmente el siguiente paso es uno de estos dos: comprarlo para que entre al inventario o venderlo si ya tiene stock disponible. Si el producto no aparece correctamente en esos módulos, primero se revisa aquí.",
+                "El listado inferior funciona como centro de mantenimiento. Ahí buscas, validas y editas productos ya creados. La lógica general es crear arriba y mantener abajo."
+            ],
+            "Proveedores": [
+                "Proveedores alimenta directamente el flujo de Compras. Aquí guardas la identidad comercial del proveedor, su RUT y los datos de contacto con los que luego se arma la factura, la orden de compra o cualquier trazabilidad administrativa.",
+                "El orden natural de carga es: identificación primero, contacto después y dirección al final. Esa secuencia coincide con lo que después se necesita al registrar una compra.",
+                "La conexión con Productos es clave. Un producto queda asociado a un proveedor y, por eso, al elegir proveedor en Compras solo se muestran los artículos que realmente pertenecen a ese origen.",
+                "Si en Compras no aparece un artículo al seleccionar un proveedor, normalmente el problema no está en la compra misma sino en la relación producto-proveedor registrada previamente."
+            ],
+            "Clientes": [
+                "Clientes se conecta con Ventas. Antes de vender, la aplicación necesita saber a quién se le registra la operación. Este módulo guarda la razón social, RUT, contacto y dirección comercial del cliente.",
+                "El flujo de uso es simple: primero identificas al cliente, luego completas contacto y finalmente dirección. Con eso basta para que la venta quede asociada y trazable.",
+                "La relación con Ventas es directa. Cuando el cliente ya existe aquí, en Ventas solo lo seleccionas y continúas con la carga de productos. Si no existe, vuelves a este módulo, lo creas y retomas la venta."
+            ],
+            "Compras": [
+                "Compras ahora está pensada para un flujo corto y operativo. Primero eliges proveedor, luego defines si registrarás una Factura o una Orden de compra, después agregas los ítems y finalmente confirmas.",
+                "Si eliges Factura, la compra queda completada y el stock entra inmediatamente al inventario. Este es el flujo recomendado para operación diaria porque evita pasos extra y deja todo reflejado de inmediato.",
+                "Si eliges Orden de compra, solo registras el compromiso comercial sin mover stock. Ese camino sirve cuando todavía no recibes la factura definitiva o cuando quieres dejar la compra planificada antes de cerrar el ingreso.",
+                "La conexión con Productos y Proveedores es automática. El proveedor filtra los productos disponibles, por lo que una compra bien hecha depende de que esos dos módulos estén correctamente cargados.",
+                "La salida natural de Compras es Inventario y Órdenes. Inventario recibe el stock si fue Factura; Órdenes conserva el historial y el estado de la operación para revisión posterior."
+            ],
+            "Ventas": [
+                "Ventas también se simplificó para operar rápido. El flujo base es: seleccionar cliente, agregar productos, revisar cantidades y precio, confirmar la venta y descontar stock al instante.",
+                "Cuando la venta se registra como Pagada o Confirmada, el inventario baja automáticamente. Eso significa que Ventas y Inventario están conectados en tiempo real y no requieren un segundo proceso para descontar existencias.",
+                "La conexión con Clientes y Productos es directa. Sin cliente y sin producto válido, la venta no puede cerrarse. Por eso esos dos módulos son la preparación natural antes de vender.",
+                "Después de confirmar una venta, el siguiente lugar lógico para revisar es Inventario si quieres validar stock remanente, u Órdenes/Informes si necesitas trazabilidad o análisis comercial."
+            ],
+            "Inventario": [
+                "Inventario es el resultado consolidado de lo que entró por Compras y salió por Ventas. No es solo un listado de stock: es el punto donde validas si el flujo operativo quedó coherente.",
+                "La lectura correcta del módulo es esta: primero revisas cantidades actuales, luego aplicas filtros o acciones y, si trabajas con etiquetas, terminas en el panel de códigos de barras.",
+                "Si detectas una diferencia en stock, el análisis correcto no parte aquí sino en el origen del movimiento. Debes revisar si la compra ingresó como Factura, si la venta fue confirmada o si el producto tiene una configuración incorrecta."
+            ],
+            "Ordenes": [
+                "Órdenes sirve como panel de trazabilidad. Aquí no se crea la operación principal; aquí se revisa lo que ya se registró en Compras y Ventas.",
+                "La conexión es simple: Compras y Ventas generan movimientos, y Órdenes los presenta para consulta, revisión de detalle y control de estado. Por eso este módulo normalmente se usa después de operar, no antes.",
+                "Cuando un usuario necesita entender qué pasó con una compra o una venta, el recorrido natural es venir aquí, buscar el registro y revisar su detalle."
+            ],
+            "Informes": [
+                "Informes es la última etapa del flujo. Una vez registrados los maestros, ejecutadas las compras y ventas, y validado el inventario, este módulo te permite transformar la operación en información de control.",
+                "El flujo aquí es: elegir tipo de informe, ejecutar, revisar resultados y exportar. No alimenta a otros módulos; más bien resume lo que ocurrió en todos los anteriores.",
+                "La calidad del informe depende de la calidad del flujo previo. Si faltan productos, clientes, compras o ventas correctamente confirmadas, el informe reflejará esa omisión."
+            ],
+            "Catalogo": [
+                "Catálogo toma la base creada en Productos y la convierte en una salida visual o imprimible. No es un módulo operativo de registro, sino una capa de presentación.",
+                "La conexión principal es con Productos: si un producto tiene nombre, precio, imagen o familia mal cargados, el catálogo lo mostrará igual de mal. Por eso normalmente se usa después de mantener bien el maestro de productos.",
+                "El flujo natural es configurar opciones, revisar la vista previa y recién después generar el resultado final."
+            ],
+        }
         return modules
 
     def _open_tutorial_center(self) -> None:
@@ -682,12 +899,19 @@ class MainWindow(ttk.Frame):
             self._select_tab_by_widget(widget)
 
     def _current_view(self) -> ttk.Frame:
-        sel = self.notebook.select()
-        return self.notebook.nametowidget(sel)
+        return self._current_view_widget
 
     def _select_tab_by_widget(self, widget: ttk.Frame) -> None:
-        self.notebook.select(widget)
+        if widget is None:
+            return
+        try:
+            widget.lift()
+        except Exception:
+            return
+        self._current_view_widget = widget
+        self._on_tab_change()
 
+    def show_home(self) -> None: self._select_tab_by_widget(self.home_tab)
     def show_products(self) -> None: self._select_tab_by_widget(self.products_tab)
     def show_suppliers(self) -> None: self._select_tab_by_widget(self.suppliers_tab)
     def show_customers(self) -> None: self._select_tab_by_widget(self.customers_tab)
@@ -748,7 +972,15 @@ class MainWindow(ttk.Frame):
                     self.app_root.after(200, lambda: getattr(w, "refresh_lookups", lambda: None)())
                 except Exception:
                     pass
-        tab_text = self.notebook.tab(self.notebook.select(), "text")
+        tab_text = self._view_name_by_widget.get(w, "Inicio")
+        try:
+            self.home_tab.set_active_view(tab_text)
+        except Exception:
+            pass
+        try:
+            self._update_top_navigation(tab_text)
+        except Exception:
+            pass
         self.status.set_message(f"Vista: {tab_text} â€” Ctrl+K para comandos")
         self._save_last_tab_index()
 
@@ -769,7 +1001,8 @@ class MainWindow(ttk.Frame):
             self._center_on_screen()
         last_idx = cfg.getint("mainwindow", "last_tab_index", fallback=0)
         try:
-            self.notebook.select(last_idx)
+            if 0 <= last_idx < len(self._view_sequence):
+                self._select_tab_by_widget(self._view_sequence[last_idx][1])
         except Exception:
             pass
 
@@ -848,7 +1081,7 @@ class MainWindow(ttk.Frame):
 
     def _safe_current_index(self) -> int:
         try:
-            return self.notebook.index(self.notebook.select())
+            return self._view_index_by_widget.get(self._current_view(), 0)
         except Exception:
             return 0
 
@@ -979,6 +1212,7 @@ class MainWindow(ttk.Frame):
     def _refresh_all(self) -> None:
         """Refresca todas las pestañas de la aplicacion de forma segura."""
         views = [
+            getattr(self, "home_tab", None),
             getattr(self, "products_tab", None),
             getattr(self, "suppliers_tab", None),
             getattr(self, "customers_tab", None),

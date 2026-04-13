@@ -60,7 +60,8 @@ class PurchasesView(ttk.Frame):
         self.cmb_supplier.bind("<<ComboboxSelected>>", self._on_supplier_selected)
 
         self.var_apply = tk.BooleanVar(value=True)
-        ttk.Checkbutton(head, text="Sumar stock (Completada)", variable=self.var_apply).grid(row=0, column=2, padx=10)
+        self.chk_apply = ttk.Checkbutton(head, text="Ingreso inmediato a inventario", variable=self.var_apply)
+        self.chk_apply.grid(row=0, column=2, padx=10)
 
         # Estado + forma de pago (acordeón = combobox)
         ttk.Label(head, text="Estado:").grid(row=0, column=3, sticky="e", padx=4)
@@ -76,13 +77,13 @@ class PurchasesView(ttk.Frame):
         safe_set_combobox_values(self.cmb_pago, self.PAGOS)
         self.cmb_pago.set(get_po_payment_method())
         self.cmb_pago.grid(row=0, column=6, sticky="w", padx=4)
-        # Modo: Compra vs Recepcion
+        # Modo simplificado: Factura u Orden de compra
         ttk.Label(head, text="Modo:").grid(row=0, column=7, sticky="e", padx=4)
-        self.var_mode = tk.StringVar(value="Compra")
-        self.cmb_mode = ttk.Combobox(head, textvariable=self.var_mode, values=["Compra", "Recepcion"], width=12, state="readonly")
+        self.var_mode = tk.StringVar(value="Factura")
+        self.cmb_mode = ttk.Combobox(head, textvariable=self.var_mode, values=["Factura", "Orden de compra"], width=16, state="readonly")
         self.cmb_mode.grid(row=0, column=8, sticky="w", padx=4)
         try:
-            self.var_mode.set(get_ui_purchases_mode("Compra"))
+            self.var_mode.set(get_ui_purchases_mode("Factura"))
         except Exception:
             pass
         try:
@@ -137,7 +138,8 @@ class PurchasesView(ttk.Frame):
 
         ttk.Label(head, text="Stock:").grid(row=3, column=6, sticky="e")
         self.var_stockpol = tk.StringVar(value="No Mueve")
-        ttk.Combobox(head, textvariable=self.var_stockpol, values=["No Mueve", "Mueve"], width=10, state="readonly").grid(row=3, column=7, sticky="w")
+        self.cmb_stockpol = ttk.Combobox(head, textvariable=self.var_stockpol, values=["No Mueve", "Mueve"], width=10, state="readonly")
+        self.cmb_stockpol.grid(row=3, column=7, sticky="w")
         # Ajusta política inicial de stock según estado por defecto
         try:
             self._on_estado_change()
@@ -217,7 +219,7 @@ class PurchasesView(ttk.Frame):
 
         # Ocultar campos no requeridos en el encabezado
         self._head_hide_coords = {
-            (0,2),
+            (0,2),(0,3),(0,4),
             (2,0),(2,1),(2,2),(2,3),(2,4),(2,5),(2,6),(2,7),
             (3,0),(3,1),(3,2),(3,3),(3,4),(3,5),
             (4,0),(4,1),(4,4),(4,5),
@@ -229,6 +231,14 @@ class PurchasesView(ttk.Frame):
                 rc = (int(gi.get('row', -1)), int(gi.get('column', -1)))
                 if rc in self._head_hide_coords:
                     w.grid_remove()
+        except Exception:
+            pass
+        try:
+            for rc in ((1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7)):
+                for w in head.winfo_children():
+                    gi = w.grid_info()
+                    if (int(gi.get('row', -1)), int(gi.get('column', -1))) == rc:
+                        w.grid_remove()
         except Exception:
             pass
 
@@ -368,10 +378,14 @@ class PurchasesView(ttk.Frame):
         self.lbl_total = ttk.Label(bottom, text="Total: 0.00", font=("", 11, "bold"))
         self.lbl_total.pack(side="left")
 
-        ttk.Button(bottom, text="Eliminar ítem", style="Danger.TButton", command=self._on_delete_item).pack(side="right", padx=6)
-        ttk.Button(bottom, text="Limpiar tabla", command=self._on_clear_table).pack(side="right", padx=6)
-        ttk.Button(bottom, text="Generar OC (PDF en Descargas)", command=self._on_generate_po_downloads).pack(side="right", padx=6)
-        ttk.Button(bottom, text="Generar Cotización (PDF)", command=self._on_generate_quote_downloads).pack(side="right", padx=6)
+        self.btn_delete_item = ttk.Button(bottom, text="Eliminar ítem", style="Danger.TButton", command=self._on_delete_item)
+        self.btn_delete_item.pack(side="right", padx=6)
+        self.btn_clear_items = ttk.Button(bottom, text="Limpiar tabla", command=self._on_clear_table)
+        self.btn_clear_items.pack(side="right", padx=6)
+        self.btn_generate_po = ttk.Button(bottom, text="Generar OC (PDF en Descargas)", command=self._on_generate_po_downloads)
+        self.btn_generate_po.pack(side="right", padx=6)
+        self.btn_generate_quote = ttk.Button(bottom, text="Generar Cotización (PDF)", command=self._on_generate_quote_downloads)
+        self.btn_generate_quote.pack(side="right", padx=6)
         self._btn_confirm = ttk.Button(bottom, text="Guardar compra", style="Success.TButton", command=self._on_confirm_purchase)
         self._btn_confirm.pack(side="right", padx=6)
         self._btn_cancel_reception = ttk.Button(bottom, text="Cancelar recepcion", style="Danger.TButton", command=self._on_cancel_reception)
@@ -383,6 +397,11 @@ class PurchasesView(ttk.Frame):
 
         # Inicializa proveedores y dataset de productos (filtrado)
         self.refresh_lookups()
+        try:
+            self.btn_generate_po.pack_forget()
+            self.btn_generate_quote.pack_forget()
+        except Exception:
+            pass
     # ======================== Lookups ========================
     def refresh_lookups(self):
         """Carga proveedores y productos según proveedor seleccionado."""
@@ -449,69 +468,72 @@ class PurchasesView(ttk.Frame):
         except Exception:
             pass
 
+    @staticmethod
+    def _normalize_mode(mode: str) -> str:
+        raw = (mode or "").strip().lower()
+        if raw.startswith("orden") or raw.startswith("compra"):
+            return "Orden de compra"
+        return "Factura"
+
     def _on_mode_change(self):
         """Muestra/oculta campos de cabecera según el modo y persiste preferencia."""
         try:
-            mode = (self.var_mode.get() or "Compra").strip()
+            mode = self._normalize_mode(self.var_mode.get() or "Factura")
         except Exception:
-            mode = "Compra"
+            mode = "Factura"
+        try:
+            self.var_mode.set(mode)
+        except Exception:
+            pass
         # Persistir
         try:
             set_ui_purchases_mode(mode)
         except Exception:
             pass
-        # Visibilidad
-        is_receipt = mode.lower().startswith("recep")
         try:
-            if is_receipt:
-                self._btn_confirm.config(text="Confirmar recepción")
+            if mode == "Orden de compra":
+                self._btn_confirm.config(text="Guardar orden de compra")
             else:
-                self._btn_confirm.config(text="Guardar compra")
+                self._btn_confirm.config(text="Registrar factura")
         except Exception:
             pass
         try:
-            if is_receipt:
-                self._update_doc_history(getattr(self, "_current_po_id", None))
+            if mode == "Orden de compra":
+                self.cmb_estado.set("Pendiente")
+                self.var_apply.set(False)
+                self.var_stockpol.set("No Mueve")
             else:
-                self._update_doc_history(None)
+                self.cmb_estado.set("Completada")
+                self.var_apply.set(True)
+                self.var_stockpol.set("Mueve")
+        except Exception:
+            pass
+        try:
+            state = "disabled"
+            self.cmb_estado.configure(state=state)
+            self.cmb_stockpol.configure(state=state)
+            self.chk_apply.configure(state="disabled")
+        except Exception:
+            pass
+        try:
+            self._update_doc_history(None)
         except Exception:
             pass
         try:
             for w in getattr(self, "_receipt_only_widgets", []) or []:
                 try:
-                    if is_receipt:
-                        # Restaurar grid si estaba oculto
-                        if str(w.winfo_manager()) != "grid":
-                            w.grid()
-                    else:
-                        w.grid_remove()
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        # Mostrar/Ocultar editor de trazabilidad del Detalle solo en Recepción
-        try:
-            # Solo mostrar si estamos editando una recepción existente
-            edit_mode = bool(getattr(self, '_edit_reception_mode', False))
-            if is_receipt and edit_mode:
-                try:
-                    self._trace_frame.grid()
-                except Exception:
-                    pass
-            else:
-                try:
-                    self._trace_frame.grid_remove()
+                    w.grid_remove()
                 except Exception:
                     pass
         except Exception:
             pass
         try:
-            if is_receipt:
-                if str(self._btn_cancel_reception.winfo_manager()) != "pack":
-                    self._btn_cancel_reception.pack(side="right", padx=6)
-            else:
-                if str(self._btn_cancel_reception.winfo_manager()) == "pack":
-                    self._btn_cancel_reception.pack_forget()
+            self._trace_frame.grid_remove()
+        except Exception:
+            pass
+        try:
+            if str(self._btn_cancel_reception.winfo_manager()) == "pack":
+                self._btn_cancel_reception.pack_forget()
         except Exception:
             pass
 
@@ -543,7 +565,7 @@ class PurchasesView(ttk.Frame):
         except Exception:
             pass
         try:
-            self.var_mode.set("Compra")
+            self.var_mode.set("Factura")
             self._on_mode_change()
         except Exception:
             pass
@@ -817,73 +839,10 @@ class PurchasesView(ttk.Frame):
             if not items:
                 self._warn("Agregue al menos un ítem.")
                 return
-            # Modo Recepcion: solo entradas de stock
             try:
-                mode = (self.var_mode.get() if hasattr(self, 'var_mode') else 'Compra') or 'Compra'
+                mode = self._normalize_mode((self.var_mode.get() if hasattr(self, 'var_mode') else 'Factura') or 'Factura')
             except Exception:
-                mode = 'Compra'
-            if str(mode).lower().startswith('recep'):
-                # Si venimos vinculados a una OC, aplicar recepción coherente (recibe pendientes)
-                po_id = getattr(self, '_current_po_id', None)
-                if po_id:
-                    po = self.session.get(Purchase, int(po_id))
-                    if po:
-                        # Intentar inferir tipo de documento desde la recepción vinculada
-                        tipo_doc = None
-                        try:
-                            from src.data.models import Reception
-                            rec_id = getattr(self, '_current_reception_id', None)
-                            if rec_id:
-                                rec = self.session.get(Reception, int(rec_id))
-                                if rec is not None:
-                                    tipo_doc = getattr(rec, 'tipo_doc', None)
-                        except Exception:
-                            tipo_doc = None
-                        self._apply_reception_for_po(po, tipo_doc=tipo_doc)
-                        return
-                # Fallback: entradas simples con trazabilidad por ítem seleccionado
-                any_received = False
-                for iid in self.tree.get_children():
-                    vals = self.tree.item(iid, "values")
-                    try:
-                        prod_id = int(vals[0]); qty = int(float(vals[2]))
-                    except Exception:
-                        continue
-                    if qty <= 0:
-                        continue
-                    tr = (self._trace_by_prod.get(prod_id) or {})
-                    lote = (tr.get('lote') or None)
-                    serie = (tr.get('serie') or None)
-                    venc = (tr.get('venc') or None)
-                    # Ubicación prioriza la trazabilidad; si no, toma la ubicación por defecto del producto
-                    loc_id = None
-                    try:
-                        loc_id = (tr.get('loc_id') if isinstance(tr, dict) else None)
-                        if not loc_id:
-                            p = self.session.get(Product, int(prod_id))
-                            if p and getattr(p, 'id_ubicacion', None):
-                                loc_id = int(getattr(p, 'id_ubicacion'))
-                    except Exception:
-                        loc_id = None
-                    if lote and serie:
-                        serie = None
-                    self.inv.register_entry(
-                        product_id=prod_id, cantidad=qty, motivo=f"Recepción {self._stamp()}",
-                        lote=str(lote) if lote else None, serie=str(serie) if serie else None, fecha_vencimiento=venc,
-                        reception_id=getattr(self, '_current_reception_id', None),
-                        location_id=loc_id
-                    )
-                    any_received = True
-                if not any_received:
-                    self._warn("No hay cantidades para recepcionar.")
-                    return
-                try:
-                    self.session.commit()
-                except Exception:
-                    self.session.rollback(); self.session.commit()
-                self._on_clear_table()
-                self._info("Recepción registrada.")
-                return
+                mode = 'Factura'
 
             # Validación extra en UI: por si editaron manualmente la tabla
             # (la capa core también valida, pero esto mejora la UX)
@@ -893,10 +852,16 @@ class PurchasesView(ttk.Frame):
                     self._error(f"El producto id={it.product_id} no corresponde al proveedor seleccionado.")
                     return
 
-            estado = (getattr(self, 'cmb_estado', None).get() if hasattr(self, 'cmb_estado') else "Completada") or "Completada"
-            # Unifica política de movimiento de stock: usa la selección de stock (Mueve/No Mueve)
-            stockpol = (getattr(self, 'var_stockpol', tk.StringVar(value='No Mueve')).get() or 'No Mueve')
-            apply_to_stock = stockpol.lower().startswith("mueve") and (estado in ("Completada", "Por pagar"))
+            if mode == "Factura":
+                estado = "Completada"
+                apply_to_stock = True
+            elif mode == "Orden de compra":
+                estado = "Pendiente"
+                apply_to_stock = False
+            else:
+                estado = (getattr(self, 'cmb_estado', None).get() if hasattr(self, 'cmb_estado') else "Completada") or "Completada"
+                stockpol = (getattr(self, 'var_stockpol', tk.StringVar(value='No Mueve')).get() or 'No Mueve')
+                apply_to_stock = stockpol.lower().startswith("mueve") and (estado in ("Completada", "Por pagar"))
 
             pur = self.pm.create_purchase(
                 supplier_id=sup.id,
@@ -944,7 +909,12 @@ class PurchasesView(ttk.Frame):
             self._on_clear_table()
             self.cmb_product.set("")
             self.cmb_product.focus_set()
-            self._info("Compra registrada correctamente.")
+            if mode == "Factura":
+                self._info("Factura registrada y stock ingresado instantáneamente.")
+            elif mode == "Orden de compra":
+                self._info("Orden de compra registrada sin mover inventario.")
+            else:
+                self._info("Recepción registrada correctamente.")
         except Exception as e:
             self._error(f"No se pudo confirmar la compra:\n{e}")
 
@@ -1095,6 +1065,8 @@ class PurchasesView(ttk.Frame):
         return datetime.now().strftime("%Y%m%d-%H%M%S")
     # ======================== Recepción desde Órdenes ========================
     def load_purchase_for_reception(self, purchase_id: int, *, rec_id: int | None = None, tipo_doc: str | None = None, numero_doc: str | None = None, lote: str | None = None, serie: str | None = None, has_venc: bool | None = None, f_venc: str | None = None) -> None:
+        self._warn("El flujo de recepción por tipo de orden fue retirado. Use 'Factura' para ingresar stock o 'Orden de compra' para registrar sin mover inventario.")
+        return
         try:
             po = self.session.get(Purchase, int(purchase_id))
             if not po:
@@ -1206,6 +1178,8 @@ class PurchasesView(ttk.Frame):
 
     def load_reception_for_edit(self, rec_id: int) -> None:
         """Abre una recepción existente para editar trazabilidad."""
+        self._warn("La edición de recepciones fue deshabilitada en el flujo simplificado.")
+        return
         try:
             from src.data.models import Reception, StockEntry
             rec = self.session.get(Reception, int(rec_id))
@@ -1299,6 +1273,8 @@ class PurchasesView(ttk.Frame):
             * Factura -> 'Completada'
             * Guía    -> 'Por pagar'
         """
+        self._warn("La recepción por orden ya no está disponible en este flujo simplificado.")
+        return
         estado_actual = str(getattr(po, "estado", "") or "").strip()
         estado_norm = estado_actual.lower()
         add_stock = estado_norm in ("pendiente", "incompleta")

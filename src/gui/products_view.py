@@ -106,13 +106,30 @@ class ProductsView(ttk.Frame):
         # Panel derecha: CAMPOS
         right = ttk.Frame(frm)
         right.grid(row=0, column=1, sticky="nw")
+        right.columnconfigure(0, weight=1)
+        right.columnconfigure(1, weight=1)
+
+        basics = ttk.LabelFrame(right, text="Identificación del producto", padding=10)
+        basics.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        basics.columnconfigure(1, weight=1)
+        basics.columnconfigure(3, weight=1)
+
+        commercial = ttk.LabelFrame(right, text="Configuración comercial", padding=10)
+        commercial.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        commercial.columnconfigure(1, weight=1)
+        commercial.columnconfigure(3, weight=1)
+
+        pricing = ttk.LabelFrame(right, text="Precios y cálculo", padding=10)
+        pricing.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        pricing.columnconfigure(1, weight=1)
+        pricing.columnconfigure(3, weight=1)
 
         # Panel extremo derecho: Manager de Código de Barras
         bar = ttk.Labelframe(frm, text="Código de Barras", padding=4)
-        bar.grid(row=0, column=2, sticky="nw", padx=(10,0))
+        bar.grid(row=0, column=2, sticky="new", padx=(10,0))
         # Contenedor externo para botones (queda por fuera del labelframe)
         bar_actions = ttk.Frame(bar)
-        bar_actions.grid(row=5, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        bar_actions.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         try:
             bar.grid_columnconfigure(0, weight=1)
             bar.grid_columnconfigure(1, weight=1)
@@ -146,9 +163,9 @@ class ProductsView(ttk.Frame):
             # mismo aspecto que el recuadro de imagen, pero más compacto (ej. 70%)
             _box_w = int(getattr(self.img_box, "_box_w", 200))
             _box_h = int(getattr(self.img_box, "_box_h", 200))
-            _scale = 0.7
+            _scale = 0.55
             self._BAR_CANVAS_W = max(120, int(_box_w * _scale))
-            self._BAR_CANVAS_H = max(100, int(_box_h * _scale))
+            self._BAR_CANVAS_H = max(88, int(_box_h * _scale))
             self._bar_canvas = tk.Canvas(
                 bar,
                 width=self._BAR_CANVAS_W,
@@ -174,32 +191,28 @@ class ProductsView(ttk.Frame):
         # Tamaño + copias
         ttk.Label(bar, text="Tamaño:").grid(row=3, column=0, sticky="e", padx=2, pady=(2,0))
         self.var_bar_size = tk.StringVar(value="50x30 mm")
-        ttk.Combobox(bar, textvariable=self.var_bar_size, values=["30x20 mm", "50x30 mm", "70x40 mm"], width=12, state="readonly").grid(row=3, column=1, sticky="w")
+        ttk.Combobox(bar, textvariable=self.var_bar_size, values=["30x20 mm", "50x30 mm", "70x40 mm"], width=14, state="readonly").grid(row=3, column=1, sticky="ew", padx=(2, 0))
         ttk.Label(bar, text="Copias:").grid(row=4, column=0, sticky="e", padx=2, pady=(2,0))
         self.var_bar_copies = tk.IntVar(value=1)
-        ttk.Spinbox(bar, from_=1, to=999, textvariable=self.var_bar_copies, width=8, justify="center").grid(row=4, column=1, sticky="w", pady=(2,0))
+        ttk.Spinbox(bar, from_=1, to=999, textvariable=self.var_bar_copies, width=10, justify="center").grid(row=4, column=1, sticky="w", pady=(2,0))
         btns_bar = ttk.Frame(bar_actions)
-        btns_bar.grid(row=0, column=0, sticky="w")
+        btns_bar.grid(row=0, column=0, sticky="ew")
         # Botones
         # (btns en contenedor externo)
         # (btns en contenedor externo)
-        ttk.Button(btns_bar, text="Actualizar", command=self._refresh_barcode_preview).grid(row=0, column=0, sticky="w", padx=3)
-        ttk.Button(btns_bar, text="Imprimir", command=self._print_barcode_label).grid(row=0, column=1, sticky="w", padx=3)
+        ttk.Button(btns_bar, text="Actualizar", command=self._refresh_barcode_preview).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        ttk.Button(btns_bar, text="Imprimir", command=self._print_barcode_label).grid(row=0, column=1, sticky="ew")
         bulk = ttk.Frame(bar_actions)
-        bulk.grid(row=1, column=0, sticky="w", pady=(4,0))
-        ttk.Button(bulk, text="Marcar selección", command=lambda: self._apply_label_to_selection(True)).grid(row=0, column=0, sticky="w", padx=3)
-        ttk.Button(bulk, text="Quitar selección", command=lambda: self._apply_label_to_selection(False)).grid(row=0, column=1, sticky="w", padx=3)
-
-
-
-
-        ttk.Label(right, text="Nombre:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
-        ent_nombre = ttk.Entry(right, textvariable=self.var_nombre, width=35)
-        ent_nombre.grid(row=0, column=1, sticky="w", padx=4, pady=4)
+        bulk.grid(row=1, column=0, sticky="ew", pady=(4,0))
+        ttk.Button(bulk, text="Marcar selección", command=lambda: self._apply_label_to_selection(True)).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        ttk.Button(bulk, text="Quitar selección", command=lambda: self._apply_label_to_selection(False)).grid(row=0, column=1, sticky="ew")
+        ttk.Label(basics, text="Nombre:").grid(row=0, column=0, sticky="w", padx=4, pady=4)
+        ent_nombre = ttk.Entry(basics, textvariable=self.var_nombre, width=35)
+        ent_nombre.grid(row=0, column=1, sticky="ew", padx=4, pady=4)
         self.ent_nombre = ent_nombre  # para foco
 
-        ttk.Label(right, text="Código:").grid(row=0, column=2, sticky="e", padx=4, pady=4)
-        ttk.Entry(right, textvariable=self.var_codigo, width=20).grid(row=0, column=3, sticky="w", padx=4, pady=4)
+        ttk.Label(basics, text="Código:").grid(row=0, column=2, sticky="w", padx=4, pady=4)
+        ttk.Entry(basics, textvariable=self.var_codigo, width=20).grid(row=0, column=3, sticky="ew", padx=4, pady=4)
         # Preview en vivo al cambiar Código o nombre
         try:
             self.var_codigo.trace_add('write', lambda *_: self._refresh_barcode_preview())
@@ -207,71 +220,64 @@ class ProductsView(ttk.Frame):
         except Exception:
             pass
 
-        # Fila 1: Precio Compra / IVA %
-        ttk.Label(right, text="Precio Compra (neto):").grid(row=1, column=0, sticky="e", padx=4, pady=4)
-        ent_pc = ttk.Entry(right, textvariable=self.var_pc, width=12)
-        ent_pc.grid(row=1, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(basics, text="Familia:").grid(row=1, column=0, sticky="w", padx=4, pady=4)
+        self.var_familia = tk.StringVar()
+        self.cmb_familia = ttk.Combobox(basics, textvariable=self.var_familia, width=20)
+        self.cmb_familia.grid(row=1, column=1, sticky="ew", padx=4, pady=4)
+        try:
+            self.cmb_familia.bind('<<ComboboxSelected>>', lambda *_: None)
+        except Exception:
+            pass
+        ttk.Button(basics, text="Admin. familias...", command=self._open_families_manager).grid(row=1, column=2, columnspan=2, sticky="w", padx=(4, 0), pady=4)
 
-        ttk.Label(right, text="IVA %:").grid(row=1, column=2, sticky="e", padx=4, pady=4)
-        sp_iva = ttk.Spinbox(right, from_=0, to=100, increment=0.5, textvariable=self.var_iva, width=8)
-        sp_iva.grid(row=1, column=3, sticky="w", padx=4, pady=4)
+        ttk.Label(commercial, text="Proveedor:").grid(row=0, column=0, sticky="w", padx=4, pady=4)
+        self.cmb_supplier = ttk.Combobox(commercial, state="readonly", width=35)
+        self.cmb_supplier.grid(row=0, column=1, columnspan=3, sticky="ew", padx=4, pady=4)
 
-        # Fila 2: % Ganancia / Unidad
-        ttk.Label(right, text="% Ganancia:").grid(row=2, column=0, sticky="e", padx=4, pady=4)
-        sp_margen = ttk.Spinbox(right, from_=0, to=1000, increment=0.5, textvariable=self.var_margen, width=8)
-        sp_margen.grid(row=2, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(commercial, text="Ubicación:").grid(row=1, column=0, sticky="w", padx=4, pady=4)
+        self.cmb_location = ttk.Combobox(commercial, state="readonly", width=28)
+        self.cmb_location.grid(row=1, column=1, sticky="ew", padx=4, pady=4)
+        ttk.Button(commercial, text="Admin. Ubicaciones...", command=self._open_locations_manager).grid(row=1, column=2, columnspan=2, sticky="w", padx=4, pady=4)
 
-        ttk.Label(right, text="Unidad:").grid(row=2, column=2, sticky="e", padx=4, pady=4)
+        ttk.Label(commercial, text="Unidad:").grid(row=2, column=0, sticky="w", padx=4, pady=4)
         self.cmb_unidad = ttk.Combobox(
-            right, textvariable=self.var_unidad,
+            commercial, textvariable=self.var_unidad,
             values=["unidad", "caja", "bolsa", "kg", "lt", "ml"],
             width=15, state="readonly"
         )
-        self.cmb_unidad.grid(row=2, column=3, sticky="w", padx=4, pady=4)
+        self.cmb_unidad.grid(row=2, column=1, sticky="ew", padx=4, pady=4)
         try:
             self.cmb_unidad.bind('<<ComboboxSelected>>', self._on_unidad_change)
         except Exception:
             pass
 
-        # Fila 3: Monto IVA / Precio + IVA
-        ttk.Label(right, text="Monto IVA:").grid(row=3, column=0, sticky="e", padx=4, pady=4)
-        ent_iva_monto = ttk.Entry(right, textvariable=self.var_iva_monto, width=12, state="readonly")
-        ent_iva_monto.grid(row=3, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(pricing, text="Precio Compra (neto):").grid(row=0, column=0, sticky="w", padx=4, pady=4)
+        ent_pc = ttk.Entry(pricing, textvariable=self.var_pc, width=12)
+        ent_pc.grid(row=0, column=1, sticky="ew", padx=4, pady=4)
 
-        ttk.Label(right, text="Precio + IVA:").grid(row=3, column=2, sticky="e", padx=4, pady=4)
-        ent_p_mas_iva = ttk.Entry(right, textvariable=self.var_p_mas_iva, width=12, state="readonly")
-        ent_p_mas_iva.grid(row=3, column=3, sticky="w", padx=4, pady=4)
+        ttk.Label(pricing, text="IVA %:").grid(row=0, column=2, sticky="w", padx=4, pady=4)
+        sp_iva = ttk.Spinbox(pricing, from_=0, to=100, increment=0.5, textvariable=self.var_iva, width=8)
+        sp_iva.grid(row=0, column=3, sticky="ew", padx=4, pady=4)
 
-        # Fila 4: Precio Venta
-        ttk.Label(right, text="Precio Venta:").grid(row=4, column=0, sticky="e", padx=4, pady=4)
-        ent_pventa = ttk.Entry(right, textvariable=self.var_pventa, width=12)
-        ent_pventa.grid(row=4, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(pricing, text="% Ganancia:").grid(row=1, column=0, sticky="w", padx=4, pady=4)
+        sp_margen = ttk.Spinbox(pricing, from_=0, to=1000, increment=0.5, textvariable=self.var_margen, width=8)
+        sp_margen.grid(row=1, column=1, sticky="ew", padx=4, pady=4)
 
-        # Fila 4 (derecha): Familia (combobox + admin)
-        ttk.Label(right, text="Familia:").grid(row=4, column=2, sticky="e", padx=4, pady=4)
-        self.var_familia = tk.StringVar()
-        self.cmb_familia = ttk.Combobox(right, textvariable=self.var_familia, width=20)
-        self.cmb_familia.grid(row=4, column=3, sticky="w", padx=4, pady=4)
-        try:
-            self.cmb_familia.bind('<<ComboboxSelected>>', lambda *_: None)
-        except Exception:
-            pass
-        ttk.Button(right, text="Admin. familias...", command=self._open_families_manager).grid(row=4, column=4, sticky="w", padx=(4, 0))
+        ttk.Label(pricing, text="Precio Venta:").grid(row=1, column=2, sticky="w", padx=4, pady=4)
+        ent_pventa = ttk.Entry(pricing, textvariable=self.var_pventa, width=12)
+        ent_pventa.grid(row=1, column=3, sticky="ew", padx=4, pady=4)
 
-        # Fila 5: Proveedor
-        ttk.Label(right, text="Proveedor:").grid(row=5, column=0, sticky="e", padx=4, pady=4)
-        self.cmb_supplier = ttk.Combobox(right, state="readonly", width=35)
-        self.cmb_supplier.grid(row=5, column=1, columnspan=3, sticky="we", padx=4, pady=4)
+        ttk.Label(pricing, text="Monto IVA:").grid(row=2, column=0, sticky="w", padx=4, pady=4)
+        ent_iva_monto = ttk.Entry(pricing, textvariable=self.var_iva_monto, width=12, state="readonly")
+        ent_iva_monto.grid(row=2, column=1, sticky="ew", padx=4, pady=4)
 
-        # Fila 6: Ubicación
-        ttk.Label(right, text="Ubicación:").grid(row=6, column=0, sticky="e", padx=4, pady=4)
-        self.cmb_location = ttk.Combobox(right, state="readonly", width=28)
-        self.cmb_location.grid(row=6, column=1, sticky="w", padx=4, pady=4)
-        ttk.Button(right, text="Admin. Ubicaciones...", command=self._open_locations_manager).grid(row=6, column=2, columnspan=2, sticky="w", padx=4, pady=4)
+        ttk.Label(pricing, text="Precio + IVA:").grid(row=2, column=2, sticky="w", padx=4, pady=4)
+        ent_p_mas_iva = ttk.Entry(pricing, textvariable=self.var_p_mas_iva, width=12, state="readonly")
+        ent_p_mas_iva.grid(row=2, column=3, sticky="ew", padx=4, pady=4)
 
         # Botones
         btns = ttk.Frame(right)
-        btns.grid(row=7, column=0, columnspan=4, pady=8, sticky="w")
+        btns.grid(row=3, column=0, columnspan=2, pady=8, sticky="w")
 
         self.btn_save = ttk.Button(btns, text="Agregar", command=self._on_add)
         self.btn_update = ttk.Button(btns, text="Guardar cambios", style="Success.TButton", command=self._on_update, state="disabled")
@@ -1160,33 +1166,7 @@ class ProductsView(ttk.Frame):
 
     # ---- Utilidad: igualar Tamaño del panel de Código de Barras al recuadro de imagen ----
     def _setup_bar_same_size_as_image(self) -> None:
-        def _sync(_evt=None) -> None:
-            try:
-                # Calcular Tamaño real del panel izquierdo (imagen + botones)
-                self.update_idletasks()
-                lw = self.img_box.winfo_toplevel()  # ensure mapped
-            except Exception:
-                pass
-            try:
-                left_parent = self.img_box.master  # el frame 'left'
-                left_parent.update_idletasks()
-                w = left_parent.winfo_width() or left_parent.winfo_reqwidth()
-                h = left_parent.winfo_height() or left_parent.winfo_reqheight()
-                # Aplicar dimensiones al Labelframe de Código de Barras
-                self._bar_container.configure(width=w, height=h)
-                try:
-                    self._bar_container.grid_propagate(False)
-                except Exception:
-                    pass
-            except Exception:
-                pass
-
-        # Ejecutar una vez y al reconfigurar el panel izquierdo
-        _sync()
-        try:
-            self.img_box.master.bind('<Configure>', _sync, add='+')
-        except Exception:
-            pass
+        return
 
     def _load_table(self):
         """Carga los productos y calcula columnas derivadas para mostrar."""

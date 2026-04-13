@@ -28,33 +28,66 @@ class TutorialCenter(tk.Toplevel):
         self._current_module = start_module if start_module in modules else self._module_names[0]
         self._step_index = 0
 
+        self._configure_styles()
         self._build_ui()
         self._select_module(self._current_module)
 
+    def _configure_styles(self) -> None:
+        style = ttk.Style(self)
+        base_bg = style.lookup("TFrame", "background") or "#F4F7FB"
+        panel_bg = "#FFFFFF"
+        border = style.lookup("TLabelframe", "bordercolor") or "#D4DCE6"
+        title_fg = "#0B2A4D"
+        body_fg = "#3F5874"
+        muted_fg = "#6A7F95"
+
+        style.configure("Tutorial.Root.TFrame", background=base_bg)
+        style.configure("Tutorial.Sidebar.TFrame", background=panel_bg, relief="solid", borderwidth=1)
+        style.configure("Tutorial.Content.TFrame", background=panel_bg, relief="solid", borderwidth=1)
+        style.configure("Tutorial.Title.TLabel", background=panel_bg, foreground=title_fg, font=("", 12, "bold"))
+        style.configure("Tutorial.Step.TLabel", background=panel_bg, foreground=body_fg, font=("", 10))
+        style.configure("Tutorial.Counter.TLabel", background=panel_bg, foreground=muted_fg, font=("", 9))
+        style.configure("Tutorial.SideTitle.TLabel", background=panel_bg, foreground=title_fg, font=("", 10, "bold"))
+        style.configure("Tutorial.Border.TFrame", background=border)
+
     def _build_ui(self) -> None:
-        root = ttk.Frame(self, padding=10)
+        self.configure(bg="#E9EFF6")
+
+        root = ttk.Frame(self, padding=10, style="Tutorial.Root.TFrame")
         root.pack(fill="both", expand=True)
+        root.columnconfigure(1, weight=1)
+        root.rowconfigure(0, weight=1)
 
-        left = ttk.Frame(root)
-        left.pack(side="left", fill="y")
+        left = ttk.Frame(root, style="Tutorial.Sidebar.TFrame", padding=10)
+        left.grid(row=0, column=0, sticky="ns")
 
-        ttk.Label(left, text="Modulos", font=("", 10, "bold")).pack(anchor="w", pady=(0, 6))
+        ttk.Label(left, text="Modulos", style="Tutorial.SideTitle.TLabel").pack(anchor="w", pady=(0, 6))
         self.lst = tk.Listbox(left, height=14, exportselection=False)
+        self.lst.configure(
+            bg="#FFFFFF",
+            fg="#16324F",
+            selectbackground="#284E9B",
+            selectforeground="#FFFFFF",
+            highlightthickness=1,
+            highlightbackground="#D4DCE6",
+            relief="flat",
+            activestyle="none",
+        )
         for name in self._module_names:
             self.lst.insert("end", name)
         self.lst.pack(fill="y", expand=False)
         self.lst.bind("<<ListboxSelect>>", self._on_select)
 
-        right = ttk.Frame(root)
-        right.pack(side="left", fill="both", expand=True, padx=(16, 0))
+        right = ttk.Frame(root, style="Tutorial.Content.TFrame", padding=16)
+        right.grid(row=0, column=1, sticky="nsew", padx=(16, 0))
 
-        self.lbl_title = ttk.Label(right, text="", font=("", 12, "bold"))
+        self.lbl_title = ttk.Label(right, text="", style="Tutorial.Title.TLabel")
         self.lbl_title.pack(anchor="w")
 
-        self.lbl_step = ttk.Label(right, text="", justify="left", wraplength=560)
+        self.lbl_step = ttk.Label(right, text="", justify="left", wraplength=560, style="Tutorial.Step.TLabel")
         self.lbl_step.pack(anchor="w", pady=(10, 8), fill="x")
 
-        self.lbl_counter = ttk.Label(right, text="", foreground="#666666")
+        self.lbl_counter = ttk.Label(right, text="", style="Tutorial.Counter.TLabel")
         self.lbl_counter.pack(anchor="w")
 
         btns = ttk.Frame(right)
