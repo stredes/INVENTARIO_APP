@@ -397,11 +397,6 @@ class PurchasesView(ttk.Frame):
 
         # Inicializa proveedores y dataset de productos (filtrado)
         self.refresh_lookups()
-        try:
-            self.btn_generate_po.pack_forget()
-            self.btn_generate_quote.pack_forget()
-        except Exception:
-            pass
     # ======================== Lookups ========================
     def refresh_lookups(self):
         """Carga proveedores y productos según proveedor seleccionado."""
@@ -534,6 +529,13 @@ class PurchasesView(ttk.Frame):
         try:
             if str(self._btn_cancel_reception.winfo_manager()) == "pack":
                 self._btn_cancel_reception.pack_forget()
+        except Exception:
+            pass
+        try:
+            if str(self.btn_generate_quote.winfo_manager()) != "pack":
+                self.btn_generate_quote.pack(side="right", padx=6)
+            if str(self.btn_generate_po.winfo_manager()) != "pack":
+                self.btn_generate_po.pack(side="right", padx=6)
         except Exception:
             pass
 

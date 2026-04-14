@@ -247,15 +247,6 @@ class SalesView(ttk.Frame):
         except Exception:
             pass
         try:
-            self.obs_frame.pack_forget()
-        except Exception:
-            pass
-        for btn in (getattr(self, "btn_quote", None), getattr(self, "btn_so", None)):
-            try:
-                btn.pack_forget()
-            except Exception:
-                pass
-        try:
             self._btn_confirm.configure(text="Registrar venta")
         except Exception:
             pass

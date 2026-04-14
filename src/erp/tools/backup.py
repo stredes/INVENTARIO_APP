@@ -375,6 +375,110 @@ def export_app_backup_to_xlsx(out_path: Optional[Path] = None, *, auto_open: boo
     return out_path
 
 
+def export_app_quick_load_template_to_xlsx(
+    out_path: Optional[Path] = None,
+    *,
+    auto_open: bool = True,
+) -> Path:
+    """
+    Genera una plantilla de cargado rápido basada en la estructura real de la APP.
+
+    La plantilla:
+    - exporta las hojas que la importación automática ya sabe leer,
+    - agrega una hoja inicial con instrucciones de uso,
+    - permite que el usuario copie/pegue columnas desde sus propias planillas
+      y luego reimporte el archivo directamente.
+    """
+    out = export_app_backup_to_xlsx(out_path=out_path, auto_open=False)
+    wb = load_workbook(filename=str(out))
+
+    if "instrucciones" in wb.sheetnames:
+        ws = wb["instrucciones"]
+        ws.delete_rows(1, ws.max_row)
+    else:
+        ws = wb.create_sheet("instrucciones", 0)
+
+    instructions = [
+        ["Plantilla de cargado rápido - Inventario App"],
+        [""],
+        ["Objetivo"],
+        [
+            "Usa este archivo para cargar datos base de la empresa desde planillas propias. "
+            "Puedes copiar, mover o adaptar columnas dentro de las hojas editables y luego "
+            "usar la opción de importación automática de plantilla."
+        ],
+        [""],
+        ["Hojas editables recomendadas"],
+        ["ubicaciones", "Bodegas, salas, sucursales o zonas internas."],
+        ["proveedores", "Datos maestros de proveedores."],
+        ["clientes", "Datos maestros de clientes."],
+        ["productos", "Catálogo principal de productos."],
+        ["inventario", "Stock final por producto si quieres cargar cantidades actuales."],
+        ["ordenes", "Opcional. Para cabeceras históricas simplificadas de compras, ventas y recepciones."],
+        [""],
+        ["Reglas importantes"],
+        ["1.", "No cambies los nombres de las hojas."],
+        ["2.", "Mantén los encabezados de la primera fila."],
+        ["3.", "Si no usarás una hoja, puedes dejarla vacía."],
+        ["4.", "Si importas con reemplazo total, la app tomará esta plantilla como base de la empresa."],
+        ["5.", "Facturion no se mezcla con esta plantilla; su base de datos sigue siendo independiente."],
+        [""],
+        ["Consejo de uso"],
+        [
+            "Si tu cliente ya tiene una plantilla propia, copia sus columnas hacia estas hojas "
+            "respetando los encabezados. Luego importa este mismo archivo desde la app."
+        ],
+    ]
+    for row in instructions:
+        ws.append(row)
+
+    ws.column_dimensions["A"].width = 18
+    ws.column_dimensions["B"].width = 120
+    try:
+        ws.freeze_panes = "A3"
+    except Exception:
+        pass
+
+    for sheet_name in ("ubicaciones", "proveedores", "clientes", "productos", "ordenes", "inventario"):
+        if sheet_name not in wb.sheetnames:
+            continue
+        sh = wb[sheet_name]
+        try:
+            sh.freeze_panes = "A2"
+        except Exception:
+            pass
+        for column_cells in sh.columns:
+            try:
+                letter = column_cells[0].column_letter
+                max_len = max(len(str(cell.value or "")) for cell in column_cells[:25])
+                sh.column_dimensions[letter].width = min(max(max_len + 2, 12), 36)
+            except Exception:
+                pass
+
+    wb.save(out)
+    try:
+        wb.close()
+    except Exception:
+        pass
+
+    if auto_open:
+        try:
+            import webbrowser
+            webbrowser.open(str(out))
+        except Exception:
+            pass
+    return out
+
+
+def import_app_quick_load_template_from_xlsx(xlsx_path: Path, *, reset: bool = True) -> None:
+    """
+    Importa una plantilla de cargado rápido.
+
+    Internamente usa el mismo formato del backup APP para asegurar compatibilidad.
+    """
+    import_app_backup_from_xlsx(xlsx_path, reset=reset)
+
+
 def import_app_backup_from_xlsx(xlsx_path: Path, *, reset: bool = True) -> None:
     """
     Importa un backup APP generado por export_app_backup_to_xlsx.

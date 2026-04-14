@@ -26,6 +26,7 @@ from src.gui.widgets.status_bar import StatusBar
 from src.gui.widgets.toast import Toast
 from src.gui.widgets.command_palette import CommandPalette, CommandAction
 from src.utils.github_updater import ReleaseInfo, apply_release_update
+from src.utils.facturion_launcher import launch_facturion
 from src.utils.printers import (
     get_document_printer,
     set_document_printer,
@@ -52,6 +53,9 @@ class MainWindow(ttk.Frame):
         self._current_section_var = tk.StringVar(value="Inicio")
         self._app_meta = get_app_meta()
         self._pending_release: ReleaseInfo | None = None
+        self._responsive_job = None
+        self._sidebar_mousewheel_bound = False
+        self._sidebar_scroll_enabled = False
 
         self._build_shell_layout()
 
@@ -86,6 +90,7 @@ class MainWindow(ttk.Frame):
                 "orders": self.show_orders_admin,
                 "reports": self.show_report_center,
                 "catalog": self.show_catalog,
+                "facturion": self.open_facturion,
                 "tutorials": self._open_tutorial_center,
                 "refresh": self._refresh_all,
                 "exit": self.app_root.quit,
@@ -140,7 +145,10 @@ class MainWindow(ttk.Frame):
 
         # Persistencia
         self._restore_ui_state()
+        self._schedule_responsive_layout()
         self._on_tab_change()
+        self.app_root.bind("<Configure>", self._on_root_configure, add="+")
+        self.app_root.bind_all("<Button-1>", self._on_global_left_click, add="+")
         self.app_root.bind("<Destroy>", self._on_root_destroy, add="+")
 
         # Toast de ayuda
@@ -177,17 +185,44 @@ class MainWindow(ttk.Frame):
                 self.top_nav.pack(fill="x", pady=(0, 8), before=self.content_host)
 
     def _build_shell_layout(self) -> None:
-        shell = ttk.Frame(self)
-        shell.pack(fill="both", expand=True)
-        shell.columnconfigure(1, weight=1)
-        shell.rowconfigure(0, weight=1)
+        self.shell = ttk.Frame(self)
+        self.shell.pack(fill="both", expand=True)
+        self.shell.columnconfigure(1, weight=1)
+        self.shell.rowconfigure(0, weight=1)
 
-        self.sidebar = ttk.Frame(shell, style="HomeSidebar.TFrame", width=285, padding=14)
+        self.sidebar = ttk.Frame(self.shell, style="HomeSidebar.TFrame", width=285)
         self.sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, 12))
         self.sidebar.grid_propagate(False)
         self.sidebar.columnconfigure(0, weight=1)
+        self.sidebar.rowconfigure(0, weight=1)
 
-        self.main_panel = ttk.Frame(shell)
+        self.sidebar_canvas = tk.Canvas(
+            self.sidebar,
+            highlightthickness=0,
+            borderwidth=0,
+        )
+        self.sidebar_scrollbar = ttk.Scrollbar(
+            self.sidebar,
+            orient="vertical",
+            command=self.sidebar_canvas.yview,
+        )
+        self.sidebar_canvas.configure(yscrollcommand=self.sidebar_scrollbar.set)
+        self.sidebar_canvas.grid(row=0, column=0, sticky="nsew")
+        self.sidebar_scrollbar.grid(row=0, column=1, sticky="ns")
+
+        self.sidebar_content = ttk.Frame(self.sidebar, style="HomeSidebar.TFrame", padding=14)
+        self.sidebar_content.columnconfigure(0, weight=1)
+        self._sidebar_window = self.sidebar_canvas.create_window(
+            0,
+            0,
+            window=self.sidebar_content,
+            anchor="nw",
+        )
+        self.sidebar_content.bind("<Configure>", self._on_sidebar_content_configure, add="+")
+        self.sidebar_canvas.bind("<Configure>", self._on_sidebar_canvas_configure, add="+")
+        self._bind_sidebar_mousewheel()
+
+        self.main_panel = ttk.Frame(self.shell)
         self.main_panel.grid(row=0, column=1, sticky="nsew")
         self.main_panel.columnconfigure(0, weight=1)
         self.main_panel.rowconfigure(1, weight=1)
@@ -199,8 +234,40 @@ class MainWindow(ttk.Frame):
         self.content_host.columnconfigure(0, weight=1)
         self.content_host.rowconfigure(0, weight=1)
 
+    def _on_root_configure(self, event=None) -> None:
+        if event is not None and event.widget is not self.app_root:
+            return
+        self._schedule_responsive_layout()
+
+    def _schedule_responsive_layout(self) -> None:
+        try:
+            if self._responsive_job is not None:
+                self.after_cancel(self._responsive_job)
+        except Exception:
+            pass
+        self._responsive_job = self.after(80, self._apply_responsive_layout)
+
+    def _apply_responsive_layout(self) -> None:
+        self._responsive_job = None
+        try:
+            width = max(self.app_root.winfo_width(), 980)
+        except Exception:
+            return
+
+        sidebar_width = min(max(int(width * 0.16), 230), 340)
+        sidebar_pad = 8 if width < 1400 else 12
+
+        try:
+            self.sidebar.configure(width=sidebar_width)
+            self.sidebar_content.configure(padding=max(10, int(sidebar_width * 0.05)))
+            self.sidebar.grid_configure(padx=(0, sidebar_pad))
+        except Exception:
+            pass
+
     def _build_persistent_sidebar(self) -> None:
-        brand = ttk.Frame(self.sidebar, style="HomeSidebarCard.TFrame", padding=18)
+        host = self.sidebar_content
+
+        brand = ttk.Frame(host, style="HomeSidebarCard.TFrame", padding=18)
         brand.grid(row=0, column=0, sticky="ew")
         brand.columnconfigure(0, weight=1)
 
@@ -208,8 +275,8 @@ class MainWindow(ttk.Frame):
         ttk.Label(brand, text=f"Versión instalada: {self._app_meta.version}", style="HomeSmall.TLabel").grid(row=1, column=0, sticky="w", pady=(10, 0))
         ttk.Label(brand, text="Navegación principal", style="HomeSmall.TLabel").grid(row=2, column=0, sticky="w", pady=(10, 0))
 
-        ttk.Separator(self.sidebar).grid(row=1, column=0, sticky="ew", pady=(16, 10))
-        ttk.Label(self.sidebar, text="Acciones disponibles", style="HomeSection.TLabel").grid(row=2, column=0, sticky="w", pady=(0, 8))
+        ttk.Separator(host).grid(row=1, column=0, sticky="ew", pady=(16, 10))
+        ttk.Label(host, text="Acciones disponibles", style="HomeSection.TLabel").grid(row=2, column=0, sticky="w", pady=(0, 8))
 
         nav_items = [
             ("Inicio", self.show_home),
@@ -222,27 +289,71 @@ class MainWindow(ttk.Frame):
             ("Órdenes", self.show_orders_admin),
             ("Informes", self.show_report_center),
             ("Catálogo", self.show_catalog),
+            ("Facturion", self.open_facturion),
             ("Tutoriales", self._open_tutorial_center),
         ]
         row = 3
         for label, command in nav_items:
-            ttk.Button(self.sidebar, text=label, style="HomeNav.TButton", command=command).grid(
+            ttk.Button(host, text=label, style="HomeNav.TButton", command=command).grid(
                 row=row, column=0, sticky="ew", pady=6
             )
             row += 1
 
         self.btn_update_release = ttk.Button(
-            self.sidebar,
+            host,
             text="Actualizar panel",
             style="HomeUpdate.TButton",
             command=self._on_sidebar_update_click,
             state="disabled",
         )
         self.btn_update_release.grid(row=row, column=0, sticky="ew", pady=(14, 6))
-        self.sidebar.rowconfigure(row + 1, weight=1)
-        ttk.Button(self.sidebar, text="Salir", style="HomeExit.TButton", command=self.app_root.quit).grid(
-            row=row + 2, column=0, sticky="sew", pady=(10, 0)
+        ttk.Button(host, text="Salir", style="HomeExit.TButton", command=self.app_root.quit).grid(
+            row=row + 1, column=0, sticky="ew", pady=(10, 0)
         )
+        ttk.Frame(host, style="HomeSidebar.TFrame", height=6).grid(row=row + 2, column=0, sticky="ew")
+
+    def _on_sidebar_content_configure(self, _event=None) -> None:
+        try:
+            self.sidebar_canvas.configure(scrollregion=self.sidebar_canvas.bbox("all"))
+        except Exception:
+            pass
+
+    def _on_sidebar_canvas_configure(self, event) -> None:
+        try:
+            self.sidebar_canvas.itemconfigure(self._sidebar_window, width=event.width)
+        except Exception:
+            pass
+
+    def _bind_sidebar_mousewheel(self, _event=None) -> None:
+        if self._sidebar_mousewheel_bound:
+            return
+        self._sidebar_mousewheel_bound = True
+        self.app_root.bind_all("<MouseWheel>", self._on_sidebar_mousewheel, add="+")
+        self.app_root.bind_all("<Button-4>", self._on_sidebar_mousewheel, add="+")
+        self.app_root.bind_all("<Button-5>", self._on_sidebar_mousewheel, add="+")
+
+    def _on_global_left_click(self, event) -> None:
+        try:
+            widget_path = str(event.widget)
+        except Exception:
+            self._sidebar_scroll_enabled = False
+            return
+        self._sidebar_scroll_enabled = widget_path.startswith(str(self.sidebar))
+
+    def _on_sidebar_mousewheel(self, event) -> None:
+        try:
+            if not self._sidebar_scroll_enabled:
+                return
+            if not str(event.widget).startswith(str(self.sidebar)):
+                return
+            if getattr(event, "delta", 0):
+                self.sidebar_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            elif getattr(event, "num", None) == 4:
+                self.sidebar_canvas.yview_scroll(-1, "units")
+            elif getattr(event, "num", None) == 5:
+                self.sidebar_canvas.yview_scroll(1, "units")
+        except Exception:
+            pass
 
     def set_update_release(self, release: ReleaseInfo) -> None:
         self._pending_release = release
@@ -305,28 +416,38 @@ class MainWindow(ttk.Frame):
         menubar.add_cascade(label="Impresora", menu=m_prn)
 
         m_tools = Menu(menubar, tearoff=False)
-        m_tools.add_command(label="Nuevo (Ctrl+N)", command=self._new_current)
-        m_tools.add_command(label="Guardar (Ctrl+S)", command=self._save_current)
-        m_tools.add_command(label="Imprimir (Ctrl+P)", command=self._print_current)
-        m_tools.add_command(label="Refrescar aplicacion (F5)", command=self._refresh_all)
-        m_tools.add_separator()
-        m_tools.add_command(label="Generador de catálogos", command=self._generate_catalog)
-        m_tools.add_separator()
-        m_tools.add_command(label="Conexión a BDâ€¦", command=self._open_db_connection_dialog)
-        # Importacion SQL masiva
-        m_tools.add_separator()
-        m_tools.add_command(label="Importacion SQL masiva...", command=self._open_sql_importer)
-        # Limpiador de base de datos (BORRA TODO)
-        m_tools.add_separator()
-        m_tools.add_command(label="Limpiar base de datos...", command=self._wipe_databases)
-        # ERP Backup
-        m_tools.add_separator()
-        m_tools.add_command(label="ERP: Exportar backup (XLSX)...", command=self._erp_export_backup)
-        m_tools.add_command(label="ERP: Importar backup (XLSX)...", command=self._erp_import_backup)
-        # APP Backup (5 hojas)
-        m_tools.add_separator()
-        m_tools.add_command(label="APP: Exportar backup (XLSX)...", command=self._app_export_backup)
-        m_tools.add_command(label="APP: Importar backup (XLSX)...", command=self._app_import_backup)
+
+        m_tools_work = Menu(m_tools, tearoff=False)
+        m_tools_work.add_command(label="Nuevo (Ctrl+N)", command=self._new_current)
+        m_tools_work.add_command(label="Guardar (Ctrl+S)", command=self._save_current)
+        m_tools_work.add_command(label="Imprimir (Ctrl+P)", command=self._print_current)
+        m_tools_work.add_command(label="Refrescar aplicación (F5)", command=self._refresh_all)
+        m_tools.add_cascade(label="Trabajo actual", menu=m_tools_work)
+
+        m_tools_docs = Menu(m_tools, tearoff=False)
+        m_tools_docs.add_command(label="Generador de catálogos", command=self._generate_catalog)
+        m_tools.add_cascade(label="Documentos", menu=m_tools_docs)
+
+        m_tools_templates = Menu(m_tools, tearoff=False)
+        m_tools_templates.add_command(label="Generar plantilla de cargado rápido...", command=self._app_export_quick_template)
+        m_tools_templates.add_command(label="Importar plantilla de cargado rápido...", command=self._app_import_quick_template)
+        m_tools.add_cascade(label="Plantillas", menu=m_tools_templates)
+
+        m_tools_data = Menu(m_tools, tearoff=False)
+        m_tools_data.add_command(label="Conexión a BD…", command=self._open_db_connection_dialog)
+        m_tools_data.add_command(label="Importación SQL masiva...", command=self._open_sql_importer)
+        m_tools_data.add_separator()
+        m_tools_data.add_command(label="Limpiar base de datos...", command=self._wipe_databases)
+        m_tools.add_cascade(label="Base de datos", menu=m_tools_data)
+
+        m_tools_backup = Menu(m_tools, tearoff=False)
+        m_tools_backup.add_command(label="ERP: Exportar backup (XLSX)...", command=self._erp_export_backup)
+        m_tools_backup.add_command(label="ERP: Importar backup (XLSX)...", command=self._erp_import_backup)
+        m_tools_backup.add_separator()
+        m_tools_backup.add_command(label="APP: Exportar backup (XLSX)...", command=self._app_export_backup)
+        m_tools_backup.add_command(label="APP: Importar backup (XLSX)...", command=self._app_import_backup)
+        m_tools.add_cascade(label="Respaldos", menu=m_tools_backup)
+
         menubar.add_cascade(label="Herramientas", menu=m_tools)
 
         m_view = Menu(menubar, tearoff=False)
@@ -334,6 +455,10 @@ class MainWindow(ttk.Frame):
         m_view.add_command(label="Editor de información…", command=self._open_company_editor)
         m_view.add_command(label="Ir a Informes", command=self.show_report_center)
         menubar.add_cascade(label="Ver", menu=m_view)
+
+        m_apps = Menu(menubar, tearoff=False)
+        m_apps.add_command(label="Abrir Facturion", command=self.open_facturion)
+        menubar.add_cascade(label="Aplicaciones", menu=m_apps)
 
         m_help = Menu(menubar, tearoff=False)
         m_help.add_command(label="Tutoriales...", command=self._open_tutorial_center)
@@ -570,6 +695,64 @@ class MainWindow(ttk.Frame):
         except Exception as ex:
             Toast.show(self.app_root, f"Error al importar backup APP: {ex}", kind="danger")
 
+    def _app_export_quick_template(self) -> None:
+        try:
+            from src.erp.tools.backup import export_app_quick_load_template_to_xlsx
+        except Exception as ex:
+            try:
+                Toast.show(self.app_root, f"No se pudo cargar herramienta de plantilla: {ex}", kind="danger")
+            except Exception:
+                pass
+            return
+        try:
+            initial = Path.home() / "Downloads" / "APP_plantilla_cargado_rapido.xlsx"
+        except Exception:
+            initial = None
+        path = filedialog.asksaveasfilename(
+            parent=self.app_root,
+            title="Guardar plantilla de cargado rápido",
+            defaultextension=".xlsx",
+            filetypes=[("Excel", "*.xlsx")],
+            initialfile=(initial.name if initial else None),
+            initialdir=(str(initial.parent) if initial else None),
+        )
+        if not path:
+            return
+        try:
+            out = export_app_quick_load_template_to_xlsx(Path(path), auto_open=True)
+            Toast.show(self.app_root, f"Plantilla generada: {out}", kind="success")
+        except Exception as ex:
+            Toast.show(self.app_root, f"Error al generar plantilla: {ex}", kind="danger")
+
+    def _app_import_quick_template(self) -> None:
+        try:
+            from src.erp.tools.backup import import_app_quick_load_template_from_xlsx
+        except Exception as ex:
+            try:
+                Toast.show(self.app_root, f"No se pudo cargar importador de plantilla: {ex}", kind="danger")
+            except Exception:
+                pass
+            return
+        path = filedialog.askopenfilename(
+            parent=self.app_root,
+            title="Seleccionar plantilla de cargado rápido (XLSX)",
+            filetypes=[("Excel", "*.xlsx"), ("Todos", "*.*")],
+        )
+        if not path:
+            return
+        if not messagebox.askyesno(
+            "Confirmar importación",
+            "Esto reemplazará la información base de la APP por la plantilla seleccionada.\n\n¿Desea continuar?",
+            parent=self.app_root,
+        ):
+            return
+        try:
+            import_app_quick_load_template_from_xlsx(Path(path), reset=True)
+            Toast.show(self.app_root, "Plantilla importada correctamente", kind="success")
+            self._refresh_all()
+        except Exception as ex:
+            Toast.show(self.app_root, f"Error al importar plantilla: {ex}", kind="danger")
+
     def _open_palette(self) -> None:
         actions = self._build_actions()
         CommandPalette.open(self.app_root, actions=actions)
@@ -578,6 +761,7 @@ class MainWindow(ttk.Frame):
         view = self._current_view()
         actions: list[CommandAction] = [
             CommandAction("go_home", "Ir a Inicio", callback=self.show_home, keywords=["inicio", "panel", "dashboard"]),
+            CommandAction("open_facturion", "Abrir Facturion", callback=self.open_facturion, keywords=["facturion", "facturas", "iva", "sii"]),
             CommandAction("open_tutorials", "Tutoriales", callback=self._open_tutorial_center, keywords=["ayuda", "tutorial"]),
             CommandAction("go_products", "Ir a Productos", callback=self.show_products, keywords=["inventario", "stock"]),
             CommandAction("go_suppliers", "Ir a Proveedores", callback=self.show_suppliers, keywords=["proveedores"]),
@@ -599,6 +783,29 @@ class MainWindow(ttk.Frame):
             except Exception:
                 pass
         return actions
+
+    def open_facturion(self) -> None:
+        try:
+            launch_facturion()
+            Toast.show(
+                self.app_root,
+                "Facturion se abrió en una ventana independiente.",
+                kind="success",
+            )
+        except FileNotFoundError as ex:
+            Toast.show(self.app_root, str(ex), kind="danger", position="tr")
+        except Exception as ex:
+            message = (
+                "No se pudo abrir Facturion. "
+                "Verifique que estén instaladas sus dependencias "
+                "(customtkinter y matplotlib)."
+            )
+            Toast.show(
+                self.app_root,
+                f"{message} Detalle: {ex}",
+                kind="danger",
+                position="tr",
+            )
 
     def _build_tour_steps(self) -> dict[str, list[dict]]:
         return {

@@ -11,12 +11,77 @@ import urllib.request
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from tkinter import messagebox
+import tkinter as tk
+from tkinter import messagebox, ttk
 
 from src.app_meta import AppMeta, get_app_meta
 
 
 API_BASE = "https://api.github.com/repos/{repo}/releases/latest"
+
+
+class UpdateProgressDialog(tk.Toplevel):
+    def __init__(self, parent, *, title: str, message: str) -> None:
+        super().__init__(parent)
+        self.title(title)
+        self.transient(parent)
+        self.resizable(False, False)
+        self.protocol("WM_DELETE_WINDOW", lambda: None)
+        self.configure(padx=18, pady=16)
+
+        wrapper = ttk.Frame(self)
+        wrapper.pack(fill="both", expand=True)
+
+        self.message_var = tk.StringVar(value=message)
+        ttk.Label(
+            wrapper,
+            textvariable=self.message_var,
+            justify="left",
+            wraplength=340,
+        ).pack(fill="x", pady=(0, 12))
+
+        self.progress = ttk.Progressbar(wrapper, mode="indeterminate", length=320)
+        self.progress.pack(fill="x")
+        self.progress.start(10)
+
+        self.status_var = tk.StringVar(value="Preparando...")
+        ttk.Label(wrapper, textvariable=self.status_var, style="InfoBadge.TLabel").pack(
+            anchor="w",
+            pady=(12, 0),
+        )
+
+        self.update_idletasks()
+        try:
+            parent.update_idletasks()
+            x = parent.winfo_rootx() + max((parent.winfo_width() - self.winfo_width()) // 2, 0)
+            y = parent.winfo_rooty() + max((parent.winfo_height() - self.winfo_height()) // 2, 0)
+            self.geometry(f"+{x}+{y}")
+        except Exception:
+            pass
+        try:
+            self.grab_set()
+        except Exception:
+            pass
+
+    def set_message(self, message: str, *, status: str | None = None) -> None:
+        self.message_var.set(message)
+        if status is not None:
+            self.status_var.set(status)
+        self.update_idletasks()
+
+    def close(self) -> None:
+        try:
+            self.progress.stop()
+        except Exception:
+            pass
+        try:
+            self.grab_release()
+        except Exception:
+            pass
+        try:
+            self.destroy()
+        except Exception:
+            pass
 
 
 @dataclass(frozen=True)
@@ -122,11 +187,11 @@ def _download_file(url: str, dest: Path) -> None:
             shutil.copyfileobj(resp, fh)
 
 
-def _apply_portable_update(root, release: ReleaseInfo, meta: AppMeta) -> None:
+def _prepare_portable_update(release: ReleaseInfo, meta: AppMeta) -> Path:
     if release.portable_asset is None:
-        return
+        raise RuntimeError("El release no incluye paquete portable.")
     if not getattr(sys, "frozen", False):
-        return
+        raise RuntimeError("La actualización automática solo está disponible en la app instalada.")
 
     current_exe = Path(sys.executable).resolve()
     install_dir = current_exe.parent
@@ -146,13 +211,10 @@ def _apply_portable_update(root, release: ReleaseInfo, meta: AppMeta) -> None:
 
     inner_dirs = [p for p in extracted_dir.iterdir() if p.is_dir()]
     source_root = inner_dirs[0] if len(inner_dirs) == 1 else extracted_dir
-    script_path = _write_update_script(install_dir, source_root, current_exe)
+    return _write_update_script(install_dir, source_root, current_exe)
 
-    messagebox.showinfo(
-        "Actualización disponible",
-        f"Se descargó {release.tag}. La aplicación se reiniciará para aplicar la actualización.",
-        parent=root,
-    )
+
+def _launch_installation(script_path: Path) -> None:
     subprocess.Popen(
         [
             "powershell",
@@ -163,26 +225,87 @@ def _apply_portable_update(root, release: ReleaseInfo, meta: AppMeta) -> None:
         ],
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
-    root.after(150, root.destroy)
 
 
 def apply_release_update(root, release: ReleaseInfo | None) -> bool:
     if release is None or not release.tag:
         return False
+
     meta = get_app_meta()
-    try:
-        _apply_portable_update(root, release, meta)
-        return True
-    except Exception:
+    download_dialog = UpdateProgressDialog(
+        root,
+        title="Descargando actualización",
+        message=(
+            f"Descargando la versión {release.tag}.\n"
+            "Mantén esta ventana abierta hasta que finalice la descarga."
+        ),
+    )
+    download_dialog.set_message(
+        (
+            f"Descargando la versión {release.tag}.\n"
+            "Mantén esta ventana abierta hasta que finalice la descarga."
+        ),
+        status="Descargando paquete...",
+    )
+
+    def _worker() -> None:
         try:
-            messagebox.showwarning(
-                "Actualización",
-                f"Hay una nueva versión disponible ({release.tag}), pero no se pudo aplicar automáticamente.",
-                parent=root,
+            script_path = _prepare_portable_update(release, meta)
+        except Exception as ex:
+            def _fail() -> None:
+                download_dialog.close()
+                try:
+                    messagebox.showwarning(
+                        "Actualización",
+                        (
+                            f"Hay una nueva versión disponible ({release.tag}), "
+                            "pero no se pudo aplicar automáticamente.\n\n"
+                            f"Detalle: {ex}"
+                        ),
+                        parent=root,
+                    )
+                except Exception:
+                    pass
+
+            try:
+                root.after(0, _fail)
+            except Exception:
+                pass
+            return
+
+        def _install() -> None:
+            download_dialog.close()
+            install_dialog = UpdateProgressDialog(
+                root,
+                title="Instalando actualización",
+                message=(
+                    f"La versión {release.tag} ya fue descargada.\n"
+                    "La aplicación se cerrará para completar la instalación."
+                ),
             )
+            install_dialog.set_message(
+                (
+                    f"La versión {release.tag} ya fue descargada.\n"
+                    "La aplicación se cerrará para completar la instalación."
+                ),
+                status="Iniciando instalador...",
+            )
+
+            def _start_install() -> None:
+                try:
+                    _launch_installation(script_path)
+                finally:
+                    root.after(250, root.destroy)
+
+            root.after(900, _start_install)
+
+        try:
+            root.after(0, _install)
         except Exception:
             pass
-        return False
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return True
 
 
 def check_for_updates_async(root, *, on_update_ready=None, auto_apply: bool = False) -> None:

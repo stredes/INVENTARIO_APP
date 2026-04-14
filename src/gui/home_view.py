@@ -48,10 +48,22 @@ class HomeView(ttk.Frame):
         self.var_company = tk.StringVar(value=self._company_name)
         self.var_version = tk.StringVar(value=f"Versión instalada: {self._version}")
         self.var_operation_copy = tk.StringVar(value="Panel central para compras, ventas e inventario.")
+        self._responsive_job = None
+        self._content_parent = None
+        self._hero_copy_label = None
+        self._main_description_label = None
+        self._side_panel = None
+        self._side_info_labels: list[ttk.Label] = []
+        self._step_text_labels: list[ttk.Label] = []
+        self._metric_body_labels: list[ttk.Label] = []
+        self._mode_buttons: list[ttk.Button] = []
+        self._cards_left = None
+        self._main_panel = None
 
         self._load_company_info()
         self._configure_styles()
         self._build_ui()
+        self.bind("<Configure>", self._on_resize, add="+")
         self.refresh_all()
 
     def _load_company_info(self) -> None:
@@ -145,6 +157,7 @@ class HomeView(ttk.Frame):
         content.grid(row=0, column=content_column, sticky="nsew")
         content.columnconfigure(0, weight=3)
         content.columnconfigure(1, weight=2)
+        self._content_parent = content
         self._build_content(content)
 
     def _build_sidebar(self, parent: ttk.Frame) -> None:
@@ -169,6 +182,7 @@ class HomeView(ttk.Frame):
             ("Órdenes", "orders"),
             ("Informes", "reports"),
             ("Catálogo", "catalog"),
+            ("Facturion", "facturion"),
             ("Tutoriales", "tutorials"),
         ]
         row = 3
@@ -200,11 +214,18 @@ class HomeView(ttk.Frame):
         hero_text = ttk.Frame(hero, style="HomeHero.TFrame")
         hero_text.grid(row=0, column=0, sticky="nsew")
         ttk.Label(hero_text, text=self._company_name, style="HomeHeroTitle.TLabel").pack(anchor="center", pady=(8, 6))
-        ttk.Label(hero_text, textvariable=self.var_operation_copy, style="HomeHeroText.TLabel", wraplength=620, justify="center").pack(anchor="center")
+        self._hero_copy_label = ttk.Label(
+            hero_text,
+            textvariable=self.var_operation_copy,
+            style="HomeHeroText.TLabel",
+            wraplength=620,
+            justify="center",
+        )
+        self._hero_copy_label.pack(anchor="center")
 
         mode_box = ttk.Frame(hero, style="HomeHero.TFrame", padding=(0, 18, 0, 0))
         mode_box.grid(row=1, column=0, columnspan=2, sticky="ew")
-        for idx in range(4):
+        for idx in range(5):
             mode_box.columnconfigure(idx, weight=1)
 
         mode_items = [
@@ -212,17 +233,21 @@ class HomeView(ttk.Frame):
             ("Compras", "purchases", "HomeMode.TButton"),
             ("Ventas", "sales", "HomeMode.TButton"),
             ("Inventario", "inventory", "HomeMode.TButton"),
+            ("Facturion", "facturion", "HomeMode.TButton"),
         ]
         for idx, (label, key, style_name) in enumerate(mode_items):
             cb = self.callbacks.get(key)
             if cb is None:
                 continue
-            ttk.Button(mode_box, text=label, style=style_name, command=cb).grid(row=0, column=idx, sticky="ew", padx=(0 if idx == 0 else 10, 0))
+            btn = ttk.Button(mode_box, text=label, style=style_name, command=cb)
+            btn.grid(row=0, column=idx, sticky="ew", padx=(0 if idx == 0 else 10, 0), pady=4)
+            self._mode_buttons.append(btn)
 
         cards_left = ttk.Frame(parent, style="HomeContent.TFrame")
         cards_left.grid(row=1, column=0, sticky="nsew", pady=(14, 0), padx=(0, 10))
         for idx in range(3):
             cards_left.columnconfigure(idx, weight=1)
+        self._cards_left = cards_left
 
         self._metric_card(cards_left, 0, "Operación activa", self.var_active, "Módulo listo para continuar.", "#173A5E")
         self._metric_card(cards_left, 1, "Productos registrados", self.var_products, "Catálogo base disponible.", "#2E6D68")
@@ -231,15 +256,17 @@ class HomeView(ttk.Frame):
         main_panel = ttk.Frame(parent, style="HomeCard.TFrame", padding=20)
         main_panel.grid(row=2, column=0, sticky="nsew", pady=(12, 0), padx=(0, 10))
         main_panel.columnconfigure(0, weight=1)
+        self._main_panel = main_panel
 
         ttk.Label(main_panel, text="Recorrido recomendado", style="HomePanelTitle.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(
+        self._main_description_label = ttk.Label(
             main_panel,
             text="Un flujo corto para entrar, cargar datos y validar antes de emitir documentos o ajustar stock.",
             style="HomePanelText.TLabel",
             wraplength=640,
             justify="left",
-        ).grid(row=1, column=0, sticky="w", pady=(6, 14))
+        )
+        self._main_description_label.grid(row=1, column=0, sticky="w", pady=(6, 14))
 
         if self._logo_img is not None:
             ttk.Label(main_panel, image=self._logo_img, style="HomeImage.TLabel").grid(row=2, column=0, pady=(0, 16))
@@ -255,6 +282,7 @@ class HomeView(ttk.Frame):
         side_panel = ttk.Frame(parent, style="HomeCard.TFrame", padding=18)
         side_panel.grid(row=1, column=1, rowspan=2, sticky="nsew", pady=(14, 0))
         side_panel.columnconfigure(0, weight=1)
+        self._side_panel = side_panel
 
         ttk.Label(side_panel, text="Salud operativa", style="HomePanelTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(2, 12))
         info_items = [
@@ -270,7 +298,9 @@ class HomeView(ttk.Frame):
             box.grid(row=row, column=0, sticky="ew", pady=6)
             box.columnconfigure(0, weight=1)
             ttk.Label(box, text=title, style="HomeInfoTitle.TLabel").grid(row=0, column=0, sticky="w")
-            ttk.Label(box, textvariable=variable, style="HomeInfoText.TLabel", wraplength=280, justify="left").grid(row=1, column=0, sticky="w", pady=(6, 0))
+            info_label = ttk.Label(box, textvariable=variable, style="HomeInfoText.TLabel", wraplength=280, justify="left")
+            info_label.grid(row=1, column=0, sticky="w", pady=(6, 0))
+            self._side_info_labels.append(info_label)
 
         parent.rowconfigure(2, weight=1)
 
@@ -295,7 +325,9 @@ class HomeView(ttk.Frame):
         body_frame.columnconfigure(0, weight=1)
         ttk.Label(body_frame, text=title, style="HomeTitle.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(body_frame, textvariable=value_var, style="HomeValue.TLabel").grid(row=1, column=0, sticky="w", pady=(8, 8))
-        ttk.Label(body_frame, text=body, style="HomeBody.TLabel", wraplength=240, justify="left").grid(row=2, column=0, sticky="w")
+        body_label = ttk.Label(body_frame, text=body, style="HomeBody.TLabel", wraplength=240, justify="left")
+        body_label.grid(row=2, column=0, sticky="w")
+        self._metric_body_labels.append(body_label)
 
     def _step_row(self, parent: ttk.Frame, row: int, num: str, title: str, text: str) -> None:
         box = ttk.Frame(parent, style="HomeInfoCard.TFrame", padding=12)
@@ -305,7 +337,66 @@ class HomeView(ttk.Frame):
         num_box = ttk.Label(box, text=num, style="HomeStepNum.TLabel", width=4)
         num_box.grid(row=0, column=0, rowspan=2, sticky="nsw", padx=(0, 12))
         ttk.Label(box, text=title, style="HomeStepTitle.TLabel").grid(row=0, column=1, sticky="w")
-        ttk.Label(box, text=text, style="HomeStepText.TLabel", wraplength=560, justify="left").grid(row=1, column=1, sticky="w", pady=(6, 0))
+        step_label = ttk.Label(box, text=text, style="HomeStepText.TLabel", wraplength=560, justify="left")
+        step_label.grid(row=1, column=1, sticky="w", pady=(6, 0))
+        self._step_text_labels.append(step_label)
+
+    def _on_resize(self, _event=None) -> None:
+        try:
+            if self._responsive_job is not None:
+                self.after_cancel(self._responsive_job)
+        except Exception:
+            pass
+        self._responsive_job = self.after(60, self._apply_responsive_layout)
+
+    def _apply_responsive_layout(self) -> None:
+        self._responsive_job = None
+        parent = self._content_parent
+        if parent is None or not parent.winfo_exists():
+            return
+
+        width = max(parent.winfo_width(), self.winfo_width(), 900)
+        compact = width < 1450
+
+        if self._hero_copy_label is not None:
+            self._hero_copy_label.configure(wraplength=max(420, width - 240))
+        if self._main_description_label is not None:
+            self._main_description_label.configure(wraplength=max(420, int(width * 0.42)))
+
+        for label in self._metric_body_labels:
+            label.configure(wraplength=max(180, int(width * 0.12)))
+        for label in self._step_text_labels:
+            label.configure(wraplength=max(360, int(width * 0.38)))
+        for label in self._side_info_labels:
+            label.configure(wraplength=max(220, int(width * 0.18)))
+
+        if self._cards_left is not None:
+            if compact:
+                for idx in range(3):
+                    self._cards_left.columnconfigure(idx, weight=0)
+                self._cards_left.columnconfigure(0, weight=1)
+            else:
+                for idx in range(3):
+                    self._cards_left.columnconfigure(idx, weight=1)
+
+        if compact:
+            parent.columnconfigure(0, weight=1)
+            parent.columnconfigure(1, weight=1)
+            if self._cards_left is not None:
+                self._cards_left.grid_configure(row=1, column=0, columnspan=2, sticky="nsew", pady=(14, 0), padx=(0, 0))
+            if self._main_panel is not None:
+                self._main_panel.grid_configure(row=2, column=0, columnspan=2, sticky="nsew", pady=(12, 0), padx=(0, 0))
+            if self._side_panel is not None:
+                self._side_panel.grid_configure(row=3, column=0, columnspan=2, rowspan=1, sticky="nsew", pady=(12, 0))
+        else:
+            parent.columnconfigure(0, weight=3)
+            parent.columnconfigure(1, weight=2)
+            if self._cards_left is not None:
+                self._cards_left.grid_configure(row=1, column=0, columnspan=1, sticky="nsew", pady=(14, 0), padx=(0, 10))
+            if self._main_panel is not None:
+                self._main_panel.grid_configure(row=2, column=0, columnspan=1, sticky="nsew", pady=(12, 0), padx=(0, 10))
+            if self._side_panel is not None:
+                self._side_panel.grid_configure(row=1, column=1, columnspan=1, rowspan=2, sticky="nsew", pady=(14, 0))
 
     def _refresh_action(self) -> None:
         self.refresh_all()

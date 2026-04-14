@@ -383,12 +383,17 @@ class ThemeManager:
         s.configure("TLabelframe", background=pal["panel"], bordercolor=pal["border"])
         s.configure("TLabelframe.Label", background=pal["panel"], foreground=pal["fg"])
 
-        # Badges (labels con fondo)
-        s.configure("Badge.TLabel", background=cls._tint(pal["accent"], 0.9), foreground=pal["accent"])
-        s.configure("SuccessBadge.TLabel", background=cls._tint(pal["success"], 0.85), foreground=pal["success"])
-        s.configure("WarningBadge.TLabel", background=cls._tint(pal["warning"], 0.85), foreground=pal["warning"])
-        s.configure("DangerBadge.TLabel",  background=cls._tint(pal["danger"],  0.85), foreground=pal["danger"])
-        s.configure("InfoBadge.TLabel",    background=cls._tint(pal["info"],    0.85), foreground=pal["info"])
+        # Badges (labels con fondo) con contraste legible sobre cualquier tema
+        badge_bg, badge_fg = cls._badge_colors(pal["accent"], pal["panel"])
+        success_bg, success_fg = cls._badge_colors(pal["success"], pal["panel"])
+        warning_bg, warning_fg = cls._badge_colors(pal["warning"], pal["panel"])
+        danger_bg, danger_fg = cls._badge_colors(pal["danger"], pal["panel"])
+        info_bg, info_fg = cls._badge_colors(pal["info"], pal["panel"])
+        s.configure("Badge.TLabel", background=badge_bg, foreground=badge_fg)
+        s.configure("SuccessBadge.TLabel", background=success_bg, foreground=success_fg)
+        s.configure("WarningBadge.TLabel", background=warning_bg, foreground=warning_fg)
+        s.configure("DangerBadge.TLabel",  background=danger_bg, foreground=danger_fg)
+        s.configure("InfoBadge.TLabel",    background=info_bg, foreground=info_fg)
 
         # Entradas / Spinbox / Combobox
         entry_ipady = cls.DENSITY[cls._density]["entry_ipady"]
@@ -646,6 +651,24 @@ class ThemeManager:
         g = max(0, min(255, int(g * factor)))
         b = max(0, min(255, int(b * factor)))
         return f"#{r:02X}{g:02X}{b:02X}"
+
+    @classmethod
+    def _blend(cls, base: str, target: str, ratio: float) -> str:
+        ratio = max(0.0, min(1.0, ratio))
+        br, bg, bb = cls._hex_to_rgb(base)
+        tr, tg, tb = cls._hex_to_rgb(target)
+        r = int((br * (1.0 - ratio)) + (tr * ratio))
+        g = int((bg * (1.0 - ratio)) + (tg * ratio))
+        b = int((bb * (1.0 - ratio)) + (tb * ratio))
+        return f"#{r:02X}{g:02X}{b:02X}"
+
+    @classmethod
+    def _badge_colors(cls, tone: str, surface: str) -> tuple[str, str]:
+        bg = cls._blend(surface, tone, 0.18)
+        fg = tone
+        if cls._contrast_ratio(bg, fg) < 4.5:
+            fg = cls._best_text_color(bg)
+        return bg, fg
 
     @classmethod
     def _persist(cls) -> None:
