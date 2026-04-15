@@ -15,6 +15,7 @@ from src.data.models import (
     Purchase, PurchaseDetail, Reception,
     Sale,
 )
+from src.gui.utils.order_helpers import format_currency
 from src.gui.widgets.grid_table import GridTable
 
 # Stock real: servicio + exportar/imprimir
@@ -46,6 +47,10 @@ def _range_to_datetimes(d_from: Optional[dt.datetime], d_to: Optional[dt.datetim
     if d_to is not None:
         d_to = d_to + dt.timedelta(hours=23, minutes=59, seconds=59)
     return d_from, d_to
+
+
+def _fmt_money(value) -> str:
+    return format_currency(value or 0)
 
 
 # --------------------------- Vista principal -------------------------- #
@@ -245,7 +250,7 @@ class ReportCenter(ttk.Frame):
                 s.fecha_venta.strftime("%Y-%m-%d %H:%M"),
                 getattr(c, "razon_social", "") or "-",
                 s.estado,
-                f"{float(s.total_venta or 0):.2f}",
+                _fmt_money(s.total_venta or 0),
             ])
         self._current_cols, self._current_rows = cols, rows
 
@@ -291,14 +296,14 @@ class ReportCenter(ttk.Frame):
                 getattr(c, "razon_social", "") or "-",
                 s.estado,
                 getattr(s, "estado_externo", "") or "",
-                f"{float(getattr(s, 'monto_neto', 0) or 0):.2f}",
-                f"{float(getattr(s, 'monto_iva', 0) or 0):.2f}",
-                f"{total:.2f}",
+                _fmt_money(getattr(s, "monto_neto", 0) or 0),
+                _fmt_money(getattr(s, "monto_iva", 0) or 0),
+                _fmt_money(total),
                 fecha_pagado.strftime("%Y-%m-%d") if fecha_pagado else "",
                 getattr(s, "nota", "") or "",
             ])
         if rows:
-            rows.append(["", "", "", "TOTAL ADEUDADO", "", "", "", "", f"{total_deuda:.2f}", "", ""])
+            rows.append(["", "", "", "TOTAL ADEUDADO", "", "", "", "", _fmt_money(total_deuda), "", ""])
         self._current_cols, self._current_rows = cols, rows
 
     # ---------------------- Compras ---------------------- #
@@ -346,8 +351,8 @@ class ReportCenter(ttk.Frame):
                     prod.nombre or "",
                     prod.sku or "",
                     float(det.cantidad or 0),
-                    f"{float(det.precio_unitario or 0):.2f}",
-                    f"{float(det.subtotal or 0):.2f}",
+                    _fmt_money(det.precio_unitario or 0),
+                    _fmt_money(det.subtotal or 0),
                     pur.estado,
                 ])
             self._current_cols, self._current_rows = cols, rows
@@ -392,7 +397,7 @@ class ReportCenter(ttk.Frame):
                     _fmt_date(p.fecha_compra, True),
                     getattr(s, "razon_social", "") or "-",
                     p.estado,
-                    f"{float(p.total_compra or 0):.2f}",
+                    _fmt_money(p.total_compra or 0),
                     " | ".join(docs) if docs else "Sin doc",
                 ])
             self._current_cols, self._current_rows = cols, rows
@@ -406,7 +411,7 @@ class ReportCenter(ttk.Frame):
                 _fmt_date(p.fecha_compra, True),
                 getattr(s, "razon_social", "") or "-",
                 p.estado,
-                f"{float(p.total_compra or 0):.2f}",
+                _fmt_money(p.total_compra or 0),
                 p.numero_documento or "",
                 _fmt_date(p.fecha_documento),
                 _fmt_date(p.fecha_vencimiento),
@@ -428,13 +433,13 @@ class ReportCenter(ttk.Frame):
                 p.nombre or "",
                 p.sku or "",
                 stock,
-                f"{float(precio or 0):.2f}",
-                f"{float(inversion or 0):.2f}",
+                _fmt_money(precio or 0),
+                _fmt_money(inversion or 0),
             ]
             data.append((inversion, row))
         data.sort(key=lambda item: item[0], reverse=True)
         rows = [row for _inv, row in data]
-        rows.append(["", "TOTAL", "", "", "", f"{float(total or 0):.2f}"])
+        rows.append(["", "TOTAL", "", "", "", _fmt_money(total or 0)])
         self._current_cols, self._current_rows = cols, rows
 
     # -------------------- Exportar / Imprimir -------------------- #

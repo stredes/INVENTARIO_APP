@@ -48,8 +48,10 @@ function Sync-GitReleaseState([string]$Version, [string]$Tag) {
   $git = Get-GitCommand
   $branch = Get-GitBranchName -GitExe $git
   Write-Info "Sincronizando cambios con git en la rama $branch..."
-  & $git add -A . ":(exclude)artifacts" ":(exclude)dist" ":(exclude)build" | Out-Null
+  & $git add -A -- . | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "No se pudieron preparar cambios con git add." }
+  & $git reset -q -- artifacts build dist | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "No se pudieron limpiar artifacts/build/dist del indice git." }
   & $git diff --cached --quiet
   if ($LASTEXITCODE -eq 1) {
     $commitMsg = "build: release $Version"
