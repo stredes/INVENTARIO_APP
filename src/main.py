@@ -8,11 +8,14 @@ from src.app_meta import get_app_meta
 from src.data.database import dispose_engine, init_db
 from src.gui.main_window import MainWindow
 from src.gui.theme_manager import ThemeManager
+from src.utils.app_logging import attach_tk_exception_logger, configure_global_logging
 from src.utils.github_updater import check_for_updates_async
+import logging
 
 
 def on_close(root: tk.Tk) -> None:
     """Cierre ordenado: liberar engine SQLAlchemy antes de salir."""
+    logging.getLogger("inventario").info("Cierre solicitado desde la ventana principal")
     try:
         dispose_engine()
     finally:
@@ -76,11 +79,16 @@ def _configure_window_for_screen(root: tk.Tk) -> None:
 
 
 def main() -> None:
+    configure_global_logging(enable_trace=False)
+    logger = logging.getLogger("inventario")
     meta = get_app_meta()
+    logger.info("Iniciando %s %s", meta.app_name, meta.version)
     init_db()
+    logger.info("Base de datos inicializada")
 
     _setup_windows_dpi_awareness()
     root = tk.Tk()
+    attach_tk_exception_logger(root)
     root.title(f"{meta.app_name} {meta.version}")
     _configure_window_for_screen(root)
 
@@ -93,11 +101,8 @@ def main() -> None:
 
     app = MainWindow(root)
     app.pack(fill="both", expand=True)
+    logger.info("Ventana principal construida")
 
-    def _on_cfg(_evt=None) -> None:
-        _apply_tk_scaling(root)
-
-    root.bind("<Configure>", _on_cfg, add="+")
     root.protocol("WM_DELETE_WINDOW", lambda: on_close(root))
     try:
         root.after(
@@ -110,7 +115,8 @@ def main() -> None:
             ),
         )
     except Exception:
-        pass
+        logger.exception("No se pudo programar la comprobacion de actualizaciones")
+    logger.info("Entrando al mainloop de Tk")
     root.mainloop()
 
 

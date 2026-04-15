@@ -260,7 +260,7 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Abrir {#MyAppName}"; Flags: now
   return $issPath
 }
 
-function Build-FacturionExecutable([string]$PythonExe, [string]$PortableDir, [string]$BuildRoot) {
+function New-FacturionExecutable([string]$PythonExe, [string]$PortableDir, [string]$BuildRoot) {
   $facturionRoot = Join-Path $PSScriptRoot "facturion-main\facturion-main"
   $facturionEntry = Join-Path $facturionRoot "main.py"
   if (-not (Test-Path $facturionEntry)) {
@@ -276,7 +276,7 @@ function Build-FacturionExecutable([string]$PythonExe, [string]$PortableDir, [st
   $factSpec = Join-Path $BuildRoot "facturion-spec"
   New-Item -ItemType Directory -Force -Path $factBuild, $factDist, $factSpec | Out-Null
 
-  $args = @(
+  $pyInstallerArgs = @(
     "-m", "PyInstaller",
     $facturionEntry,
     "--name", "Facturion",
@@ -295,7 +295,7 @@ function Build-FacturionExecutable([string]$PythonExe, [string]$PortableDir, [st
   Write-Info "Empaquetando Facturion..."
   Push-Location $facturionRoot
   try {
-    & $PythonExe @args | Out-Host
+    & $PythonExe @pyInstallerArgs | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "No se pudo generar Facturion.exe" }
   }
   finally {
@@ -518,7 +518,7 @@ if (-not (Test-Path (Join-Path $portableDir "$appName.exe"))) {
   throw "No se generÃ³ el ejecutable esperado en $portableDir"
 }
 
-Build-FacturionExecutable -PythonExe $python -PortableDir $portableDir -BuildRoot $buildRoot
+New-FacturionExecutable -PythonExe $python -PortableDir $portableDir -BuildRoot $buildRoot
 
 $configDir = Join-Path $portableDir "config"
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null

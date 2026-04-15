@@ -34,11 +34,91 @@ from src.utils.printers import (
     set_label_printer,
     print_file_windows,
 )
+import logging
 
 UI_STATE_PATH = Path("config/ui_state.ini")
 
 
 class MainWindow(ttk.Frame):
+    def _make_view_error_frame(self, title: str, ex: Exception) -> ttk.Frame:
+        err = ttk.Frame(self.content_host)
+        ttk.Label(err, text=f"No se pudo cargar '{title}':\n{ex}", foreground="#b00020").pack(padx=12, pady=12, anchor="w")
+        return err
+
+    def _create_lazy_placeholder(self, title: str) -> ttk.Frame:
+        frame = ttk.Frame(self.content_host, padding=24)
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(0, weight=1)
+        card = ttk.Frame(frame, style="HomeCard.TFrame", padding=28)
+        card.grid(row=0, column=0, sticky="nsew")
+        card.columnconfigure(0, weight=1)
+        ttk.Label(card, text=title, style="HomeHeroTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            card,
+            text="Este módulo se cargará al abrirlo para que el arranque sea más rápido.",
+            style="HomeHeroText.TLabel",
+            wraplength=620,
+            justify="left",
+        ).grid(row=1, column=0, sticky="w", pady=(10, 0))
+        return frame
+
+    def _register_lazy_view(self, attr_name: str, title: str, builder) -> ttk.Frame:
+        placeholder = self._create_lazy_placeholder(title)
+        self._lazy_view_specs[placeholder] = {
+            "attr_name": attr_name,
+            "title": title,
+            "builder": builder,
+        }
+        return placeholder
+
+    def _materialize_view(self, widget: ttk.Frame | None) -> ttk.Frame | None:
+        if widget is None:
+            return None
+        spec = self._lazy_view_specs.get(widget)
+        if not spec:
+            return widget
+
+        logger = logging.getLogger("inventario.ui")
+        title = str(spec["title"])
+        attr_name = str(spec["attr_name"])
+        builder = spec["builder"]
+        logger.info("Cargando vista diferida: %s", title)
+        try:
+            real_widget = builder()
+        except Exception as ex:
+            logger.exception("Fallo al construir vista %s", title)
+            real_widget = self._make_view_error_frame(title, ex)
+
+        real_widget.place(in_=self.content_host, x=0, y=0, relwidth=1, relheight=1)
+        real_widget.lower()
+        setattr(self, attr_name, real_widget)
+
+        self._lazy_view_specs.pop(widget, None)
+        for idx, (name, current_widget) in enumerate(self._view_sequence):
+            if current_widget is widget:
+                self._view_sequence[idx] = (name, real_widget)
+                break
+
+        old_name = self._view_name_by_widget.pop(widget, None)
+        old_idx = self._view_index_by_widget.pop(widget, None)
+        if old_name is not None:
+            self._view_name_by_widget[real_widget] = old_name
+        if old_idx is not None:
+            self._view_index_by_widget[real_widget] = old_idx
+
+        for key, current_widget in list(self._tutorial_tab_by_name.items()):
+            if current_widget is widget:
+                self._tutorial_tab_by_name[key] = real_widget
+        self._tutorial_name_by_tab = {v: k for k, v in self._tutorial_tab_by_name.items()}
+
+        if self._current_view_widget is widget:
+            self._current_view_widget = real_widget
+        try:
+            widget.destroy()
+        except Exception:
+            pass
+        return real_widget
+
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
 
@@ -57,25 +137,20 @@ class MainWindow(ttk.Frame):
         self._responsive_job = None
         self._sidebar_mousewheel_bound = False
         self._sidebar_scroll_enabled = False
+        self._lazy_view_specs: dict[ttk.Frame, dict[str, object]] = {}
 
         self._build_shell_layout()
 
         # Vistas montadas sobre un contenedor persistente
         self.products_tab = ProductsView(self.content_host)
-        self.suppliers_tab = SuppliersView(self.content_host)
-        self.customers_tab = CustomersView(self.content_host)
-        self.purchases_tab = PurchasesView(self.content_host)
-        # Construcción segura de Ventas con fallback visible si hay error
-        try:
-            self.sales_tab = SalesView(self.content_host)
-        except Exception as ex:
-            err = ttk.Frame(self.content_host)
-            ttk.Label(err, text=f"No se pudo cargar 'Ventas':\n{ex}", foreground="#b00020").pack(padx=12, pady=12, anchor='w')
-            self.sales_tab = err
-        self.inventory_tab = InventoryView(self.content_host)
-        self.orders_admin_tab = OrdersAdminView(self.content_host)
-        self.report_center_tab = ReportCenter(self.content_host)  # â† NUEVO
-        self.catalog_tab = CatalogView(self.content_host)
+        self.suppliers_tab = self._register_lazy_view("suppliers_tab", "Proveedores", lambda: SuppliersView(self.content_host))
+        self.customers_tab = self._register_lazy_view("customers_tab", "Clientes", lambda: CustomersView(self.content_host))
+        self.purchases_tab = self._register_lazy_view("purchases_tab", "Compras", lambda: PurchasesView(self.content_host))
+        self.sales_tab = self._register_lazy_view("sales_tab", "Ventas", lambda: SalesView(self.content_host))
+        self.inventory_tab = self._register_lazy_view("inventory_tab", "Inventario", lambda: InventoryView(self.content_host))
+        self.orders_admin_tab = self._register_lazy_view("orders_admin_tab", "Órdenes", lambda: OrdersAdminView(self.content_host))
+        self.report_center_tab = self._register_lazy_view("report_center_tab", "Informes", lambda: ReportCenter(self.content_host))
+        self.catalog_tab = self._register_lazy_view("catalog_tab", "Catálogo", lambda: CatalogView(self.content_host))
 
         self.home_tab = HomeView(
             self.content_host,
@@ -427,6 +502,16 @@ class MainWindow(ttk.Frame):
             return
         DBConnectionDialog(self)
 
+    def _open_log_viewer(self) -> None:
+        logger = logging.getLogger("inventario")
+        try:
+            from src.gui.log_viewer_dialog import LogViewerDialog
+            LogViewerDialog(self.app_root)
+            logger.info("Visor de logs abierto desde Herramientas")
+        except Exception as ex:
+            logger.exception("No se pudo abrir el visor de logs")
+            Toast.show(self.app_root, f"No se pudo abrir el visor de logs: {ex}", kind="danger")
+
     def _build_menu(self) -> None:
         menubar = Menu(self.app_root)
         self.app_root.config(menu=menubar)
@@ -482,6 +567,10 @@ class MainWindow(ttk.Frame):
         m_tools_backup.add_command(label="APP: Exportar backup (XLSX)...", command=self._app_export_backup)
         m_tools_backup.add_command(label="APP: Importar backup (XLSX)...", command=self._app_import_backup)
         m_tools.add_cascade(label="Respaldos", menu=m_tools_backup)
+
+        m_tools_logs = Menu(m_tools, tearoff=False)
+        m_tools_logs.add_command(label="Ver logs de la aplicación...", command=self._open_log_viewer)
+        m_tools.add_cascade(label="Logs", menu=m_tools_logs)
 
         menubar.add_cascade(label="Herramientas", menu=m_tools)
 
@@ -1146,6 +1235,7 @@ class MainWindow(ttk.Frame):
     def _select_tab_by_widget(self, widget: ttk.Frame) -> None:
         if widget is None:
             return
+        widget = self._materialize_view(widget) or widget
         try:
             widget.lift()
         except Exception:
