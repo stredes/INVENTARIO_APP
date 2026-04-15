@@ -9,6 +9,7 @@ import threading
 import urllib.error
 import urllib.request
 import zipfile
+from typing import Callable
 from dataclasses import dataclass
 from pathlib import Path
 import tkinter as tk
@@ -40,9 +41,9 @@ class UpdateProgressDialog(tk.Toplevel):
             wraplength=340,
         ).pack(fill="x", pady=(0, 12))
 
-        self.progress = ttk.Progressbar(wrapper, mode="indeterminate", length=320)
+        self.progress = ttk.Progressbar(wrapper, mode="determinate", length=320, maximum=100)
         self.progress.pack(fill="x")
-        self.progress.start(10)
+        self.progress["value"] = 0
 
         self.status_var = tk.StringVar(value="Preparando...")
         ttk.Label(wrapper, textvariable=self.status_var, style="InfoBadge.TLabel").pack(
@@ -67,6 +68,22 @@ class UpdateProgressDialog(tk.Toplevel):
         self.message_var.set(message)
         if status is not None:
             self.status_var.set(status)
+        self.update_idletasks()
+
+    def set_progress(self, current_bytes: int, total_bytes: int | None, *, status: str | None = None) -> None:
+        current = max(0, int(current_bytes))
+        total = int(total_bytes) if total_bytes and total_bytes > 0 else 0
+        if total > 0:
+            self.progress.configure(mode="determinate", maximum=total)
+            self.progress["value"] = min(current, total)
+            if status is None:
+                status = f"{_format_mb(current)} / {_format_mb(total)}"
+        else:
+            self.progress.configure(mode="determinate", maximum=max(current, 1))
+            self.progress["value"] = current
+            if status is None:
+                status = _format_mb(current)
+        self.status_var.set(status or "Preparando...")
         self.update_idletasks()
 
     def close(self) -> None:
@@ -111,6 +128,10 @@ def _version_key(value: str) -> tuple[int, ...]:
 
 def _is_newer(remote_tag: str, current_version: str) -> bool:
     return _version_key(remote_tag) > _version_key(current_version)
+
+
+def _format_mb(value: int | float) -> str:
+    return f"{(float(value) / (1024 * 1024)):.1f} MB"
 
 
 def _release_from_payload(payload: dict, meta: AppMeta) -> ReleaseInfo | None:
@@ -178,13 +199,14 @@ def _fetch_latest_release(meta: AppMeta) -> ReleaseInfo | None:
     return max(candidates, key=lambda release: _version_key(release.tag))
 
 
-def _write_update_script(target_dir: Path, extracted_dir: Path, current_exe: Path) -> Path:
+def _write_update_script(target_dir: Path, extracted_dir: Path, current_exe: Path, app_name: str) -> Path:
     script_path = target_dir / "_apply_update.ps1"
     script = f"""
 $ErrorActionPreference = 'Stop'
 $targetDir = '{target_dir}'
 $sourceDir = '{extracted_dir}'
 $exePath = '{current_exe}'
+$appName = '{app_name}'
 
 Start-Sleep -Seconds 2
 
@@ -196,27 +218,79 @@ for ($i = 0; $i -lt 20; $i++) {{
 }}
 
 Get-ChildItem -LiteralPath $targetDir -Force | Where-Object {{
-  $_.Name -notin @('_apply_update.ps1', '_update_payload')
+  $_.Name -notin @('_apply_update.ps1', '_update_payload', 'config', 'app_data')
 }} | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
 Get-ChildItem -LiteralPath $sourceDir -Force | ForEach-Object {{
+  if ($_.Name -in @('config', 'app_data')) {{
+    return
+  }}
   Copy-Item -LiteralPath $_.FullName -Destination $targetDir -Recurse -Force
 }}
 Remove-Item -LiteralPath $sourceDir -Recurse -Force -ErrorAction SilentlyContinue
+
+try {{
+  $shell = New-Object -ComObject WScript.Shell
+  $desktopShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) "$appName.lnk"
+  $programsDir = Join-Path $env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs'
+  $programShortcut = Join-Path $programsDir "$appName.lnk"
+  foreach ($shortcutPath in @($desktopShortcut, $programShortcut)) {{
+    $shortcut = $shell.CreateShortcut($shortcutPath)
+    $shortcut.TargetPath = $exePath
+    $shortcut.WorkingDirectory = $targetDir
+    $shortcut.IconLocation = "$exePath,0"
+    $shortcut.Save()
+  }}
+}}
+catch {{}}
+
 Start-Process -FilePath $exePath
 """
     script_path.write_text(script.strip(), encoding="utf-8")
     return script_path
 
 
-def _download_file(url: str, dest: Path) -> None:
+def _download_file(url: str, dest: Path, *, progress_cb: Callable[[int, int | None], None] | None = None) -> None:
     req = urllib.request.Request(url, headers={"User-Agent": "InventarioApp-updater"})
     with urllib.request.urlopen(req, timeout=30) as resp:
+        total_header = resp.headers.get("Content-Length")
+        total_bytes = int(total_header) if total_header and str(total_header).isdigit() else None
         with dest.open("wb") as fh:
-            shutil.copyfileobj(resp, fh)
+            downloaded = 0
+            while True:
+                chunk = resp.read(1024 * 256)
+                if not chunk:
+                    break
+                fh.write(chunk)
+                downloaded += len(chunk)
+                if callable(progress_cb):
+                    progress_cb(downloaded, total_bytes)
 
 
-def _prepare_portable_update(release: ReleaseInfo, meta: AppMeta) -> Path:
+def _extract_zip_with_progress(
+    zip_path: Path,
+    extracted_dir: Path,
+    *,
+    progress_cb: Callable[[int, int], None] | None = None,
+) -> None:
+    with zipfile.ZipFile(zip_path, "r") as archive:
+        members = [info for info in archive.infolist() if not info.is_dir()]
+        total_bytes = sum(max(0, int(info.file_size or 0)) for info in members)
+        extracted = 0
+        for info in archive.infolist():
+            archive.extract(info, extracted_dir)
+            if not info.is_dir():
+                extracted += max(0, int(info.file_size or 0))
+                if callable(progress_cb):
+                    progress_cb(extracted, total_bytes)
+
+def _prepare_portable_update(
+    release: ReleaseInfo,
+    meta: AppMeta,
+    *,
+    download_progress_cb: Callable[[int, int | None], None] | None = None,
+    install_progress_cb: Callable[[int, int], None] | None = None,
+) -> Path:
     if release.portable_asset is None:
         raise RuntimeError("El release no incluye paquete portable.")
     if not getattr(sys, "frozen", False):
@@ -228,19 +302,26 @@ def _prepare_portable_update(release: ReleaseInfo, meta: AppMeta) -> Path:
     payload_dir.mkdir(parents=True, exist_ok=True)
     zip_path = payload_dir / release.portable_asset.name
 
-    _download_file(release.portable_asset.download_url, zip_path)
+    _download_file(
+        release.portable_asset.download_url,
+        zip_path,
+        progress_cb=download_progress_cb,
+    )
 
     extracted_dir = payload_dir / "portable"
     if extracted_dir.exists():
         shutil.rmtree(extracted_dir, ignore_errors=True)
     extracted_dir.mkdir(parents=True, exist_ok=True)
 
-    with zipfile.ZipFile(zip_path, "r") as archive:
-        archive.extractall(extracted_dir)
+    _extract_zip_with_progress(
+        zip_path,
+        extracted_dir,
+        progress_cb=install_progress_cb,
+    )
 
     inner_dirs = [p for p in extracted_dir.iterdir() if p.is_dir()]
     source_root = inner_dirs[0] if len(inner_dirs) == 1 else extracted_dir
-    return _write_update_script(install_dir, source_root, current_exe)
+    return _write_update_script(install_dir, source_root, current_exe, meta.app_name)
 
 
 def _launch_installation(script_path: Path) -> None:
@@ -263,32 +344,87 @@ def apply_release_update(root, release: ReleaseInfo | None) -> bool:
     meta = get_app_meta()
     download_dialog = UpdateProgressDialog(
         root,
-        title="Descargando actualización",
+        title="Descargando actualizaci?n",
         message=(
-            f"Descargando la versión {release.tag}.\n"
-            "Mantén esta ventana abierta hasta que finalice la descarga."
+            f"Descargando la versi?n {release.tag}.\n"
+            "Mant?n esta ventana abierta hasta que finalice la descarga."
         ),
     )
     download_dialog.set_message(
         (
-            f"Descargando la versión {release.tag}.\n"
-            "Mantén esta ventana abierta hasta que finalice la descarga."
+            f"Descargando la versi?n {release.tag}.\n"
+            "Mant?n esta ventana abierta hasta que finalice la descarga."
         ),
-        status="Descargando paquete...",
+        status="0.0 MB / 0.0 MB",
     )
 
     def _worker() -> None:
+        install_dialog_box: dict[str, UpdateProgressDialog] = {}
+        install_dialog_ready = threading.Event()
+
         try:
-            script_path = _prepare_portable_update(release, meta)
+            def _update_download(current: int, total: int | None) -> None:
+                try:
+                    root.after(
+                        0,
+                        lambda c=current, t=total: download_dialog.set_progress(
+                            c,
+                            t,
+                            status=f"Descargando: {_format_mb(c)} / {_format_mb(t or c)}",
+                        ),
+                    )
+                except Exception:
+                    pass
+
+            def _create_install_dialog() -> None:
+                install_dialog = UpdateProgressDialog(
+                    root,
+                    title="Instalando actualizaci?n",
+                    message=(
+                        f"La versi?n {release.tag} ya fue descargada.\n"
+                        "Preparando la instalaci?n."
+                    ),
+                )
+                install_dialog.set_progress(0, 1, status="Preparando instalaci?n...")
+                install_dialog_box["dialog"] = install_dialog
+                install_dialog_ready.set()
+
+            def _update_install(current: int, total: int) -> None:
+                install_dialog_ready.wait(10)
+                try:
+                    root.after(
+                        0,
+                        lambda c=current, t=total: install_dialog_box["dialog"].set_progress(
+                            c,
+                            t,
+                            status=f"Instalando: {_format_mb(c)} / {_format_mb(t)}",
+                        ),
+                    )
+                except Exception:
+                    pass
+
+            root.after(0, _create_install_dialog)
+            script_path = _prepare_portable_update(
+                release,
+                meta,
+                download_progress_cb=_update_download,
+                install_progress_cb=_update_install,
+            )
         except Exception as ex:
             def _fail() -> None:
                 download_dialog.close()
                 try:
+                    dialog = install_dialog_box.get("dialog")
+                    if dialog is not None:
+                        dialog.close()
+                except Exception:
+                    pass
+                try:
                     messagebox.showwarning(
-                        "Actualización",
+                        "Actualizaci?n",
                         (
-                            f"Hay una nueva versión disponible ({release.tag}), "
-                            "pero no se pudo aplicar automáticamente.\n\n"
+                            f"Hay una nueva versi?n disponible ({release.tag}), "
+                            "pero no se pudo aplicar autom?ticamente.\n\n"
                             f"Detalle: {ex}"
                         ),
                         parent=root,
@@ -304,21 +440,24 @@ def apply_release_update(root, release: ReleaseInfo | None) -> bool:
 
         def _install() -> None:
             download_dialog.close()
-            install_dialog = UpdateProgressDialog(
-                root,
-                title="Instalando actualización",
-                message=(
-                    f"La versión {release.tag} ya fue descargada.\n"
-                    "La aplicación se cerrará para completar la instalación."
-                ),
-            )
+            install_dialog = install_dialog_box.get("dialog")
+            if install_dialog is None:
+                install_dialog = UpdateProgressDialog(
+                    root,
+                    title="Instalando actualizaci?n",
+                    message=(
+                        f"La versi?n {release.tag} ya fue descargada.\n"
+                        "La aplicaci?n se cerrar? para completar la instalaci?n."
+                    ),
+                )
             install_dialog.set_message(
                 (
-                    f"La versión {release.tag} ya fue descargada.\n"
-                    "La aplicación se cerrará para completar la instalación."
+                    f"La versi?n {release.tag} ya fue descargada.\n"
+                    "La aplicaci?n se cerrar? para completar la instalaci?n."
                 ),
-                status="Iniciando instalador...",
+                status="Instalaci?n preparada. Cerrando app...",
             )
+            install_dialog.set_progress(1, 1, status="Instalaci?n preparada. Cerrando app...")
 
             def _start_install() -> None:
                 try:

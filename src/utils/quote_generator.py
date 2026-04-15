@@ -15,6 +15,7 @@ Estructuras esperadas:
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 from datetime import datetime
+from decimal import Decimal
 import webbrowser
 
 from reportlab.lib.pagesizes import A4
@@ -89,7 +90,31 @@ def _header(company: Dict[str, Any], quote_number: str):
     return header_tbl
 
 
-def _items_table(items: List[Dict[str, object]], currency: str) -> Table:
+def _line_totals(it: Dict[str, object], *, price_includes_iva: bool, currency: str) -> tuple[Decimal, Decimal, Decimal]:
+    iva_rate = D("0.19")
+    qty = D(it.get("cantidad", 0) or 0)
+    price = D(it.get("precio_eff", it.get("precio", 0)) or 0)
+    dcto = D(it.get("descuento_porcentaje", it.get("dcto", 0)) or 0)
+    afecto_iva = bool(it.get("afecto_iva", True))
+    if it.get("subtotal") is not None:
+        total_line = D(it.get("subtotal", 0) or 0)
+    else:
+        total_line = qty * price * (D(1) - dcto / D(100))
+    total_line = q0(total_line) if currency.upper() == "CLP" else q2(total_line)
+
+    if not afecto_iva:
+        net_line = total_line
+        iva_line = D(0)
+    elif price_includes_iva:
+        net_line = q0(total_line / (D(1) + iva_rate)) if currency.upper() == "CLP" else q2(total_line / (D(1) + iva_rate))
+        iva_line = total_line - net_line
+    else:
+        net_line = total_line
+        iva_line = q0(net_line * iva_rate) if currency.upper() == "CLP" else q2(net_line * iva_rate)
+    return net_line, iva_line, total_line
+
+
+def _items_table(items: List[Dict[str, object]], currency: str, *, price_includes_iva: bool) -> Table:
     hdr = ParagraphStyle(name="hdr", fontName="Helvetica-Bold", fontSize=8, leading=9, alignment=1)
     cell = ParagraphStyle(name="cell", fontName="Helvetica", fontSize=9, leading=11)
     # Ajuste de anchos (mm): más espacio a precios y descuento
@@ -102,14 +127,16 @@ def _items_table(items: List[Dict[str, object]], currency: str) -> Table:
     data = [headers]
     for idx, it in enumerate(items, start=1):
         cant = D(it.get("cantidad", 0) or 0)
-        precio_bruto = D(it.get("precio", 0) or 0)
+        precio_val = D(it.get("precio_eff", it.get("precio", 0)) or 0)
         dcto = D(it.get("descuento_porcentaje", it.get("dcto", 0)) or 0)
-        iva_rate = D("0.19")
-        precio_neto = precio_bruto / (D(1) + iva_rate)
-        sub_line_neto = cant * precio_neto * (D(1) - dcto / D(100))
+        net_line, _iva_line, total_line = _line_totals(it, price_includes_iva=price_includes_iva, currency=currency)
+        if bool(it.get("afecto_iva", True)) and price_includes_iva:
+            precio_neto = precio_val / (D(1) + D("0.19"))
+        else:
+            precio_neto = precio_val
 
         precio_neto_fmt = q0(precio_neto) if currency.upper() == "CLP" else q2(precio_neto)
-        sub_line_fmt = q0(sub_line_neto) if currency.upper() == "CLP" else q2(sub_line_neto)
+        sub_line_fmt = net_line if bool(it.get("afecto_iva", True)) else total_line
 
         data.append([
             str(idx),
@@ -134,19 +161,15 @@ def _items_table(items: List[Dict[str, object]], currency: str) -> Table:
     return tbl
 
 
-def _totals_block(company: Dict[str, Any], items: List[Dict[str, object]], currency: str):
-    # Precio de venta incluye IVA: sumar subtotales BRUTOS y derivar Neto/IVA
-    iva_rate = D("0.19")
-    total_bruto = D(0)
+def _totals_block(company: Dict[str, Any], items: List[Dict[str, object]], currency: str, *, price_includes_iva: bool):
+    neto = D(0)
+    iva = D(0)
+    total = D(0)
     for it in items:
-        cant = D(it.get("cantidad", 0) or 0)
-        precio_bruto = D(it.get("precio", 0) or 0)
-        dcto = D(it.get("descuento_porcentaje", it.get("dcto", 0)) or 0)
-        sub_bruto = cant * precio_bruto * (D(1) - dcto / D(100))
-        total_bruto += sub_bruto
-    total = q0(total_bruto) if currency.upper() == "CLP" else q2(total_bruto)
-    neto = q0(total / (D(1) + iva_rate)) if currency.upper() == "CLP" else q2(total / (D(1) + iva_rate))
-    iva = q0(total - neto) if currency.upper() == "CLP" else q2(total - neto)
+        net_line, iva_line, total_line = _line_totals(it, price_includes_iva=price_includes_iva, currency=currency)
+        neto += net_line
+        iva += iva_line
+        total += total_line
 
     p = ParagraphStyle(name="p", fontName="Helvetica", fontSize=10, leading=13)
     tot_tbl = Table([
@@ -174,6 +197,7 @@ def generate_quote_to_downloads(
     items: List[Dict[str, object]],
     currency: str = "CLP",
     notes: Optional[str] = None,
+    price_includes_iva: bool = False,
     auto_open: bool = True,
 ) -> str:
     out_dir = get_downloads_dir(); Path(out_dir).mkdir(parents=True, exist_ok=True)
@@ -209,9 +233,9 @@ def generate_quote_to_downloads(
     story.append(Spacer(1, 4))
 
     # Items + totales
-    story.append(_items_table(items, currency))
+    story.append(_items_table(items, currency, price_includes_iva=price_includes_iva))
     story.append(Spacer(1, 4))
-    story += _totals_block(company, items, currency)
+    story += _totals_block(company, items, currency, price_includes_iva=price_includes_iva)
 
     # Observaciones
     story.append(Spacer(1, 3))

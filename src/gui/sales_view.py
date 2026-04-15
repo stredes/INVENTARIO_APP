@@ -1227,6 +1227,7 @@ class SalesView(ttk.Frame):
                 items=items,
                 currency="CLP",
                 notes=notes,
+                price_includes_iva=True,
                 auto_open=True,
             )
             self._info(f"Orden de Venta creada en Descargas:\n{out}")
@@ -1257,6 +1258,7 @@ class SalesView(ttk.Frame):
                 items=items,
                 currency="CLP",
                 notes=notes,
+                price_includes_iva=True,
                 auto_open=True,
             )
             self._info(f"Cotización de venta creada en Descargas:\n{out}")

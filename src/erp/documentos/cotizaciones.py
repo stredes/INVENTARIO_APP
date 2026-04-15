@@ -71,6 +71,7 @@ def generar_pdf(conn: sqlite3.Connection, id_documento: int, *, auto_open: bool 
         items=items,
         currency=doc["moneda"] or "CLP",
         notes=doc["observaciones"],
+        price_includes_iva=False,
         auto_open=auto_open,
     )
 

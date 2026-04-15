@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 
 from reportlab.lib.pagesizes import A4
@@ -70,6 +71,30 @@ def _header(company: Dict[str, Any], so_number: str):
     return header_table
 
 
+def _line_totals(it: Dict[str, Any], *, price_includes_iva: bool, currency: str) -> tuple[Decimal, Decimal, Decimal]:
+    iva_rate = D("0.19")
+    cantidad = D(it.get("cantidad", 0) or 0)
+    precio = D(it.get("precio_eff", it.get("precio", 0)) or 0)
+    dcto = D(it.get("descuento_porcentaje", 0) or 0)
+    afecto_iva = bool(it.get("afecto_iva", True))
+    if it.get("subtotal") is not None:
+        total_line = D(it.get("subtotal") or 0)
+    else:
+        total_line = cantidad * precio * (D(1) - dcto / D(100))
+    total_line = q2(total_line) if currency.upper() != "CLP" else total_line.quantize(Decimal("1"))
+
+    if not afecto_iva:
+        net_line = total_line
+        iva_line = D(0)
+    elif price_includes_iva:
+        net_line = q2(total_line / (D(1) + iva_rate)) if currency.upper() != "CLP" else (total_line / (D(1) + iva_rate)).quantize(Decimal("1"))
+        iva_line = total_line - net_line
+    else:
+        net_line = total_line
+        iva_line = q2(net_line * iva_rate) if currency.upper() != "CLP" else (net_line * iva_rate).quantize(Decimal("1"))
+    return net_line, iva_line, total_line
+
+
 def generate_so_to_downloads(
     *,
     so_number: str,
@@ -77,6 +102,7 @@ def generate_so_to_downloads(
     items: List[Dict[str, Any]],
     currency: str = "CLP",
     notes: Optional[str] = None,
+    price_includes_iva: bool = False,
     auto_open: bool = True,
 ) -> str:
     """Guarda la OV en Descargas con nombre único y la abre si se pide."""
@@ -93,6 +119,7 @@ def generate_so_to_downloads(
         items=items,
         currency=currency,
         notes=notes,
+        price_includes_iva=price_includes_iva,
     )
     if auto_open:
         open_file(str(out_path))
@@ -109,6 +136,7 @@ def generate_so_pdf(
     items: List[Dict[str, Any]],
     currency: str = "CLP",
     notes: Optional[str] = None,
+    price_includes_iva: bool = False,
 ) -> str:
     comp = get_company_info()
     doc = SimpleDocTemplate(
@@ -153,43 +181,20 @@ def generate_so_pdf(
     story.append(details)
     story.append(Spacer(1, 4 * mm))
 
-    # Ítems: precio de venta (bruto) + descuento % + total
+    # Ítems: mostrar neto documental a partir de los datos reales de la app
     hdr = ParagraphStyle(name="hdr", fontName="Helvetica-Bold", fontSize=8, leading=9, alignment=1)
     cell = ParagraphStyle(name="cell", fontName="Helvetica", fontSize=9, leading=11)
-    headers = [
-        Paragraph("Ítem", hdr), Paragraph("Código", hdr), Paragraph("Descripción", hdr), Paragraph("Unidad", hdr),
-        Paragraph("Cantidad", hdr), Paragraph("Precio Venta", hdr), Paragraph("Dcto (%)", hdr), Paragraph("Total", hdr)
-    ]
-    data = [headers]
-    suma_neto = D(0)
-    iva_rate = D("0.19")
-    for idx, it in enumerate(items, start=1):
-        cantidad = D(it.get("cantidad", 0) or 0)
-        precio_bruto = D(it.get("precio", 0) or 0)
-        dcto = D(it.get("descuento_porcentaje", 0) or 0)
-        # Mostrar precio de venta tal cual (bruto)
-        precio_mostrar = precio_bruto
-        # Subtotal de la línea como lo ve el usuario en la tabla de ventas (NETO)
-        if it.get("subtotal") is not None:
-            subtotal_linea = D(it.get("subtotal") or 0)
-        else:
-            subtotal_linea = cantidad * precio_bruto * (D(1) - dcto / D(100))
-        # Para totales: sumar neto directo
-        suma_neto += q2(subtotal_linea)
-        data.append([
-            str(idx), str(it.get("codigo") or it.get("id", "") or ""), Paragraph(it.get("nombre", "") or "", cell), it.get("unidad", "U") or "U",
-            f"{int(cantidad) if cantidad == cantidad.to_integral_value() else cantidad}",
-            _fmt_money(precio_mostrar, currency), f"{float(dcto):.0f} %", _fmt_money(subtotal_linea, currency),
-        ])
-
-    # Rehacer tabla de items para mostrar Neto (precio/total)
     data2 = [[Paragraph("ítem", hdr), Paragraph("Código", hdr), Paragraph("Descripción", hdr), Paragraph("Unidad", hdr), Paragraph("Cantidad", hdr), Paragraph("Precio Neto", hdr), Paragraph("Dcto (%)", hdr), Paragraph("Total (N)", hdr)]]
     for idx, it in enumerate(items, start=1):
         cantidad = D(it.get("cantidad", 0) or 0)
-        precio_bruto = D(it.get("precio", 0) or 0)
+        precio_val = D(it.get("precio_eff", it.get("precio", 0)) or 0)
         dcto = D(it.get("descuento_porcentaje", 0) or 0)
-        precio_neto = precio_bruto / (D(1) + iva_rate)
-        subtotal_neto = cantidad * precio_neto * (D(1) - dcto / D(100))
+        net_line, _iva_line, total_line = _line_totals(it, price_includes_iva=price_includes_iva, currency=currency)
+        if bool(it.get("afecto_iva", True)) and price_includes_iva:
+            precio_neto = precio_val / D("1.19")
+        else:
+            precio_neto = precio_val
+        subtotal_neto = net_line if bool(it.get("afecto_iva", True)) else total_line
         data2.append([
             str(idx), str(it.get("codigo") or it.get("id", "") or ""), Paragraph(it.get("nombre", "") or "", cell), it.get("unidad", "U") or "U",
             f"{int(cantidad) if cantidad == cantidad.to_integral_value() else cantidad}",
@@ -216,19 +221,17 @@ def generate_so_pdf(
     story.append(items_table)
     story.append(Spacer(1, 4 * mm))
 
-    # Totales: Neto / IVA / Total (Neto + 19%)
+    # Totales: Neto / IVA / Total
     story.append(_band("Facturación"))
     story.append(Spacer(1, 2 * mm))
-    # Recalcular sobre BRUTO para alinear con SII
-    total_bruto = D(0)
+    neto = D(0)
+    iva = D(0)
+    total_v = D(0)
     for it in items:
-        cantidad = D(it.get("cantidad", 0) or 0)
-        precio_bruto = D(it.get("precio", 0) or 0)
-        dcto = D(it.get("descuento_porcentaje", 0) or 0)
-        total_bruto += cantidad * precio_bruto * (D(1) - dcto / D(100))
-    total_v = q2(total_bruto)
-    neto = q2(total_v / (D(1) + iva_rate))
-    iva = q2(total_v - neto)
+        net_line, iva_line, total_line = _line_totals(it, price_includes_iva=price_includes_iva, currency=currency)
+        neto += net_line
+        iva += iva_line
+        total_v += total_line
     p2 = ParagraphStyle(name="p2", fontName="Helvetica", fontSize=10, leading=13)
     tot_tbl = Table([
         [Paragraph("<b>Neto :</b>", p2), Paragraph(_fmt_money(neto, currency), p2)],

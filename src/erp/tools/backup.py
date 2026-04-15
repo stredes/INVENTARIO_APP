@@ -13,7 +13,7 @@ from src.data.database import get_session
 from src.data.models import (
     Product, Customer, Supplier,
     Purchase, PurchaseDetail,
-    Sale, SaleDetail,
+    Sale, SaleDetail, SaleServiceDetail,
     Reception,
     StockEntry, StockExit,
     Location,
@@ -183,6 +183,19 @@ def _to_float(v) -> Optional[float]:
         return None
 
 
+def _to_bool(v, default: bool = False) -> bool:
+    if v is None:
+        return default
+    if isinstance(v, bool):
+        return v
+    text = str(v).strip().lower()
+    if text in {"1", "true", "si", "sí", "yes", "y"}:
+        return True
+    if text in {"0", "false", "no", "n"}:
+        return False
+    return default
+
+
 def _iter_product_media_rows(products: list[Product]) -> list[list[Any]]:
     rows: list[list[Any]] = []
     for p in products:
@@ -221,7 +234,7 @@ def _iter_product_media_rows(products: list[Product]) -> list[list[Any]]:
 
 
 def export_app_backup_to_xlsx(out_path: Optional[Path] = None, *, auto_open: bool = True) -> Path:
-    """Exporta 5 hojas: productos, clientes, proveedores, ordenes, inventario."""
+    """Exporta un backup APP completo para restauracion precisa."""
     sess = get_session()
 
     # 1) Crear libro y meta
@@ -242,7 +255,7 @@ def export_app_backup_to_xlsx(out_path: Optional[Path] = None, *, auto_open: boo
     ws = wb.create_sheet("productos")
     prod_cols = [
         "id","nombre","sku","precio_compra","precio_venta","stock_actual",
-        "unidad_medida","id_proveedor","id_ubicacion","image_path"
+        "unidad_medida","familia","barcode","id_proveedor","id_ubicacion","image_path"
     ]
     ws.append(prod_cols)
     products = sess.query(Product).order_by(Product.id.asc()).all()
@@ -253,6 +266,8 @@ def export_app_backup_to_xlsx(out_path: Optional[Path] = None, *, auto_open: boo
             _to_val(getattr(p, 'precio_venta', 0)),
             getattr(p, 'stock_actual', 0),
             getattr(p, 'unidad_medida', None) or "",
+            getattr(p, 'familia', None) or "",
+            getattr(p, 'barcode', None) or "",
             getattr(p, 'id_proveedor', None),
             getattr(p, 'id_ubicacion', None),
             getattr(p, 'image_path', None) or "",
@@ -304,7 +319,11 @@ def export_app_backup_to_xlsx(out_path: Optional[Path] = None, *, auto_open: boo
         "oc_id",    # para compras/recepciones
         "ov_id",    # para ventas
         # campos adicionales de compra
-        "referencia", "moneda", "tasa_cambio", "unidad_negocio", "proporcionalidad", "stock_policy"
+        "referencia", "moneda", "tasa_cambio", "unidad_negocio", "proporcionalidad", "stock_policy",
+        "fecha_documento", "fecha_contable", "fecha_vencimiento", "atencion",
+        "tipo_descuento", "descuento", "ajuste_iva", "ajuste_impuesto",
+        "numero_documento", "mes_referencia", "monto_neto", "monto_iva", "fecha_pagado", "nota",
+        "estado_externo", "origen"
     ]
     ws.append(order_cols)
 
@@ -334,6 +353,22 @@ def export_app_backup_to_xlsx(out_path: Optional[Path] = None, *, auto_open: boo
             getattr(pur, 'unidad_negocio', None) or "",
             getattr(pur, 'proporcionalidad', None) or "",
             getattr(pur, 'stock_policy', None) or "",
+            getattr(pur, 'fecha_documento', None),
+            getattr(pur, 'fecha_contable', None),
+            getattr(pur, 'fecha_vencimiento', None),
+            getattr(pur, 'atencion', None) or "",
+            getattr(pur, 'tipo_descuento', None) or "",
+            _to_val(getattr(pur, 'descuento', None)),
+            _to_val(getattr(pur, 'ajuste_iva', None)),
+            _to_val(getattr(pur, 'ajuste_impuesto', None)),
+            "",
+            "",
+            None,
+            None,
+            None,
+            "",
+            "",
+            "",
         ])
 
     # Ventas
@@ -362,6 +397,22 @@ def export_app_backup_to_xlsx(out_path: Optional[Path] = None, *, auto_open: boo
             "",
             "",
             "",
+            None,
+            None,
+            None,
+            "",
+            "",
+            None,
+            None,
+            None,
+            getattr(sale, 'numero_documento', None) or "",
+            getattr(sale, 'mes_referencia', None) or "",
+            _to_val(getattr(sale, 'monto_neto', None)),
+            _to_val(getattr(sale, 'monto_iva', None)),
+            getattr(sale, 'fecha_pagado', None),
+            getattr(sale, 'nota', None) or "",
+            getattr(sale, 'estado_externo', None) or "",
+            getattr(sale, 'origen', None) or "",
         ])
 
     # Recepciones
@@ -391,6 +442,63 @@ def export_app_backup_to_xlsx(out_path: Optional[Path] = None, *, auto_open: boo
             getattr(pur, 'unidad_negocio', None) or "",
             getattr(pur, 'proporcionalidad', None) or "",
             getattr(pur, 'stock_policy', None) or "",
+            getattr(pur, 'fecha_documento', None),
+            getattr(pur, 'fecha_contable', None),
+            getattr(pur, 'fecha_vencimiento', None),
+            getattr(pur, 'atencion', None) or "",
+            getattr(pur, 'tipo_descuento', None) or "",
+            _to_val(getattr(pur, 'descuento', None)),
+            _to_val(getattr(pur, 'ajuste_iva', None)),
+            _to_val(getattr(pur, 'ajuste_impuesto', None)),
+            "",
+            "",
+            None,
+            None,
+            None,
+            "",
+            "",
+            "",
+        ])
+
+    # 6b) Detalles de compras
+    ws = wb.create_sheet("detalles_compra")
+    ws.append(["id", "id_compra", "id_producto", "cantidad", "received_qty", "precio_unitario", "subtotal"])
+    for det in sess.query(PurchaseDetail).order_by(PurchaseDetail.id.asc()).all():
+        ws.append([
+            det.id,
+            det.id_compra,
+            det.id_producto,
+            det.cantidad,
+            getattr(det, "received_qty", 0),
+            _to_val(det.precio_unitario),
+            _to_val(det.subtotal),
+        ])
+
+    # 6c) Detalles de ventas
+    ws = wb.create_sheet("detalles_venta")
+    ws.append(["id", "id_venta", "id_producto", "cantidad", "precio_unitario", "subtotal"])
+    for det in sess.query(SaleDetail).order_by(SaleDetail.id.asc()).all():
+        ws.append([
+            det.id,
+            det.id_venta,
+            det.id_producto,
+            det.cantidad,
+            _to_val(det.precio_unitario),
+            _to_val(det.subtotal),
+        ])
+
+    # 6d) Servicios manuales de ventas
+    ws = wb.create_sheet("servicios_venta")
+    ws.append(["id", "id_venta", "descripcion", "cantidad", "precio_unitario", "subtotal", "afecto_iva"])
+    for det in sess.query(SaleServiceDetail).order_by(SaleServiceDetail.id.asc()).all():
+        ws.append([
+            det.id,
+            det.id_venta,
+            det.descripcion,
+            det.cantidad,
+            _to_val(det.precio_unitario),
+            _to_val(det.subtotal),
+            "1" if getattr(det, "afecto_iva", True) else "0",
         ])
 
     # 7) Inventario (snapshot de cantidades por producto)
@@ -405,6 +513,42 @@ def export_app_backup_to_xlsx(out_path: Optional[Path] = None, *, auto_open: boo
             getattr(p, 'nombre', None) or "",
             getattr(p, 'stock_actual', 0) or 0,
             getattr(p, 'id_ubicacion', None),
+        ])
+
+    # 8) Movimientos de stock
+    ws = wb.create_sheet("movimientos_entrada")
+    ws.append([
+        "id", "id_producto", "id_ubicacion", "id_recepcion", "cantidad", "motivo",
+        "lote", "serie", "fecha_vencimiento", "fecha",
+    ])
+    for mov in sess.query(StockEntry).order_by(StockEntry.id.asc()).all():
+        ws.append([
+            mov.id,
+            mov.id_producto,
+            getattr(mov, "id_ubicacion", None),
+            getattr(mov, "id_recepcion", None),
+            mov.cantidad,
+            getattr(mov, "motivo", None) or "",
+            getattr(mov, "lote", None) or "",
+            getattr(mov, "serie", None) or "",
+            getattr(mov, "fecha_vencimiento", None),
+            getattr(mov, "fecha", None),
+        ])
+
+    ws = wb.create_sheet("movimientos_salida")
+    ws.append([
+        "id", "id_producto", "id_ubicacion", "cantidad", "motivo", "lote", "serie", "fecha",
+    ])
+    for mov in sess.query(StockExit).order_by(StockExit.id.asc()).all():
+        ws.append([
+            mov.id,
+            mov.id_producto,
+            getattr(mov, "id_ubicacion", None),
+            mov.cantidad,
+            getattr(mov, "motivo", None) or "",
+            getattr(mov, "lote", None) or "",
+            getattr(mov, "serie", None) or "",
+            getattr(mov, "fecha", None),
         ])
 
     # Guardar
@@ -532,14 +676,13 @@ def import_app_backup_from_xlsx(xlsx_path: Path, *, reset: bool = True) -> None:
     Importa un backup APP generado por export_app_backup_to_xlsx.
 
     Estrategia:
-    - (Opcional) Limpia tablas dependientes: movimientos/detalles/recepciones/ventas/compras,
-      luego base: productos/proveedores/clientes. No elimina ubicaciones.
-    - Inserta proveedores, clientes, productos (con IDs del archivo).
-    - Inserta órdenes (cabeceras): compras, ventas, recepciones (sin detalles).
-    - Aplica snapshot de stock desde la hoja "inventario" a Product.stock_actual.
+    - (Opcional) Limpia tablas dependientes y maestras respetando FKs.
+    - Inserta maestros (ubicaciones, proveedores, clientes, productos).
+    - Inserta cabeceras de órdenes, luego detalles y servicios.
+    - Restaura imágenes y movimientos de stock si están presentes.
+    - Aplica snapshot final de stock desde la hoja "inventario".
 
-    Nota: Al no incluir detalles de órdenes ni movimientos, esta restauración es de estado
-    actual (ubicaciones, cabeceras + cantidades por producto), suficiente para levantar el sistema.
+    También mantiene compatibilidad con backups antiguos que no traían todas las hojas.
     """
     p = Path(xlsx_path)
     if not p.exists():
@@ -568,6 +711,7 @@ def import_app_backup_from_xlsx(xlsx_path: Path, *, reset: bool = True) -> None:
             # Orden seguro respetando FKs
             sess.query(StockEntry).delete()
             sess.query(StockExit).delete()
+            sess.query(SaleServiceDetail).delete()
             sess.query(SaleDetail).delete()
             sess.query(PurchaseDetail).delete()
             try:
@@ -731,6 +875,7 @@ def import_app_backup_from_xlsx(xlsx_path: Path, *, reset: bool = True) -> None:
                     precio_venta=_to_float(r.get("precio_venta")) or 0,
                     stock_actual=int(r.get("stock_actual") or 0),
                     unidad_medida=r.get("unidad_medida") or None,
+                    familia=r.get("familia") or None,
                     id_proveedor=int(prov_id),
                     id_ubicacion=loc_id,
                     image_path=r.get("image_path") or None,
@@ -782,12 +927,20 @@ def import_app_backup_from_xlsx(xlsx_path: Path, *, reset: bool = True) -> None:
                         total_compra=_to_val(r.get("total")) or 0,
                         estado=str(r.get("estado") or "Pendiente"),
                         numero_documento=str(r.get("doc_numero") or ""),
+                        fecha_documento=r.get("fecha_documento"),
+                        fecha_contable=r.get("fecha_contable"),
+                        fecha_vencimiento=r.get("fecha_vencimiento"),
                         moneda=str(r.get("moneda") or ""),
                         tasa_cambio=_to_val(r.get("tasa_cambio")) if r.get("tasa_cambio") is not None else None,
                         unidad_negocio=str(r.get("unidad_negocio") or ""),
                         proporcionalidad=str(r.get("proporcionalidad") or ""),
+                        atencion=str(r.get("atencion") or ""),
+                        tipo_descuento=str(r.get("tipo_descuento") or ""),
+                        descuento=_to_val(r.get("descuento")) if r.get("descuento") is not None else None,
+                        ajuste_iva=_to_val(r.get("ajuste_iva")) if r.get("ajuste_iva") is not None else None,
                         stock_policy=str(r.get("stock_policy") or ""),
                         referencia=str(r.get("referencia") or ""),
+                        ajuste_impuesto=_to_val(r.get("ajuste_impuesto")) if r.get("ajuste_impuesto") is not None else None,
                     )
                     sess.add(pur)
                 elif tipo == "venta":
@@ -797,6 +950,14 @@ def import_app_backup_from_xlsx(xlsx_path: Path, *, reset: bool = True) -> None:
                         fecha_venta=r.get("fecha"),
                         total_venta=_to_val(r.get("total")) or 0,
                         estado=str(r.get("estado") or "Confirmada"),
+                        numero_documento=str(r.get("numero_documento") or r.get("doc_numero") or ""),
+                        mes_referencia=str(r.get("mes_referencia") or ""),
+                        monto_neto=_to_val(r.get("monto_neto")) if r.get("monto_neto") is not None else None,
+                        monto_iva=_to_val(r.get("monto_iva")) if r.get("monto_iva") is not None else None,
+                        fecha_pagado=r.get("fecha_pagado"),
+                        nota=str(r.get("nota") or ""),
+                        estado_externo=str(r.get("estado_externo") or ""),
+                        origen=str(r.get("origen") or ""),
                     )
                     sess.add(sale)
                 elif tipo == "recepcion":
@@ -808,6 +969,86 @@ def import_app_backup_from_xlsx(xlsx_path: Path, *, reset: bool = True) -> None:
                         fecha=r.get("fecha"),
                     )
                     sess.add(rec)
+            except Exception:
+                pass
+
+        sess.flush()
+
+        for r in _read("detalles_compra"):
+            try:
+                det = PurchaseDetail(
+                    id=int(r.get("id")),
+                    id_compra=int(r.get("id_compra")),
+                    id_producto=int(r.get("id_producto")),
+                    cantidad=int(r.get("cantidad") or 0),
+                    received_qty=int(r.get("received_qty") or 0),
+                    precio_unitario=_to_float(r.get("precio_unitario")) or 0,
+                    subtotal=_to_float(r.get("subtotal")) or 0,
+                )
+                sess.add(det)
+            except Exception:
+                pass
+
+        for r in _read("detalles_venta"):
+            try:
+                det = SaleDetail(
+                    id=int(r.get("id")),
+                    id_venta=int(r.get("id_venta")),
+                    id_producto=int(r.get("id_producto")),
+                    cantidad=int(r.get("cantidad") or 0),
+                    precio_unitario=_to_float(r.get("precio_unitario")) or 0,
+                    subtotal=_to_float(r.get("subtotal")) or 0,
+                )
+                sess.add(det)
+            except Exception:
+                pass
+
+        for r in _read("servicios_venta"):
+            try:
+                det = SaleServiceDetail(
+                    id=int(r.get("id")),
+                    id_venta=int(r.get("id_venta")),
+                    descripcion=str(r.get("descripcion") or "").strip(),
+                    cantidad=int(r.get("cantidad") or 0),
+                    precio_unitario=_to_float(r.get("precio_unitario")) or 0,
+                    subtotal=_to_float(r.get("subtotal")) or 0,
+                    afecto_iva=_to_bool(r.get("afecto_iva"), default=True),
+                )
+                sess.add(det)
+            except Exception:
+                pass
+
+        for r in _read("movimientos_entrada"):
+            try:
+                mov = StockEntry(
+                    id=int(r.get("id")),
+                    id_producto=int(r.get("id_producto")),
+                    id_ubicacion=int(r.get("id_ubicacion")) if r.get("id_ubicacion") is not None else None,
+                    id_recepcion=int(r.get("id_recepcion")) if r.get("id_recepcion") is not None else None,
+                    cantidad=int(r.get("cantidad") or 0),
+                    motivo=str(r.get("motivo") or ""),
+                    lote=str(r.get("lote") or "") or None,
+                    serie=str(r.get("serie") or "") or None,
+                    fecha_vencimiento=r.get("fecha_vencimiento"),
+                    fecha=r.get("fecha"),
+                )
+                sess.add(mov)
+            except Exception:
+                pass
+
+        for r in _read("movimientos_salida"):
+            try:
+                mov = StockExit(
+                    id=int(r.get("id")),
+                    id_producto=int(r.get("id_producto")),
+                    id_ubicacion=int(r.get("id_ubicacion")) if r.get("id_ubicacion") is not None else None,
+                    cantidad=int(r.get("cantidad") or 0),
+                    motivo=str(r.get("motivo") or ""),
+                    lote=str(r.get("lote") or "") or None,
+                    serie=str(r.get("serie") or "") or None,
+                    fecha=r.get("fecha"),
+                )
+                sess.add(mov)
             except Exception:
                 pass
 

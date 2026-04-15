@@ -1110,6 +1110,7 @@ class PurchasesView(ttk.Frame):
                 items=items,
                 currency="CLP",
                 notes=notes,
+                price_includes_iva=False,
                 auto_open=True,
             )
             self._info(f"Cotización creada en Descargas:\n{out}")

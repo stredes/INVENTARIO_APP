@@ -29,10 +29,10 @@ def generar_pdf(conn: sqlite3.Connection, id_documento: int, *, auto_open: bool 
         raise ValueError("Documento no encontrado")
     rows = cur.execute("SELECT * FROM detalles WHERE id_documento=?", (id_documento,)).fetchall()
 
-    company = {
-        "name": doc["proveedor_cliente"],
+    customer = {
+        "nombre": doc["proveedor_cliente"],
         "rut": doc["rut_receptor"],
-        "address": None,
+        "direccion": None,
     }
     items = [
         {
@@ -47,10 +47,11 @@ def generar_pdf(conn: sqlite3.Connection, id_documento: int, *, auto_open: bool 
     ]
     return _gen_so(
         so_number=str(doc["folio"] or f"OV-{doc['id']}"),
-        company=company,
+        customer=customer,
         items=items,
         currency=doc["moneda"] or "CLP",
         notes=doc["observaciones"],
+        price_includes_iva=False,
         auto_open=auto_open,
     )
 

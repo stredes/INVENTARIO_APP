@@ -1350,6 +1350,7 @@ class OrdersAdminView(ttk.Frame):
                 items=items,
                 currency="CLP",
                 notes=None,
+                price_includes_iva=True,
                 auto_open=True,
             )
             messagebox.showinfo("Ventas", f"OV generada nuevamente:\n{out}")
