@@ -8,6 +8,7 @@ from sqlalchemy import (
     Integer,
     String,
     Numeric,
+    Boolean,
     DateTime,
     ForeignKey,
     UniqueConstraint,
@@ -325,9 +326,20 @@ class Sale(Base):
     fecha_venta: Mapped[dt] = mapped_column(DateTime, nullable=False, default=dt.utcnow)
     total_venta: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     estado: Mapped[str] = mapped_column(String, nullable=False)  # Borrador/Confirmada/Cancelada
+    numero_documento: Mapped[Optional[str]] = mapped_column(String)
+    mes_referencia: Mapped[Optional[str]] = mapped_column(String)
+    monto_neto: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2))
+    monto_iva: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2))
+    fecha_pagado: Mapped[Optional[dt]] = mapped_column(DateTime, nullable=True)
+    nota: Mapped[Optional[str]] = mapped_column(String)
+    estado_externo: Mapped[Optional[str]] = mapped_column(String)
+    origen: Mapped[Optional[str]] = mapped_column(String)
 
     customer: Mapped["Customer"] = relationship(back_populates="sales")
     details: Mapped[List["SaleDetail"]] = relationship(
+        back_populates="sale", cascade="all, delete-orphan"
+    )
+    service_details: Mapped[List["SaleServiceDetail"]] = relationship(
         back_populates="sale", cascade="all, delete-orphan"
     )
 
@@ -355,4 +367,26 @@ class SaleDetail(Base):
 
     def __repr__(self) -> str:
         return f"<SaleDetail venta={self.id_venta} prod={self.id_producto} cant={self.cantidad}>"
+
+
+class SaleServiceDetail(Base):
+    __tablename__ = "sale_service_details"
+    __table_args__ = (
+        CheckConstraint("cantidad > 0", name="ck_sale_service_details_qty_pos"),
+        CheckConstraint("precio_unitario > 0", name="ck_sale_service_details_price_pos"),
+        CheckConstraint("subtotal >= 0", name="ck_sale_service_details_subtotal_nonneg"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id_venta: Mapped[int] = mapped_column(ForeignKey("sales.id", ondelete="CASCADE"), nullable=False)
+    descripcion: Mapped[str] = mapped_column(String, nullable=False)
+    cantidad: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    precio_unitario: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    afecto_iva: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    sale: Mapped["Sale"] = relationship(back_populates="service_details")
+
+    def __repr__(self) -> str:
+        return f"<SaleServiceDetail venta={self.id_venta} descripcion={self.descripcion!r} cant={self.cantidad}>"
 

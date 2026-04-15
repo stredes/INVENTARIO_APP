@@ -8,12 +8,13 @@ from typing import Iterable, List, Optional
 from sqlalchemy.orm import Session
 
 from src.data.database import get_session
-from src.data.models import Customer, Product, Sale, SaleDetail
+from src.data.models import Customer, Product, Sale, SaleDetail, SaleServiceDetail
 from src.data.repository import (
     CustomerRepository,
     ProductRepository,
     SaleRepository,
     SaleDetailRepository,
+    SaleServiceDetailRepository,
 )
 from .inventory_manager import InventoryManager
 from src.utils.money import D, mul, money_sum, q2
@@ -29,6 +30,19 @@ class SaleItem:
     product_id: int
     cantidad: int
     precio_unitario: Decimal
+
+    @property
+    def subtotal(self) -> Decimal:
+        return mul(self.cantidad, self.precio_unitario)
+
+
+@dataclass(frozen=True)
+class ManualSaleItem:
+    """Item manual para servicios u otros cargos sin stock."""
+    descripcion: str
+    cantidad: int
+    precio_unitario: Decimal
+    afecto_iva: bool = True
 
     @property
     def subtotal(self) -> Decimal:
@@ -55,6 +69,7 @@ class SalesManager:
         self.products = ProductRepository(self.session)
         self.sales = SaleRepository(self.session)
         self.sale_details = SaleDetailRepository(self.session)
+        self.sale_service_details = SaleServiceDetailRepository(self.session)
         self.inventory = InventoryManager(self.session)
 
     # -----------------------------
@@ -81,6 +96,17 @@ class SalesManager:
                 raise SalesError(f"Producto id={it.product_id} no existe")
         return items
 
+    def _validate_service_items(self, items: Iterable[ManualSaleItem]) -> List[ManualSaleItem]:
+        items = list(items)
+        for it in items:
+            if not str(it.descripcion or "").strip():
+                raise SalesError("La descripcion del servicio es obligatoria")
+            if it.cantidad <= 0:
+                raise SalesError(f"Cantidad invalida para servicio '{it.descripcion}'")
+            if it.precio_unitario <= 0:
+                raise SalesError(f"Precio invalido para servicio '{it.descripcion}'")
+        return items
+
     # -----------------------------
     # API pública
     # -----------------------------
@@ -89,9 +115,18 @@ class SalesManager:
         *,
         customer_id: int,
         items: Iterable[SaleItem],
+        service_items: Optional[Iterable[ManualSaleItem]] = None,
         fecha: Optional[datetime] = None,
         estado: str = "Confirmada",   # 'Confirmada' | 'Pagada' | 'Reservada' | 'Cancelada'
         apply_to_stock: bool = True,  # si estado es Confirmada/Pagada y True -> descuenta stock
+        numero_documento: Optional[str] = None,
+        mes_referencia: Optional[str] = None,
+        monto_neto: Optional[Decimal] = None,
+        monto_iva: Optional[Decimal] = None,
+        fecha_pagado: Optional[datetime] = None,
+        nota: Optional[str] = None,
+        estado_externo: Optional[str] = None,
+        origen: Optional[str] = None,
     ) -> Sale:
         """
         Crea Sale + SaleDetails.
@@ -100,8 +135,12 @@ class SalesManager:
         """
         fecha = fecha or datetime.utcnow()
         self._validate_customer(customer_id)
-        items = self._validate_items(items)
-        total = q2(money_sum(it.subtotal for it in items))
+        raw_items = list(items)
+        items = self._validate_items(raw_items) if raw_items else []
+        service_items = self._validate_service_items(service_items or [])
+        if not items and not service_items:
+            raise SalesError("La venta debe contener al menos un item")
+        total = q2(money_sum([*(it.subtotal for it in items), *(it.subtotal for it in service_items)]))
 
         try:
             # Cabecera
@@ -110,6 +149,14 @@ class SalesManager:
                 fecha_venta=fecha,
                 total_venta=total,
                 estado=estado,
+                numero_documento=numero_documento,
+                mes_referencia=mes_referencia,
+                monto_neto=q2(monto_neto) if monto_neto is not None else None,
+                monto_iva=q2(monto_iva) if monto_iva is not None else None,
+                fecha_pagado=fecha_pagado,
+                nota=nota,
+                estado_externo=estado_externo,
+                origen=origen,
             )
             self.sales.add(sale)
             self.session.flush()  # obtener sale.id
@@ -124,6 +171,17 @@ class SalesManager:
                     subtotal=q2(it.subtotal),
                 )
                 self.sale_details.add(det)
+
+            for it in service_items:
+                det = SaleServiceDetail(
+                    id_venta=sale.id,
+                    descripcion=str(it.descripcion).strip(),
+                    cantidad=it.cantidad,
+                    precio_unitario=q2(it.precio_unitario),
+                    subtotal=q2(it.subtotal),
+                    afecto_iva=bool(it.afecto_iva),
+                )
+                self.sale_service_details.add(det)
 
             # Stock (si corresponde)
             if estado.lower() in self._STATES_THAT_EXIT_STOCK and apply_to_stock:

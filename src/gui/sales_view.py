@@ -7,7 +7,7 @@ from decimal import Decimal
 from src.data.database import get_session
 from src.data.models import Product, Customer
 from src.data.repository import ProductRepository, CustomerRepository
-from src.core import SalesManager, SaleItem
+from src.core import SalesManager, SaleItem, ManualSaleItem
 from src.utils.so_generator import generate_so_to_downloads
 from src.utils.quote_generator import generate_quote_to_downloads
 from src.utils.helpers import make_quote_number
@@ -42,6 +42,7 @@ class SalesView(ttk.Frame):
         self.customers: List[Customer] = []
         self._edit_iid: Optional[str] = None
         self._simple_sales_hidden: list[tk.Misc] = []
+        self._row_meta: dict[str, dict] = {}
 
         # ---------- Encabezado ----------
         top = ttk.Labelframe(self, text="Encabezado de venta", padding=10)
@@ -160,6 +161,22 @@ class SalesView(ttk.Frame):
         ttk.Label(det, text="Precio Neto (sin IVA)").grid(row=2, column=6, sticky="e", padx=4, pady=4)
         ttk.Entry(det, textvariable=self.var_monto_neto, width=14, state="readonly").grid(row=2, column=7, sticky="w", padx=4, pady=4)
 
+        svc = ttk.Labelframe(self, text="Servicio manual", padding=10)
+        svc.pack(fill="x", expand=False, pady=(10, 0))
+        self.service_frame = svc
+        self.var_service_desc = tk.StringVar(value="")
+        self.var_service_qty = tk.StringVar(value="1")
+        self.var_service_price = tk.StringVar(value="0")
+        ttk.Label(svc, text="Descripcion:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
+        ttk.Entry(svc, textvariable=self.var_service_desc, width=45).grid(row=0, column=1, sticky="we", padx=4, pady=4)
+        ttk.Label(svc, text="Cantidad:").grid(row=0, column=2, sticky="e", padx=4, pady=4)
+        ttk.Entry(svc, textvariable=self.var_service_qty, width=10).grid(row=0, column=3, sticky="w", padx=4, pady=4)
+        ttk.Label(svc, text="Precio + IVA:").grid(row=0, column=4, sticky="e", padx=4, pady=4)
+        ttk.Entry(svc, textvariable=self.var_service_price, width=12).grid(row=0, column=5, sticky="w", padx=4, pady=4)
+        self.btn_add_service = ttk.Button(svc, text="Agregar servicio", command=self._on_add_service)
+        self.btn_add_service.grid(row=0, column=6, sticky="w", padx=8, pady=4)
+        svc.columnconfigure(1, weight=1)
+
         # ---------- Tabla ----------
         tree_frame = ttk.Frame(self)
         tree_frame.pack(fill="both", expand=True, pady=(10, 0))
@@ -269,6 +286,21 @@ class SalesView(ttk.Frame):
             return s.replace(",", ".")
         except Exception:
             return "$ 0"
+
+    def _row_kind(self, iid: str) -> str:
+        meta = self._row_meta.get(iid) or {}
+        return str(meta.get("kind") or "product")
+
+    def _clear_editor_state(self) -> None:
+        self._edit_iid = None
+        try:
+            self.btn_add_item.configure(text="Agregar item")
+        except Exception:
+            pass
+        try:
+            self.btn_add_service.configure(text="Agregar servicio")
+        except Exception:
+            pass
 
         # ---------- Encabezado ----------
         top = ttk.Labelframe(self, text="Encabezado de venta", padding=10)
@@ -538,11 +570,13 @@ class SalesView(ttk.Frame):
                 disc_pct = 0.0
                 subtotal = fmt_2(q2(D(qty) * q2(unit_price)))
                 self.tree.item(iid_found, values=(p.id, p.nombre, qty, fmt_2(unit_price), f"{disc_pct:.1f}", subtotal))
+                self._row_meta[iid_found] = {"kind": "product"}
             else:
                 qty = 1
                 disc_pct = 0.0
                 subtotal = fmt_2(q2(D(qty) * q2(price)))
-                self.tree.insert("", "end", values=(p.id, p.nombre, qty, fmt_2(price), f"{disc_pct:.1f}", subtotal))
+                iid = self.tree.insert("", "end", values=(p.id, p.nombre, qty, fmt_2(price), f"{disc_pct:.1f}", subtotal))
+                self._row_meta[iid] = {"kind": "product"}
 
             self._update_total()
         finally:
@@ -576,6 +610,17 @@ class SalesView(ttk.Frame):
                     precio_unitario=it.get("precio_eff", it["precio"]),
                 )
                 for it in items
+                if it.get("kind") == "product"
+            ]
+            service_items = [
+                ManualSaleItem(
+                    descripcion=str(it["nombre"]),
+                    cantidad=it["cantidad"],
+                    precio_unitario=it.get("precio_eff", it["precio"]),
+                    afecto_iva=bool(it.get("afecto_iva", True)),
+                )
+                for it in items
+                if it.get("kind") == "service"
             ]
 
             # 3) Crear venta como 'Pagada' con descuento inmediato de stock
@@ -585,6 +630,7 @@ class SalesView(ttk.Frame):
             sale = create_fn(
                 customer_id=cust.id,
                 items=sm_items,
+                service_items=service_items,
                 estado=estado,
                 apply_to_stock=apply_to_stock,
             )
@@ -762,6 +808,9 @@ class SalesView(ttk.Frame):
             edit_iid = getattr(self, "_edit_iid", None)
             p = None
             if edit_iid:
+                if self._row_kind(edit_iid) != "product":
+                    self._warn("La fila en edicion corresponde a un servicio manual.")
+                    return
                 try:
                     vals_row = list(self.tree.item(edit_iid, "values"))
                     prod_id = int(float(vals_row[0]))
@@ -827,10 +876,12 @@ class SalesView(ttk.Frame):
             if getattr(self, "_edit_iid", None):
                 iid = self._edit_iid
                 self.tree.item(iid, values=(p.id, p.nombre, qty, fmt_2(price), f"{disc:.1f}", fmt_2(subtotal)))
+                self._row_meta[iid] = {"kind": "product"}
                 self._exit_edit_mode()
             else:
-                self.tree.insert("", "end",
-                                 values=(p.id, p.nombre, qty, fmt_2(price), f"{disc:.1f}", fmt_2(subtotal)))
+                iid = self.tree.insert("", "end",
+                                       values=(p.id, p.nombre, qty, fmt_2(price), f"{disc:.1f}", fmt_2(subtotal)))
+                self._row_meta[iid] = {"kind": "product"}
             self._update_total()
 
             self.ent_qty.delete(0, "end"); self.ent_qty.insert(0, "1")
@@ -852,14 +903,59 @@ class SalesView(ttk.Frame):
         except Exception as e:
             self._error(f"No se pudo agregar el ítem:\n{e}")
 
+    def _on_add_service(self):
+        try:
+            desc = (self.var_service_desc.get() or "").strip()
+            if not desc:
+                self._warn("Ingrese la descripcion del servicio.")
+                return
+            try:
+                qty = int(float(self.var_service_qty.get() or 0))
+            except Exception:
+                self._warn("Cantidad invalida para el servicio.")
+                return
+            if qty <= 0:
+                self._warn("La cantidad del servicio debe ser > 0.")
+                return
+            try:
+                price = q2(D(self.var_service_price.get() or 0))
+            except Exception:
+                self._warn("Precio invalido para el servicio.")
+                return
+            if price <= 0:
+                self._warn("Ingrese un precio valido (> 0) para el servicio.")
+                return
+
+            subtotal = q2(D(qty) * price)
+            edit_iid = getattr(self, "_edit_iid", None)
+            if edit_iid:
+                if self._row_kind(edit_iid) != "service":
+                    self._warn("La fila en edicion corresponde a un producto.")
+                    return
+                iid = edit_iid
+                self.tree.item(iid, values=("SVC", desc, qty, fmt_2(price), "0.0", fmt_2(subtotal)))
+            else:
+                iid = self.tree.insert("", "end", values=("SVC", desc, qty, fmt_2(price), "0.0", fmt_2(subtotal)))
+            self._row_meta[iid] = {"kind": "service", "description": desc, "afecto_iva": True}
+            self._update_total()
+            self.var_service_desc.set("")
+            self.var_service_qty.set("1")
+            self.var_service_price.set("0")
+            self._exit_edit_mode()
+        except Exception as e:
+            self._error(f"No se pudo agregar el servicio:\n{e}")
+
     def _on_delete_item(self):
         for item in self.tree.selection():
+            self._row_meta.pop(item, None)
             self.tree.delete(item)
         self._update_total()
 
     def _on_clear_table(self):
         for iid in self.tree.get_children():
             self.tree.delete(iid)
+        self._row_meta.clear()
+        self._clear_editor_state()
         self._update_total()
 
     def _update_total(self):
@@ -873,18 +969,20 @@ class SalesView(ttk.Frame):
 
     # ---- Edición inline por doble click ----
     def _enter_edit_mode(self):
+        iid = getattr(self, "_edit_iid", None)
+        if iid and self._row_kind(iid) == "service":
+            try:
+                self.btn_add_service.configure(text="Actualizar servicio")
+            except Exception:
+                pass
+            return
         try:
-            # Mostrar en ASCII para entornos Windows con fuentes limitadas
             self.btn_add_item.configure(text="Actualizar item")
         except Exception:
             pass
 
     def _exit_edit_mode(self):
-        self._edit_iid = None
-        try:
-            self.btn_add_item.configure(text="Agregar item")
-        except Exception:
-            pass
+        self._clear_editor_state()
 
     def _on_tree_dblclick(self, event=None):
         try:
@@ -899,6 +997,14 @@ class SalesView(ttk.Frame):
             vals = list(self.tree.item(iid, "values"))
             # 0=id, 1=nombre, 2=cantidad, 3=precio, 4=dcto, 5=subtotal
             prod_id, name, qty_s, price_s, dcto_s, _sub = vals
+
+            if self._row_kind(iid) == "service":
+                self.var_service_desc.set(str(self._row_meta.get(iid, {}).get("description") or name))
+                self.var_service_qty.set(str(qty_s))
+                self.var_service_price.set(str(price_s))
+                self._edit_iid = iid
+                self._enter_edit_mode()
+                return
 
             # Carga directa en el formulario superior
             try:
@@ -953,6 +1059,33 @@ class SalesView(ttk.Frame):
         items: List[dict] = []
         for iid in self.tree.get_children():
             prod_id, name, qty, price, disc, sub = self.tree.item(iid, "values")
+            if self._row_kind(iid) == "service":
+                try:
+                    qty_i = int(float(qty))
+                except Exception:
+                    qty_i = 0
+                try:
+                    sub_val = D(sub)
+                except Exception:
+                    sub_val = D(0)
+                try:
+                    price_val = q2(D(price))
+                except Exception:
+                    price_val = D(0)
+                items.append({
+                    "kind": "service",
+                    "id": None,
+                    "nombre": str(self._row_meta.get(iid, {}).get("description") or name),
+                    "cantidad": qty_i,
+                    "precio": price_val,
+                    "precio_eff": price_val,
+                    "descuento_porcentaje": 0.0,
+                    "subtotal": sub_val,
+                    "codigo": "",
+                    "costo": 0.0,
+                    "afecto_iva": bool(self._row_meta.get(iid, {}).get("afecto_iva", True)),
+                })
+                continue
             # Buscar código/SKU del producto para la columna Código de la cotización
             codigo = ""
             p = None
@@ -979,6 +1112,7 @@ class SalesView(ttk.Frame):
             else:
                 price_eff = price_val
             items.append({
+                "kind": "product",
                 "id": int(prod_id),
                 "nombre": str(name),
                 "cantidad": qty_i,
@@ -1031,6 +1165,17 @@ class SalesView(ttk.Frame):
                     precio_unitario=it.get("precio_eff", it["precio"]),
                 )
                 for it in items
+                if it.get("kind") == "product"
+            ]
+            service_items = [
+                ManualSaleItem(
+                    descripcion=str(it["nombre"]),
+                    cantidad=it["cantidad"],
+                    precio_unitario=it.get("precio_eff", it["precio"]),
+                    afecto_iva=bool(it.get("afecto_iva", True)),
+                )
+                for it in items
+                if it.get("kind") == "service"
             ]
 
             estado = (self.cmb_estado.get() or "Pagada").strip()
@@ -1040,6 +1185,7 @@ class SalesView(ttk.Frame):
             create_fn(
                 customer_id=cust.id,
                 items=sm_items,
+                service_items=service_items,
                 estado=estado,
                 apply_to_stock=apply_to_stock,
             )

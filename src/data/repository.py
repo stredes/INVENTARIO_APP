@@ -16,6 +16,7 @@ from .models import (
     Customer,
     Sale,
     SaleDetail,
+    SaleServiceDetail,
     Location,
 )
 
@@ -198,6 +199,11 @@ class SaleRepository(BaseRepository[Sale]):
 class SaleDetailRepository(BaseRepository[SaleDetail]):
     def __init__(self, session: Session) -> None:
         super().__init__(session, SaleDetail)
+
+
+class SaleServiceDetailRepository(BaseRepository[SaleServiceDetail]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(session, SaleServiceDetail)
 
 
 # ---------------------------

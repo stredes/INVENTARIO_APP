@@ -427,6 +427,39 @@ def _ensure_schema(engine: Engine) -> None:
         _add_column_if_missing(engine, table="purchases", column="referencia", type_sql="TEXT")
         _add_column_if_missing(engine, table="purchases", column="ajuste_impuesto", type_sql="NUMERIC")
 
+        _add_column_if_missing(engine, table="sales", column="numero_documento", type_sql="TEXT")
+        _add_column_if_missing(engine, table="sales", column="mes_referencia", type_sql="TEXT")
+        _add_column_if_missing(engine, table="sales", column="monto_neto", type_sql="NUMERIC")
+        _add_column_if_missing(engine, table="sales", column="monto_iva", type_sql="NUMERIC")
+        _add_column_if_missing(engine, table="sales", column="fecha_pagado", type_sql="DATETIME")
+        _add_column_if_missing(engine, table="sales", column="nota", type_sql="TEXT")
+        _add_column_if_missing(engine, table="sales", column="estado_externo", type_sql="TEXT")
+        _add_column_if_missing(engine, table="sales", column="origen", type_sql="TEXT")
+
+        if not _table_exists(engine, "sale_service_details"):
+            with engine.begin() as conn:
+                conn.exec_driver_sql(
+                    """
+                    CREATE TABLE IF NOT EXISTS sale_service_details (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id_venta INTEGER NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+                        descripcion TEXT NOT NULL,
+                        cantidad INTEGER NOT NULL DEFAULT 1,
+                        precio_unitario NUMERIC NOT NULL,
+                        subtotal NUMERIC NOT NULL,
+                        afecto_iva INTEGER NOT NULL DEFAULT 1
+                    );
+                    """
+                )
+        try:
+            _create_index_if_missing(
+                engine,
+                index_sql='CREATE INDEX IF NOT EXISTS idx_sale_service_details_sale ON sale_service_details(id_venta);',
+                index_name='idx_sale_service_details_sale',
+            )
+        except Exception:
+            pass
+
     except Exception:
         # Evitar que un fallo de migración bloquee el arranque;
         # si necesitas depurar, eleva la excepción.

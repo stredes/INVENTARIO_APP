@@ -17,7 +17,7 @@ from tkinter import messagebox, ttk
 from src.app_meta import AppMeta, get_app_meta
 
 
-API_BASE = "https://api.github.com/repos/{repo}/releases/latest"
+API_BASE = "https://api.github.com/repos/{repo}/releases"
 
 
 class UpdateProgressDialog(tk.Toplevel):
@@ -113,20 +113,9 @@ def _is_newer(remote_tag: str, current_version: str) -> bool:
     return _version_key(remote_tag) > _version_key(current_version)
 
 
-def _fetch_latest_release(meta: AppMeta) -> ReleaseInfo | None:
-    if not meta.repo_slug:
-        return None
-    req = urllib.request.Request(
-        API_BASE.format(repo=meta.repo_slug),
-        headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": f"{meta.app_name}-updater",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+def _release_from_payload(payload: dict, meta: AppMeta) -> ReleaseInfo | None:
+    tag = str(payload.get("tag_name") or "")
+    if not tag:
         return None
 
     assets = payload.get("assets", []) or []
@@ -143,12 +132,50 @@ def _fetch_latest_release(meta: AppMeta) -> ReleaseInfo | None:
             setup_asset = ReleaseAsset(name=name, download_url=dl)
 
     return ReleaseInfo(
-        tag=str(payload.get("tag_name") or ""),
+        tag=tag,
         name=str(payload.get("name") or ""),
         body=str(payload.get("body") or ""),
         portable_asset=portable_asset,
         setup_asset=setup_asset,
     )
+
+
+def _fetch_latest_release(meta: AppMeta) -> ReleaseInfo | None:
+    if not meta.repo_slug:
+        return None
+    req = urllib.request.Request(
+        f"{API_BASE.format(repo=meta.repo_slug)}?per_page=10",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": f"{meta.app_name}-updater",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return None
+
+    if not isinstance(payload, list):
+        return None
+
+    candidates: list[ReleaseInfo] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        if item.get("draft") or item.get("prerelease"):
+            continue
+        release = _release_from_payload(item, meta)
+        if release is None:
+            continue
+        if release.portable_asset is None and release.setup_asset is None:
+            continue
+        candidates.append(release)
+
+    if not candidates:
+        return None
+
+    return max(candidates, key=lambda release: _version_key(release.tag))
 
 
 def _write_update_script(target_dir: Path, extracted_dir: Path, current_exe: Path) -> Path:

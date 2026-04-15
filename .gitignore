@@ -40,6 +40,7 @@ app.log
 # ==========================
 build/
 dist/
+artifacts/
 *.egg-info/
 *.spec
 

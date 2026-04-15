@@ -64,6 +64,7 @@ class ReportCenter(ttk.Frame):
         ("stock_real", "Stock real"),
         ("payables_docs", "Facturas o guias que debo"),
         ("receivables_docs", "Facturas o guias pendientes que me deben"),
+        ("customer_debt", "Deuda por cliente"),
         ("purchase_orders", "Ordenes de compra (resumen)"),
         ("purchase_by_supplier_product", "Ordenes de compra por proveedor y producto"),
         ("sales_period", "Ventas por periodo"),
@@ -120,7 +121,9 @@ class ReportCenter(ttk.Frame):
         except Exception:
             pass
 
-        ttk.Label(filt, text="Tercero (nombre/rut):").grid(row=1, column=0, sticky="e", padx=4, pady=3)
+        self.var_party_label = tk.StringVar(value="Tercero (nombre/rut):")
+        self.lbl_party = ttk.Label(filt, textvariable=self.var_party_label)
+        self.lbl_party.grid(row=1, column=0, sticky="e", padx=4, pady=3)
         self.var_party = tk.StringVar(); ttk.Entry(filt, textvariable=self.var_party, width=26).grid(row=1, column=1, sticky="w")
         ttk.Label(filt, text="Producto (nombre/sku):").grid(row=1, column=2, sticky="e", padx=8)
         self.var_product = tk.StringVar(); ttk.Entry(filt, textvariable=self.var_product, width=26).grid(row=1, column=3, sticky="w")
@@ -146,15 +149,18 @@ class ReportCenter(ttk.Frame):
         idx = self.cmb_report.current() or 0
         key = self.REPORTS[idx][0]
         self._current_report_key = key
+        self.var_party_label.set("Tercero (nombre/rut):")
         # Cambiar combo de estado segun informe
         if key == "sales_period":
             self.cmb_state["values"] = self.SALES_STATES
             try: self.cmb_state.current(0)
             except Exception: pass
-        elif key == "receivables_docs":
+        elif key in ("receivables_docs", "customer_debt"):
             self.cmb_state["values"] = self.RECEIVABLE_STATES
             try: self.cmb_state.current(0)
             except Exception: pass
+            if key == "customer_debt":
+                self.var_party_label.set("Cliente a consultar:")
         elif key in ("purchase_orders", "purchase_by_supplier_product"):
             self.cmb_state["values"] = self.PURCH_STATES
             try: self.cmb_state.current(0)
@@ -177,6 +183,8 @@ class ReportCenter(ttk.Frame):
                 self._run_stock_report()
             elif key in ("sales_period", "receivables_docs"):
                 self._run_sales_report(key)
+            elif key == "customer_debt":
+                self._run_customer_debt_report()
             elif key in ("purchase_orders", "purchase_by_supplier_product", "payables_docs"):
                 self._run_purchases_report(key)
             elif key == "investment_by_product":
@@ -239,6 +247,58 @@ class ReportCenter(ttk.Frame):
                 s.estado,
                 f"{float(s.total_venta or 0):.2f}",
             ])
+        self._current_cols, self._current_rows = cols, rows
+
+    def _run_customer_debt_report(self) -> None:
+        d_from, d_to = self._get_date_filters()
+        state = (self.cmb_state.get() or "").strip()
+        party_like = (self.var_party.get() or "").strip()
+
+        def _num(s: str):
+            try:
+                return float((s or "").replace(".", "").replace(",", ".")) if s else None
+            except Exception:
+                return None
+
+        tmin = _num(self.var_total_min.get()); tmax = _num(self.var_total_max.get())
+
+        q = self.session.query(Sale, Customer).join(Customer, Customer.id == Sale.id_cliente)
+        if d_from: q = q.filter(Sale.fecha_venta >= d_from)
+        if d_to:   q = q.filter(Sale.fecha_venta <= d_to)
+
+        if not state or state == "(Todos)":
+            q = q.filter(Sale.estado.in_(self.RECEIVABLE_STATES[1:]))
+        else:
+            q = q.filter(Sale.estado == state)
+
+        if party_like:
+            like = f"%{party_like}%"
+            q = q.filter((Customer.razon_social.ilike(like)) | (Customer.rut.ilike(like)))
+        if tmin is not None: q = q.filter(Sale.total_venta >= tmin)
+        if tmax is not None: q = q.filter(Sale.total_venta <= tmax)
+
+        cols = ["ID", "Factura", "Fecha", "Cliente", "Estado", "Estado Excel", "Neto", "IVA", "Total", "Fecha pagado", "Nota"]
+        rows: List[List] = []
+        total_deuda = 0.0
+        for s, c in q.order_by(Customer.razon_social.asc(), Sale.fecha_venta.asc(), Sale.id.asc()):
+            total = float(s.total_venta or 0)
+            total_deuda += total
+            fecha_pagado = getattr(s, "fecha_pagado", None)
+            rows.append([
+                s.id,
+                getattr(s, "numero_documento", "") or "",
+                s.fecha_venta.strftime("%Y-%m-%d %H:%M"),
+                getattr(c, "razon_social", "") or "-",
+                s.estado,
+                getattr(s, "estado_externo", "") or "",
+                f"{float(getattr(s, 'monto_neto', 0) or 0):.2f}",
+                f"{float(getattr(s, 'monto_iva', 0) or 0):.2f}",
+                f"{total:.2f}",
+                fecha_pagado.strftime("%Y-%m-%d") if fecha_pagado else "",
+                getattr(s, "nota", "") or "",
+            ])
+        if rows:
+            rows.append(["", "", "", "TOTAL ADEUDADO", "", "", "", "", f"{total_deuda:.2f}", "", ""])
         self._current_cols, self._current_rows = cols, rows
 
     # ---------------------- Compras ---------------------- #

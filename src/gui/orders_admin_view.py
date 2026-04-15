@@ -11,7 +11,7 @@ from src.data.database import get_session
 from src.data.models import (
     Supplier, Customer, Product,
     Purchase, PurchaseDetail,
-    Sale, SaleDetail,
+    Sale, SaleDetail, SaleServiceDetail,
     Reception,
 )
 from src.core.inventory_manager import InventoryManager
@@ -1194,6 +1194,19 @@ class OrdersAdminView(ttk.Frame):
             rows.append([
                 prod.id,
                 prod.nombre,
+                det.cantidad,
+                format_currency(det.precio_unitario),
+                format_currency(det.subtotal),
+            ])
+
+        q_services = (
+            self.session.query(SaleServiceDetail)
+            .filter(SaleServiceDetail.id_venta == sale_id)
+        )
+        for det in q_services:
+            rows.append([
+                "SVC",
+                det.descripcion,
                 det.cantidad,
                 format_currency(det.precio_unitario),
                 format_currency(det.subtotal),
