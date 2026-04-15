@@ -186,7 +186,7 @@ class MainWindow(ttk.Frame):
                 self.top_nav.pack(fill="x", pady=(0, 8), before=self.content_host)
 
     def _build_shell_layout(self) -> None:
-        self.shell = ttk.Frame(self)
+        self.shell = ttk.Frame(self, style="HomeRoot.TFrame")
         self.shell.pack(fill="both", expand=True)
         self.shell.columnconfigure(1, weight=1)
         self.shell.rowconfigure(0, weight=1)
@@ -223,14 +223,14 @@ class MainWindow(ttk.Frame):
         self.sidebar_canvas.bind("<Configure>", self._on_sidebar_canvas_configure, add="+")
         self._bind_sidebar_mousewheel()
 
-        self.main_panel = ttk.Frame(self.shell)
+        self.main_panel = ttk.Frame(self.shell, style="HomeContent.TFrame", padding=(0, 2, 0, 0))
         self.main_panel.grid(row=0, column=1, sticky="nsew")
         self.main_panel.columnconfigure(0, weight=1)
         self.main_panel.rowconfigure(1, weight=1)
 
         self._build_persistent_sidebar()
         self._build_top_navigation()
-        self.content_host = ttk.Frame(self.main_panel)
+        self.content_host = ttk.Frame(self.main_panel, style="HomeContent.TFrame")
         self.content_host.pack(fill="both", expand=True)
         self.content_host.columnconfigure(0, weight=1)
         self.content_host.rowconfigure(0, weight=1)
@@ -268,7 +268,7 @@ class MainWindow(ttk.Frame):
     def _build_persistent_sidebar(self) -> None:
         host = self.sidebar_content
 
-        brand = ttk.Frame(host, style="HomeSidebarCard.TFrame", padding=18)
+        brand = ttk.Frame(host, style="HomeSidebarCard.TFrame", padding=20)
         brand.grid(row=0, column=0, sticky="ew")
         brand.columnconfigure(0, weight=1)
 
@@ -277,8 +277,11 @@ class MainWindow(ttk.Frame):
         ttk.Label(brand, textvariable=self._update_status_var, style="HomeSmall.TLabel", wraplength=220, justify="left").grid(row=2, column=0, sticky="w", pady=(8, 0))
         ttk.Label(brand, text="Navegación principal", style="HomeSmall.TLabel").grid(row=3, column=0, sticky="w", pady=(10, 0))
 
-        ttk.Separator(host).grid(row=1, column=0, sticky="ew", pady=(16, 10))
-        ttk.Label(host, text="Acciones disponibles", style="HomeSection.TLabel").grid(row=2, column=0, sticky="w", pady=(0, 8))
+        ttk.Separator(host).grid(row=1, column=0, sticky="ew", pady=(18, 12))
+        nav_card = ttk.Frame(host, style="HomeSidebarCard.TFrame", padding=14)
+        nav_card.grid(row=2, column=0, sticky="ew")
+        nav_card.columnconfigure(0, weight=1)
+        ttk.Label(nav_card, text="Acciones disponibles", style="HomeSection.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
 
         nav_items = [
             ("Inicio", self.show_home),
@@ -294,25 +297,25 @@ class MainWindow(ttk.Frame):
             ("Manuel", self.open_facturion),
             ("Tutoriales", self._open_tutorial_center),
         ]
-        row = 3
+        row = 1
         for label, command in nav_items:
-            ttk.Button(host, text=label, style="HomeNav.TButton", command=command).grid(
+            ttk.Button(nav_card, text=label, style="HomeNav.TButton", command=command).grid(
                 row=row, column=0, sticky="ew", pady=6
             )
             row += 1
 
         self.btn_update_release = ttk.Button(
-            host,
+            nav_card,
             text="Actualizar panel",
             style="HomeUpdate.TButton",
             command=self._on_sidebar_update_click,
             state="disabled",
         )
         self.btn_update_release.grid(row=row, column=0, sticky="ew", pady=(14, 6))
-        ttk.Button(host, text="Salir", style="HomeExit.TButton", command=self.app_root.quit).grid(
+        ttk.Button(nav_card, text="Salir", style="HomeExit.TButton", command=self.app_root.quit).grid(
             row=row + 1, column=0, sticky="ew", pady=(10, 0)
         )
-        ttk.Frame(host, style="HomeSidebar.TFrame", height=6).grid(row=row + 2, column=0, sticky="ew")
+        ttk.Frame(host, style="HomeSidebar.TFrame", height=6).grid(row=3, column=0, sticky="ew")
 
     def _on_sidebar_content_configure(self, _event=None) -> None:
         try:

@@ -380,8 +380,20 @@ class ThemeManager:
         # Labels / Frames
         s.configure("TLabel", background=pal["panel"], foreground=pal["fg"])
         s.configure("TFrame", background=pal["panel"])
-        s.configure("TLabelframe", background=pal["panel"], bordercolor=pal["border"])
-        s.configure("TLabelframe.Label", background=pal["panel"], foreground=pal["fg"])
+        s.configure(
+            "TLabelframe",
+            background=pal["panel"],
+            bordercolor=pal["border"],
+            borderwidth=1,
+            relief="solid",
+            padding=(10, 8),
+        )
+        s.configure(
+            "TLabelframe.Label",
+            background=pal["panel"],
+            foreground=pal["accent"],
+            font=(tkfont.nametofont("TkDefaultFont").actual("family"), tkfont.nametofont("TkDefaultFont").actual("size"), "bold"),
+        )
 
         # Badges (labels con fondo) con contraste legible sobre cualquier tema
         badge_bg, badge_fg = cls._badge_colors(pal["accent"], pal["panel"])

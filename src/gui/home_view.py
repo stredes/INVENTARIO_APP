@@ -100,37 +100,38 @@ class HomeView(ttk.Frame):
         base_font = tkfont.nametofont("TkDefaultFont")
         family = base_font.actual("family")
 
-        style.configure("HomeRoot.TFrame", background="#EAF1FA")
-        style.configure("HomeSidebar.TFrame", background="#0F2136")
-        style.configure("HomeSidebarCard.TFrame", background="#182B43")
-        style.configure("HomeContent.TFrame", background="#EAF1FA")
-        style.configure("HomeHero.TFrame", background="#FDFEFE", relief="solid", borderwidth=1)
+        style.configure("HomeRoot.TFrame", background="#E6EDF5")
+        style.configure("HomeSidebar.TFrame", background="#0D1B2A")
+        style.configure("HomeSidebarCard.TFrame", background="#16283D", relief="solid", borderwidth=1)
+        style.configure("HomeSidebarPanel.TFrame", background="#102337", relief="solid", borderwidth=1)
+        style.configure("HomeContent.TFrame", background="#E6EDF5")
+        style.configure("HomeHero.TFrame", background="#FBFDFF", relief="solid", borderwidth=1)
         style.configure("HomeCard.TFrame", background="#FFFFFF", relief="solid", borderwidth=1)
-        style.configure("HomeInfoCard.TFrame", background="#F8FBFF", relief="solid", borderwidth=1)
-        style.configure("HomeSidebar.TLabel", background="#0F2136", foreground="#D2E6FF", font=(family, 10))
-        style.configure("HomeBrand.TLabel", background="#182B43", foreground="#FFFFFF", font=(family, 22, "bold"))
-        style.configure("HomeSmall.TLabel", background="#182B43", foreground="#D2E6FF", font=(family, 10))
-        style.configure("HomeSection.TLabel", background="#0F2136", foreground="#8EB4DA", font=(family, 10))
-        style.configure("HomeHeroTitle.TLabel", background="#FDFEFE", foreground="#092C52", font=(family, 28, "bold"))
-        style.configure("HomeHeroText.TLabel", background="#FDFEFE", foreground="#516784", font=(family, 11))
-        style.configure("HomeMode.TButton", background="#D8E2F2", foreground="#0C2B4E", padding=(18, 12), font=(family, 10, "bold"))
-        style.map("HomeMode.TButton", background=[("active", "#C8D6EE")])
-        style.configure("HomeModeAccent.TButton", background="#2C478F", foreground="#FFFFFF", padding=(18, 12), font=(family, 10, "bold"))
-        style.map("HomeModeAccent.TButton", background=[("active", "#3957A9")], foreground=[("active", "#FFFFFF")])
-        style.configure("HomeTitle.TLabel", background="#FFFFFF", foreground="#4A6280", font=(family, 10))
-        style.configure("HomeValue.TLabel", background="#FFFFFF", foreground="#042A54", font=(family, 15, "bold"))
-        style.configure("HomeBody.TLabel", background="#FFFFFF", foreground="#556B86", font=(family, 10))
-        style.configure("HomePanelTitle.TLabel", background="#FFFFFF", foreground="#0B2A4D", font=(family, 14, "bold"))
-        style.configure("HomePanelText.TLabel", background="#FFFFFF", foreground="#526884", font=(family, 10))
+        style.configure("HomeInfoCard.TFrame", background="#F5F9FD", relief="solid", borderwidth=1)
+        style.configure("HomeSidebar.TLabel", background="#0D1B2A", foreground="#D5E4F4", font=(family, 10))
+        style.configure("HomeBrand.TLabel", background="#16283D", foreground="#FFFFFF", font=(family, 24, "bold"))
+        style.configure("HomeSmall.TLabel", background="#16283D", foreground="#D5E4F4", font=(family, 10))
+        style.configure("HomeSection.TLabel", background="#102337", foreground="#93B4D5", font=(family, 10, "bold"))
+        style.configure("HomeHeroTitle.TLabel", background="#FBFDFF", foreground="#0A2B4F", font=(family, 30, "bold"))
+        style.configure("HomeHeroText.TLabel", background="#FBFDFF", foreground="#556C86", font=(family, 11))
+        style.configure("HomeMode.TButton", background="#DCE7F4", foreground="#123457", padding=(20, 13), font=(family, 10, "bold"))
+        style.map("HomeMode.TButton", background=[("active", "#C9D9EE")])
+        style.configure("HomeModeAccent.TButton", background="#2457A6", foreground="#FFFFFF", padding=(20, 13), font=(family, 10, "bold"))
+        style.map("HomeModeAccent.TButton", background=[("active", "#2E67C0")], foreground=[("active", "#FFFFFF")])
+        style.configure("HomeTitle.TLabel", background="#FFFFFF", foreground="#667C96", font=(family, 10))
+        style.configure("HomeValue.TLabel", background="#FFFFFF", foreground="#05284D", font=(family, 17, "bold"))
+        style.configure("HomeBody.TLabel", background="#FFFFFF", foreground="#5B718A", font=(family, 10))
+        style.configure("HomePanelTitle.TLabel", background="#FFFFFF", foreground="#0C2B4F", font=(family, 15, "bold"))
+        style.configure("HomePanelText.TLabel", background="#FFFFFF", foreground="#556C86", font=(family, 10))
         style.configure("HomeImage.TLabel", background="#FFFFFF")
-        style.configure("HomeInfoTitle.TLabel", background="#F8FBFF", foreground="#12385C", font=(family, 10, "bold"))
-        style.configure("HomeInfoText.TLabel", background="#F8FBFF", foreground="#566D88", font=(family, 10))
-        style.configure("HomeNav.TButton", background="#1A2E49", foreground="#FFFFFF", padding=(12, 11), font=(family, 10, "bold"))
-        style.map("HomeNav.TButton", background=[("active", "#233A5B")], foreground=[("active", "#FFFFFF")])
-        style.configure("HomeUpdate.TButton", background="#C6821D", foreground="#FFFFFF", padding=(12, 12), font=(family, 10, "bold"))
-        style.map("HomeUpdate.TButton", background=[("active", "#D08E2C")], foreground=[("active", "#FFFFFF")])
-        style.configure("HomeExit.TButton", background="#9C2334", foreground="#FFFFFF", padding=(12, 12), font=(family, 10, "bold"))
-        style.map("HomeExit.TButton", background=[("active", "#B02D40")], foreground=[("active", "#FFFFFF")])
+        style.configure("HomeInfoTitle.TLabel", background="#F5F9FD", foreground="#153A60", font=(family, 10, "bold"))
+        style.configure("HomeInfoText.TLabel", background="#F5F9FD", foreground="#59708A", font=(family, 10))
+        style.configure("HomeNav.TButton", background="#18324C", foreground="#FFFFFF", padding=(14, 12), font=(family, 10, "bold"))
+        style.map("HomeNav.TButton", background=[("active", "#234565")], foreground=[("active", "#FFFFFF")])
+        style.configure("HomeUpdate.TButton", background="#C8841A", foreground="#FFFFFF", padding=(14, 12), font=(family, 10, "bold"))
+        style.map("HomeUpdate.TButton", background=[("active", "#D5942D")], foreground=[("active", "#FFFFFF")])
+        style.configure("HomeExit.TButton", background="#A62C3E", foreground="#FFFFFF", padding=(14, 12), font=(family, 10, "bold"))
+        style.map("HomeExit.TButton", background=[("active", "#BC3750")], foreground=[("active", "#FFFFFF")])
         style.configure("HomeStepNum.TLabel", background="#14314D", foreground="#FFFFFF", font=(family, 12, "bold"), anchor="center")
         style.configure("HomeStepTitle.TLabel", background="#FFFFFF", foreground="#0A2E53", font=(family, 11, "bold"))
         style.configure("HomeStepText.TLabel", background="#FFFFFF", foreground="#5B708B", font=(family, 10))
@@ -161,15 +162,18 @@ class HomeView(ttk.Frame):
         self._build_content(content)
 
     def _build_sidebar(self, parent: ttk.Frame) -> None:
-        brand = ttk.Frame(parent, style="HomeSidebarCard.TFrame", padding=18)
+        brand = ttk.Frame(parent, style="HomeSidebarCard.TFrame", padding=20)
         brand.grid(row=0, column=0, sticky="ew")
         brand.columnconfigure(0, weight=1)
 
         ttk.Label(brand, textvariable=self.var_company, style="HomeBrand.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(brand, textvariable=self.var_version, style="HomeSmall.TLabel").grid(row=1, column=0, sticky="w", pady=(10, 0))
         ttk.Label(brand, text="Interfaz lista para trabajar", style="HomeSmall.TLabel").grid(row=2, column=0, sticky="w", pady=(10, 0))
-        ttk.Separator(parent).grid(row=1, column=0, sticky="ew", pady=(16, 10))
-        ttk.Label(parent, text="Acciones disponibles", style="HomeSection.TLabel").grid(row=2, column=0, sticky="w", pady=(0, 8))
+        ttk.Separator(parent).grid(row=1, column=0, sticky="ew", pady=(18, 12))
+        action_card = ttk.Frame(parent, style="HomeSidebarPanel.TFrame", padding=14)
+        action_card.grid(row=2, column=0, sticky="ew")
+        action_card.columnconfigure(0, weight=1)
+        ttk.Label(action_card, text="Acciones disponibles", style="HomeSection.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
 
         nav_items = [
             ("Inicio", "home"),
@@ -185,28 +189,28 @@ class HomeView(ttk.Frame):
             ("Manuel", "facturion"),
             ("Tutoriales", "tutorials"),
         ]
-        row = 3
+        row = 1
         for label, key in nav_items:
             cb = self.callbacks.get(key)
             if cb is None:
                 continue
-            ttk.Button(parent, text=label, style="HomeNav.TButton", command=cb).grid(row=row, column=0, sticky="ew", pady=6)
+            ttk.Button(action_card, text=label, style="HomeNav.TButton", command=cb).grid(row=row, column=0, sticky="ew", pady=5)
             row += 1
 
         if self.callbacks.get("refresh"):
-            ttk.Button(parent, text="Actualizar panel", style="HomeUpdate.TButton", command=self._refresh_action).grid(
+            ttk.Button(action_card, text="Actualizar panel", style="HomeUpdate.TButton", command=self._refresh_action).grid(
                 row=row, column=0, sticky="ew", pady=(14, 6)
             )
             row += 1
 
-        parent.rowconfigure(row, weight=1)
+        parent.rowconfigure(3, weight=1)
         if self.callbacks.get("exit"):
-            ttk.Button(parent, text="Salir", style="HomeExit.TButton", command=self.callbacks["exit"]).grid(
-                row=row + 1, column=0, sticky="sew", pady=(10, 0)
+            ttk.Button(action_card, text="Salir", style="HomeExit.TButton", command=self.callbacks["exit"]).grid(
+                row=row + 1, column=0, sticky="ew", pady=(10, 0)
             )
 
     def _build_content(self, parent: ttk.Frame) -> None:
-        hero = ttk.Frame(parent, style="HomeHero.TFrame", padding=22)
+        hero = ttk.Frame(parent, style="HomeHero.TFrame", padding=26)
         hero.grid(row=0, column=0, columnspan=2, sticky="ew")
         hero.columnconfigure(0, weight=1)
         hero.columnconfigure(1, weight=1)
@@ -223,7 +227,7 @@ class HomeView(ttk.Frame):
         )
         self._hero_copy_label.pack(anchor="center")
 
-        mode_box = ttk.Frame(hero, style="HomeHero.TFrame", padding=(0, 18, 0, 0))
+        mode_box = ttk.Frame(hero, style="HomeHero.TFrame", padding=(0, 22, 0, 0))
         mode_box.grid(row=1, column=0, columnspan=2, sticky="ew")
         for idx in range(5):
             mode_box.columnconfigure(idx, weight=1)
@@ -253,7 +257,7 @@ class HomeView(ttk.Frame):
         self._metric_card(cards_left, 1, "Productos registrados", self.var_products, "Catálogo base disponible.", "#2E6D68")
         self._metric_card(cards_left, 2, "Pulso del sistema", self.var_health, "Sincronización y acceso operativo.", "#9B6A2B")
 
-        main_panel = ttk.Frame(parent, style="HomeCard.TFrame", padding=20)
+        main_panel = ttk.Frame(parent, style="HomeCard.TFrame", padding=24)
         main_panel.grid(row=2, column=0, sticky="nsew", pady=(12, 0), padx=(0, 10))
         main_panel.columnconfigure(0, weight=1)
         self._main_panel = main_panel
@@ -279,7 +283,7 @@ class HomeView(ttk.Frame):
         for idx, (num, title, text) in enumerate(steps, start=3):
             self._step_row(main_panel, idx, num, title, text)
 
-        side_panel = ttk.Frame(parent, style="HomeCard.TFrame", padding=18)
+        side_panel = ttk.Frame(parent, style="HomeCard.TFrame", padding=20)
         side_panel.grid(row=1, column=1, rowspan=2, sticky="nsew", pady=(14, 0))
         side_panel.columnconfigure(0, weight=1)
         self._side_panel = side_panel
@@ -294,7 +298,7 @@ class HomeView(ttk.Frame):
             ("Compras pendientes", self.var_pending),
         ]
         for row, (title, variable) in enumerate(info_items, start=1):
-            box = ttk.Frame(side_panel, style="HomeInfoCard.TFrame", padding=14)
+            box = ttk.Frame(side_panel, style="HomeInfoCard.TFrame", padding=16)
             box.grid(row=row, column=0, sticky="ew", pady=6)
             box.columnconfigure(0, weight=1)
             ttk.Label(box, text=title, style="HomeInfoTitle.TLabel").grid(row=0, column=0, sticky="w")
