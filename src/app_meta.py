@@ -35,7 +35,7 @@ def _read_json(rel_path: Path) -> dict[str, Any]:
     for path in _candidate_paths(rel_path):
         try:
             if path.exists():
-                return json.loads(path.read_text(encoding="utf-8"))
+                return json.loads(path.read_text(encoding="utf-8-sig"))
         except Exception:
             continue
     return {}

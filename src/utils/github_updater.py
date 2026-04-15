@@ -199,7 +199,9 @@ Get-ChildItem -LiteralPath $targetDir -Force | Where-Object {{
   $_.Name -notin @('_apply_update.ps1', '_update_payload')
 }} | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
-Copy-Item -LiteralPath (Join-Path $sourceDir '*') -Destination $targetDir -Recurse -Force
+Get-ChildItem -LiteralPath $sourceDir -Force | ForEach-Object {{
+  Copy-Item -LiteralPath $_.FullName -Destination $targetDir -Recurse -Force
+}}
 Remove-Item -LiteralPath $sourceDir -Recurse -Force -ErrorAction SilentlyContinue
 Start-Process -FilePath $exePath
 """

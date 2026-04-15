@@ -258,7 +258,7 @@ class PurchasesView(ttk.Frame):
 
         ttk.Label(det, text="Precio Unit. (neto):").grid(row=0, column=4, sticky="e", padx=4, pady=4)
         self.var_price = tk.StringVar(value="0.00")
-        self.ent_price = ttk.Entry(det, textvariable=self.var_price, width=14, state="readonly")
+        self.ent_price = ttk.Entry(det, textvariable=self.var_price, width=14)
         self.ent_price.grid(row=0, column=5, sticky="w", padx=4, pady=4)
 
         ttk.Label(det, text="Desc. %:").grid(row=0, column=6, sticky="e", padx=4, pady=4)
@@ -266,13 +266,15 @@ class PurchasesView(ttk.Frame):
         self.ent_disc = ttk.Entry(det, textvariable=self.var_disc, width=6)
         self.ent_disc.grid(row=0, column=7, sticky="w", padx=4, pady=4)
 
-        ttk.Button(det, text="Agregar ítem", command=self._on_add_item).grid(row=0, column=8, padx=8)
+        self.btn_add_item = ttk.Button(det, text="Agregar ítem", command=self._on_add_item)
+        self.btn_add_item.grid(row=0, column=8, padx=8)
 
         # Estado interno para trazabilidad (sin UI en Detalle)
         self.tr_lote = tk.StringVar(); self.tr_serie = tk.StringVar(); self.tr_has_venc = tk.BooleanVar(value=False); self.tr_venc = tk.StringVar()
         self._trace_by_prod: Dict[int, Dict[str, object]] = {}
         self._current_reception_id: Optional[int] = None
         self._current_po_id: Optional[int] = None
+        self._editing_item_iid: Optional[str] = None
 
         # Editor de trazabilidad (debajo del bloque Detalle; oculto por defecto)
         self._trace_frame = ttk.Labelframe(det, text="Trazabilidad del ítem seleccionado (Recepción)", padding=8)
@@ -369,6 +371,11 @@ class PurchasesView(ttk.Frame):
         try:
             self.tree.bind('<<TreeviewSelect>>', lambda _e=None: self._on_trace_load_from_selection())
             self.tree.bind('<Double-1>', lambda _e=None: self._on_trace_load_from_selection())
+        except Exception:
+            pass
+        try:
+            self.tree.bind('<<TreeviewSelect>>', lambda _e=None: self._load_selected_item_into_editor(), add="+")
+            self.tree.bind('<Double-1>', lambda _e=None: self._load_selected_item_into_editor(), add="+")
         except Exception:
             pass
 
@@ -648,6 +655,23 @@ class PurchasesView(ttk.Frame):
             return None
         return self.suppliers[idx]
 
+    @staticmethod
+    def _parse_money_input(value: str) -> Decimal:
+        try:
+            raw = str(value or "").replace("$", "").replace("CLP", "").replace("%", "").strip()
+            if not raw:
+                return D(0)
+            if "," in raw and "." in raw:
+                if raw.rfind(",") > raw.rfind("."):
+                    raw = raw.replace(".", "").replace(",", ".")
+                else:
+                    raw = raw.replace(",", "")
+            elif "," in raw:
+                raw = raw.replace(",", ".")
+            return D(raw)
+        except Exception:
+            return D(0)
+
     def _update_price_field(self):
         p = self._selected_product()
         price = self._price_with_iva(p) if p else Decimal(0)
@@ -655,6 +679,54 @@ class PurchasesView(ttk.Frame):
 
     def _on_product_change(self, _evt=None):
         self._update_price_field()
+
+    def _load_selected_item_into_editor(self):
+        sel = self.tree.selection()
+        if not sel:
+            self._editing_item_iid = None
+            try:
+                self.btn_add_item.config(text="Agregar ítem")
+            except Exception:
+                pass
+            return
+        iid = sel[0]
+        try:
+            prod_id, _name, qty, price, disc_pct, _subtotal = self.tree.item(iid, "values")
+            prod = self.session.get(Product, int(prod_id))
+            if prod is not None:
+                try:
+                    self.cmb_product.set_selected_item(prod)
+                except Exception:
+                    self.cmb_product.set(f"{prod.id} - {prod.nombre}")
+            else:
+                self.cmb_product.set("")
+            self.ent_qty.delete(0, "end")
+            self.ent_qty.insert(0, str(qty))
+            self.var_price.set(str(price))
+            self.var_disc.set(str(disc_pct))
+            self._editing_item_iid = iid
+            try:
+                self.btn_add_item.config(text="Actualizar ítem")
+            except Exception:
+                pass
+        except Exception:
+            self._editing_item_iid = None
+
+    def _reset_item_editor(self):
+        self._editing_item_iid = None
+        self.ent_qty.delete(0, "end")
+        self.ent_qty.insert(0, "1")
+        self.var_disc.set("0")
+        self.cmb_product.set("")
+        self._update_price_field()
+        try:
+            self.tree.selection_remove(*self.tree.selection())
+        except Exception:
+            pass
+        try:
+            self.btn_add_item.config(text="Agregar ítem")
+        except Exception:
+            pass
 
     # ======================== Ítems ========================
     def _on_add_item(self):
@@ -684,9 +756,9 @@ class PurchasesView(ttk.Frame):
                 self._warn("La cantidad debe ser > 0.")
                 return
 
-            price = self._price_with_iva(p)
+            price = q2(self._parse_money_input(self.var_price.get()))
             if price <= 0:
-                self._warn("El producto no tiene precio de compra válido.")
+                self._warn("Ingrese un precio unitario válido.")
                 return
 
             # Descuento % (0..100)
@@ -700,22 +772,26 @@ class PurchasesView(ttk.Frame):
                 disc_pct = 100.0
             disc_rate = D(disc_pct) / D(100)
 
-            # Evita duplicados (opcional)
+            existing_iid = None
             for iid in self.tree.get_children():
                 if str(p.id) == str(self.tree.item(iid, "values")[0]):
-                    self._warn("Este producto ya está en la tabla.")
-                    return
+                    existing_iid = iid
+                    break
+            if existing_iid and existing_iid != self._editing_item_iid:
+                self._warn("Este producto ya está en la tabla. Selecciónelo para editarlo.")
+                return
 
-            # Subtotal con descuento aplicado (descuento sobre el neto antes de IVA)
-            # Aquí trabajamos a nivel "precio con IVA", por simplicidad: aplicamos el % directo
-            price_bruto = q2(D(price) * (D(1) + IVA_RATE))
-            subtotal = q2(D(qty) * price_bruto * (D(1) - disc_rate))
-            self.tree.insert("", "end", values=(p.id, p.nombre, qty, fmt_2(price), f"{disc_pct:.1f}", fmt_2(subtotal)))
+            subtotal = q2(D(qty) * D(price) * (D(1) - disc_rate))
+            row_values = (p.id, p.nombre, qty, fmt_2(price), f"{disc_pct:.1f}", fmt_2(subtotal))
+            target_iid = self._editing_item_iid or existing_iid
+            if target_iid:
+                self.tree.item(target_iid, values=row_values)
+            else:
+                self.tree.insert("", "end", values=row_values)
             self._update_total()
 
             # reset mínimo
-            self.ent_qty.delete(0, "end"); self.ent_qty.insert(0, "1")
-            self.cmb_product.set("")
+            self._reset_item_editor()
             self.cmb_product.focus_set()
         except Exception as e:
             self._error(f"No se pudo agregar el ítem:\n{e}")
@@ -723,11 +799,14 @@ class PurchasesView(ttk.Frame):
     def _on_delete_item(self):
         for iid in self.tree.selection():
             self.tree.delete(iid)
+            if iid == self._editing_item_iid:
+                self._editing_item_iid = None
         self._update_total()
 
     def _on_clear_table(self):
         for iid in self.tree.get_children():
             self.tree.delete(iid)
+        self._reset_item_editor()
         self._update_total()
 
     def _update_total(self):
@@ -741,47 +820,20 @@ class PurchasesView(ttk.Frame):
 
     def _collect_items_for_manager(self) -> List[PurchaseItem]:
         items: List[PurchaseItem] = []
-        def _num(s: str) -> Decimal:
-            """Parsea números robustamente desde strings con $/miles/coma decimal.
-            - "1.234,56" -> 1234.56
-            - "1,234.56" -> 1234.56
-            - "180.00"   -> 180.00
-            - "$ 3.240"  -> 3240
-            """
-            try:
-                s = str(s or '').replace('$','').replace('CLP','').replace('%','').strip()
-                if not s:
-                    return D(0)
-                # decidir separador decimal por la última ocurrencia
-                if ',' in s and '.' in s:
-                    if s.rfind(',') > s.rfind('.'):
-                        # miles=., decimal=,
-                        s = s.replace('.', '').replace(',', '.')
-                    else:
-                        # miles=,, decimal=.
-                        s = s.replace(',', '')
-                elif ',' in s:
-                    # solo coma: úsala como decimal
-                    s = s.replace(',', '.')
-                # else: solo punto o entero
-                return D(s)
-            except Exception:
-                return D(0)
         for iid in self.tree.get_children():
             prod_id, _name, scnt, sprice, sdisc, _sub = self.tree.item(iid, "values")
             # Aplicamos descuento al precio unitario para reflejar el total mostrado
             try:
-                disc_pct = _num(sdisc)
+                disc_pct = self._parse_money_input(sdisc)
             except Exception:
                 disc_pct = D(0)
             disc_rate = disc_pct / D(100)
-            iva_rate = self._current_iva_rate()
-            price_eff = q2(_num(sprice) * (D(1) + iva_rate) * (D(1) - disc_rate))
+            price_eff = q2(self._parse_money_input(sprice) * (D(1) - disc_rate))
             items.append(
                 PurchaseItem(
                     product_id=int(prod_id),
                     cantidad=int(float(scnt)),
-                    precio_unitario=price_eff,  # con IVA y descuento aplicado
+                    precio_unitario=price_eff,
                 )
             )
         return items
@@ -789,21 +841,6 @@ class PurchasesView(ttk.Frame):
     def _collect_items_for_pdf(self) -> List[Dict[str, object]]:
         rows: List[Dict[str, object]] = []
         # Normalizador local para valores con formato ($, miles, coma decimal)
-        def _num(s: str) -> Decimal:
-            try:
-                s = str(s or '').replace('$','').replace('CLP','').replace('%','').strip()
-                if not s:
-                    return D(0)
-                if ',' in s and '.' in s:
-                    if s.rfind(',') > s.rfind('.'):
-                        s = s.replace('.', '').replace(',', '.')
-                    else:
-                        s = s.replace(',', '')
-                elif ',' in s:
-                    s = s.replace(',', '.')
-                return D(s)
-            except Exception:
-                return D(0)
         for iid in self.tree.get_children():
             prod_id, name, scnt, sprice, sdisc, ssub = self.tree.item(iid, "values")
             try:
@@ -815,19 +852,31 @@ class PurchasesView(ttk.Frame):
                 unidad = getattr(p, "unidad_medida", None) or "U"
             except Exception:
                 unidad = "U"
-            iva_rate = self._current_iva_rate()
             rows.append({
                 "id": int(prod_id),
                 "nombre": str(name),
                 "cantidad": int(float(scnt)),
-                "precio": q2(_num(sprice) * (D(1) + iva_rate)),          # con IVA (precio bruto)
-                "subtotal": D(ssub),          # con IVA y descuento ya aplicado
+                "precio": q2(self._parse_money_input(sprice)),
+                "subtotal": self._parse_money_input(ssub),
                 "dcto_pct": disc_pct,         # usado por OC
                 "descuento_porcentaje": disc_pct,  # compat para cotización
                 "dcto": disc_pct,             # compat alternativa
                 "unidad": unidad,
             })
         return rows
+
+    def _sync_product_purchase_prices(self) -> None:
+        for iid in self.tree.get_children():
+            try:
+                prod_id, _name, _qty, sprice, _disc, _sub = self.tree.item(iid, "values")
+                prod = self.session.get(Product, int(prod_id))
+                if prod is None:
+                    continue
+                new_price = q2(self._parse_money_input(sprice))
+                if new_price > 0:
+                    prod.precio_compra = new_price
+            except Exception:
+                continue
 
     # ======================== Acciones ========================
     def _on_confirm_purchase(self):
@@ -871,6 +920,13 @@ class PurchasesView(ttk.Frame):
                 estado=estado,
                 apply_to_stock=apply_to_stock,
             )
+
+            try:
+                self._sync_product_purchase_prices()
+                self.session.flush()
+            except Exception:
+                self.session.rollback()
+                raise
 
             # Guardar cabecera extendida
             try:

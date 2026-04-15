@@ -15,6 +15,15 @@ function Write-Err($msg)  { Write-Host "[ERR ] $msg" -ForegroundColor Red }
 
 Set-Location -Path $PSScriptRoot
 
+function Write-Utf8File([string]$Path, [string]$Content) {
+  $dir = Split-Path -Parent $Path
+  if ($dir) {
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+  }
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($Path, $Content, $utf8NoBom)
+}
+
 function Get-PythonCommand {
   $venvPy = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
   if (Test-Path $venvPy) { return $venvPy }
@@ -79,7 +88,7 @@ function Read-ReleaseConfig {
 
 function Write-ReleaseConfig($cfg) {
   $path = Join-Path $PSScriptRoot "config\release.json"
-  ($cfg | ConvertTo-Json -Depth 10) | Set-Content -Path $path -Encoding UTF8
+  Write-Utf8File -Path $path -Content ($cfg | ConvertTo-Json -Depth 10)
 }
 
 function New-BuildVersion($cfg) {
@@ -109,7 +118,7 @@ function Write-BuildInfo($cfg, $buildMeta) {
     built_at_utc = [DateTime]::UtcNow.ToString("o")
   }
   $path = Join-Path $PSScriptRoot "config\build_info.json"
-  ($buildInfo | ConvertTo-Json -Depth 10) | Set-Content -Path $path -Encoding UTF8
+  Write-Utf8File -Path $path -Content ($buildInfo | ConvertTo-Json -Depth 10)
   Write-Ok "build_info.json actualizado: $($buildMeta.Version)"
 }
 
@@ -539,7 +548,7 @@ if ($setupExe) {
   $manifest.assets += @{ kind = "setup"; path = (Split-Path $setupExe -Leaf) }
 }
 $manifestPath = Join-Path $assetsRoot "release-manifest.json"
-($manifest | ConvertTo-Json -Depth 10) | Set-Content -Path $manifestPath -Encoding UTF8
+Write-Utf8File -Path $manifestPath -Content ($manifest | ConvertTo-Json -Depth 10)
 Write-Ok "Manifest generado: $manifestPath"
 
 $assets = @($portableZip, $buildZip, $distZip, $manifestPath)
