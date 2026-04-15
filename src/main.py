@@ -105,6 +105,7 @@ def main() -> None:
             lambda: check_for_updates_async(
                 root,
                 on_update_ready=app.set_update_release,
+                on_check_complete=app.set_update_check_result,
                 auto_apply=False,
             ),
         )

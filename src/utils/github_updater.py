@@ -337,24 +337,26 @@ def apply_release_update(root, release: ReleaseInfo | None) -> bool:
     return True
 
 
-def check_for_updates_async(root, *, on_update_ready=None, auto_apply: bool = False) -> None:
+def check_for_updates_async(root, *, on_update_ready=None, on_check_complete=None, auto_apply: bool = False) -> None:
     meta = get_app_meta()
 
     def _worker() -> None:
         release = _fetch_latest_release(meta)
-        if release is None or not release.tag:
-            return
-        if not _is_newer(release.tag, meta.version):
-            return
 
         def _on_main_thread() -> None:
-            if callable(on_update_ready):
+            if release is not None and release.tag and _is_newer(release.tag, meta.version):
+                if callable(on_update_ready):
+                    try:
+                        on_update_ready(release)
+                    except Exception:
+                        pass
+                if auto_apply:
+                    apply_release_update(root, release)
+            if callable(on_check_complete):
                 try:
-                    on_update_ready(release)
+                    on_check_complete(release)
                 except Exception:
                     pass
-            if auto_apply:
-                apply_release_update(root, release)
 
         try:
             root.after(0, _on_main_thread)

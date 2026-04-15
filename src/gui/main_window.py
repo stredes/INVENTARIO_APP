@@ -53,6 +53,7 @@ class MainWindow(ttk.Frame):
         self._current_section_var = tk.StringVar(value="Inicio")
         self._app_meta = get_app_meta()
         self._pending_release: ReleaseInfo | None = None
+        self._update_status_var = tk.StringVar(value="Actualizaciones: comprobando...")
         self._responsive_job = None
         self._sidebar_mousewheel_bound = False
         self._sidebar_scroll_enabled = False
@@ -273,7 +274,8 @@ class MainWindow(ttk.Frame):
 
         ttk.Label(brand, text=self._app_meta.company_name, style="HomeBrand.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(brand, text=f"Versión instalada: {self._app_meta.version}", style="HomeSmall.TLabel").grid(row=1, column=0, sticky="w", pady=(10, 0))
-        ttk.Label(brand, text="Navegación principal", style="HomeSmall.TLabel").grid(row=2, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(brand, textvariable=self._update_status_var, style="HomeSmall.TLabel", wraplength=220, justify="left").grid(row=2, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(brand, text="Navegación principal", style="HomeSmall.TLabel").grid(row=3, column=0, sticky="w", pady=(10, 0))
 
         ttk.Separator(host).grid(row=1, column=0, sticky="ew", pady=(16, 10))
         ttk.Label(host, text="Acciones disponibles", style="HomeSection.TLabel").grid(row=2, column=0, sticky="w", pady=(0, 8))
@@ -289,7 +291,7 @@ class MainWindow(ttk.Frame):
             ("Órdenes", self.show_orders_admin),
             ("Informes", self.show_report_center),
             ("Catálogo", self.show_catalog),
-            ("Facturion", self.open_facturion),
+            ("Manuel", self.open_facturion),
             ("Tutoriales", self._open_tutorial_center),
         ]
         row = 3
@@ -358,6 +360,10 @@ class MainWindow(ttk.Frame):
     def set_update_release(self, release: ReleaseInfo) -> None:
         self._pending_release = release
         try:
+            self._update_status_var.set(f"Actualización disponible: {release.tag}")
+        except Exception:
+            pass
+        try:
             self.btn_update_release.configure(state="normal", text=f"Actualizar app {release.tag}")
         except Exception:
             pass
@@ -366,11 +372,37 @@ class MainWindow(ttk.Frame):
         except Exception:
             pass
 
+    def set_update_check_result(self, release: ReleaseInfo | None) -> None:
+        try:
+            if release is None or not release.tag:
+                self._pending_release = None
+                self._update_status_var.set("Actualizaciones: no disponible")
+                self.btn_update_release.configure(state="disabled", text="Sin actualización")
+                return
+            local_key = tuple(int(part) for part in "".join(
+                ch if ch.isdigit() or ch == "." else "."
+                for ch in self._app_meta.version.replace("-", ".").replace("_", ".")
+            ).split(".") if part)
+            remote_key = tuple(int(part) for part in "".join(
+                ch if ch.isdigit() or ch == "." else "."
+                for ch in release.tag.replace("-", ".").replace("_", ".")
+            ).split(".") if part)
+            if remote_key > local_key:
+                self._update_status_var.set(f"Actualización disponible: {release.tag}")
+                self.btn_update_release.configure(state="normal", text=f"Actualizar app {release.tag}")
+            else:
+                self._pending_release = None
+                self._update_status_var.set("Actualizaciones: al día")
+                self.btn_update_release.configure(state="disabled", text="Sin actualización")
+        except Exception:
+            pass
+
     def _on_sidebar_update_click(self) -> None:
         if self._pending_release is None:
             return
         if apply_release_update(self.app_root, self._pending_release):
             try:
+                self._update_status_var.set("Actualizaciones: descargando...")
                 self.btn_update_release.configure(state="disabled", text="Descargando actualización...")
             except Exception:
                 pass

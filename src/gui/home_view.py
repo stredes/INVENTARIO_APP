@@ -182,7 +182,7 @@ class HomeView(ttk.Frame):
             ("Órdenes", "orders"),
             ("Informes", "reports"),
             ("Catálogo", "catalog"),
-            ("Facturion", "facturion"),
+            ("Manuel", "facturion"),
             ("Tutoriales", "tutorials"),
         ]
         row = 3
@@ -233,7 +233,7 @@ class HomeView(ttk.Frame):
             ("Compras", "purchases", "HomeMode.TButton"),
             ("Ventas", "sales", "HomeMode.TButton"),
             ("Inventario", "inventory", "HomeMode.TButton"),
-            ("Facturion", "facturion", "HomeMode.TButton"),
+            ("Manuel", "facturion", "HomeMode.TButton"),
         ]
         for idx, (label, key, style_name) in enumerate(mode_items):
             cb = self.callbacks.get(key)

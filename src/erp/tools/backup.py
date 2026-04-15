@@ -2,6 +2,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable, List, Dict, Any, Optional
 import sqlite3
+import base64
+import shutil
 from datetime import datetime
 
 from openpyxl import Workbook, load_workbook
@@ -17,6 +19,7 @@ from src.data.models import (
     Location,
 )
 from src.utils.helpers import get_downloads_dir, unique_path
+from src.utils.image_store import PRODUCTS_DIR
 
 
 def _rows(conn: sqlite3.Connection, sql: str) -> List[sqlite3.Row]:
@@ -180,6 +183,43 @@ def _to_float(v) -> Optional[float]:
         return None
 
 
+def _iter_product_media_rows(products: list[Product]) -> list[list[Any]]:
+    rows: list[list[Any]] = []
+    for p in products:
+        try:
+            product_media_dir = PRODUCTS_DIR / str(int(p.id))
+        except Exception:
+            continue
+        if not product_media_dir.exists():
+            continue
+
+        image_path_value = str(getattr(p, "image_path", None) or "").strip()
+        image_path_name = Path(image_path_value).name if image_path_value else ""
+
+        for media_file in sorted(product_media_dir.rglob("*")):
+            if not media_file.is_file():
+                continue
+            try:
+                rel_path = media_file.relative_to(PRODUCTS_DIR).as_posix()
+                payload = base64.b64encode(media_file.read_bytes()).decode("ascii")
+                is_primary = "1" if (
+                    image_path_value and (
+                        str(media_file.resolve()) == image_path_value or
+                        media_file.name == image_path_name
+                    )
+                ) else "0"
+                rows.append([
+                    int(p.id),
+                    rel_path,
+                    media_file.suffix.lower(),
+                    is_primary,
+                    payload,
+                ])
+            except Exception:
+                continue
+    return rows
+
+
 def export_app_backup_to_xlsx(out_path: Optional[Path] = None, *, auto_open: bool = True) -> Path:
     """Exporta 5 hojas: productos, clientes, proveedores, ordenes, inventario."""
     sess = get_session()
@@ -205,7 +245,8 @@ def export_app_backup_to_xlsx(out_path: Optional[Path] = None, *, auto_open: boo
         "unidad_medida","id_proveedor","id_ubicacion","image_path"
     ]
     ws.append(prod_cols)
-    for p in sess.query(Product).order_by(Product.id.asc()).all():
+    products = sess.query(Product).order_by(Product.id.asc()).all()
+    for p in products:
         ws.append([
             p.id, p.nombre, p.sku,
             _to_val(getattr(p, 'precio_compra', 0)),
@@ -216,6 +257,13 @@ def export_app_backup_to_xlsx(out_path: Optional[Path] = None, *, auto_open: boo
             getattr(p, 'id_ubicacion', None),
             getattr(p, 'image_path', None) or "",
         ])
+
+    # 3b) Imágenes de productos
+    ws = wb.create_sheet("imagenes_productos")
+    image_cols = ["id_producto", "ruta_relativa", "extension", "es_principal", "archivo_base64"]
+    ws.append(image_cols)
+    for row in _iter_product_media_rows(products):
+        ws.append(row)
 
     # 4) Clientes
     ws = wb.create_sheet("clientes")
@@ -537,6 +585,15 @@ def import_app_backup_from_xlsx(xlsx_path: Path, *, reset: bool = True) -> None:
             except Exception:
                 pass
             sess.commit()
+            try:
+                if PRODUCTS_DIR.exists():
+                    shutil.rmtree(PRODUCTS_DIR)
+            except Exception:
+                pass
+        try:
+            PRODUCTS_DIR.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
 
         # Ubicaciones
         for r in _read("ubicaciones"):
@@ -683,6 +740,35 @@ def import_app_backup_from_xlsx(xlsx_path: Path, *, reset: bool = True) -> None:
             except Exception:
                 pass
         sess.flush()
+
+        primary_images_by_product: dict[int, Path] = {}
+        for r in _read("imagenes_productos"):
+            try:
+                pid = int(r.get("id_producto"))
+                rel_path = str(r.get("ruta_relativa") or "").strip().replace("\\", "/")
+                payload = str(r.get("archivo_base64") or "").strip()
+                if not rel_path or not payload:
+                    continue
+                target = (PRODUCTS_DIR / rel_path).resolve()
+                try:
+                    target.relative_to(PRODUCTS_DIR.resolve())
+                except Exception:
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(base64.b64decode(payload))
+                if str(r.get("es_principal") or "").strip() == "1":
+                    primary_images_by_product[pid] = target
+            except Exception:
+                pass
+
+        if primary_images_by_product:
+            for pid, target in primary_images_by_product.items():
+                try:
+                    prod = sess.get(Product, int(pid))
+                    if prod is not None:
+                        prod.image_path = str(target)
+                except Exception:
+                    pass
 
         # Órdenes: compras, ventas y recepciones
         for r in _read("ordenes"):

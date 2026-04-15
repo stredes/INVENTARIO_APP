@@ -91,14 +91,34 @@ function Write-ReleaseConfig($cfg) {
   Write-Utf8File -Path $path -Content ($cfg | ConvertTo-Json -Depth 10)
 }
 
+function Get-NextSemanticVersion([string]$Version) {
+  $baseVersion = if ([string]::IsNullOrWhiteSpace($Version)) { "0.1.0" } else { $Version.Trim() }
+  $parts = @(($baseVersion -split '\.'))
+  if ($parts.Count -lt 3) {
+    throw "base_version debe tener formato semántico mayor.menor.parche"
+  }
+  try {
+    $major = [int]$parts[0]
+    $minor = [int]$parts[1]
+    $patch = [int]$parts[2]
+  }
+  catch {
+    throw "base_version debe tener formato semántico mayor.menor.parche"
+  }
+  $patch += 1
+  return "$major.$minor.$patch"
+}
+
 function New-BuildVersion($cfg) {
-  $counter = [int]$cfg.release_counter + 1
-  $cfg.release_counter = $counter
+  $previousVersion = [string]$cfg.base_version
+  $version = Get-NextSemanticVersion -Version $previousVersion
+  $cfg.base_version = $version
+  $cfg.release_counter = [int]($cfg.release_counter) + 1
   Write-ReleaseConfig $cfg
-  $version = "{0}-build.{1}" -f $cfg.base_version, $counter
   $tag = "v$version"
   return @{
-    Counter = $counter
+    PreviousVersion = $previousVersion
+    Counter = [int]$cfg.release_counter
     Version = $version
     Tag = $tag
   }
