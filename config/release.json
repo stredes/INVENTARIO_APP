@@ -3,8 +3,8 @@
     "company_name":  "Tamapal Spa",
     "repo_owner":  "stredes",
     "repo_name":  "inventario_app",
-    "base_version":  "0.1.8",
-    "release_counter":  21,
+    "base_version":  "0.1.9",
+    "release_counter":  22,
     "release_channel":  "stable",
     "portable_asset_pattern":  "InventarioApp-portable-*.zip",
     "setup_asset_pattern":  "InventarioApp-setup-*.exe"

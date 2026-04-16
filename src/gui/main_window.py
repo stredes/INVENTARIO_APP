@@ -388,16 +388,8 @@ class MainWindow(ttk.Frame):
             )
             row += 1
 
-        self.btn_update_release = ttk.Button(
-            nav_card,
-            text="Actualizar panel",
-            style="HomeUpdate.TButton",
-            command=self._on_sidebar_update_click,
-            state="disabled",
-        )
-        self.btn_update_release.grid(row=row, column=0, sticky="ew", pady=(14, 6))
         ttk.Button(nav_card, text="Salir", style="HomeExit.TButton", command=self.app_root.quit).grid(
-            row=row + 1, column=0, sticky="ew", pady=(10, 0)
+            row=row, column=0, sticky="ew", pady=(14, 0)
         )
         ttk.Frame(host, style="HomeSidebar.TFrame", height=6).grid(row=3, column=0, sticky="ew")
 
@@ -451,7 +443,6 @@ class MainWindow(ttk.Frame):
         except Exception:
             pass
         try:
-            self.btn_update_release.configure(state="normal", text=f"Actualizar app {release.tag}")
             self.btn_update_quick.configure(state="normal", text=f"Actualizar ahora {release.tag}")
         except Exception:
             pass
@@ -479,7 +470,6 @@ class MainWindow(ttk.Frame):
             if release is None or not release.tag:
                 self._pending_release = None
                 self._update_status_var.set("Actualizaciones: no disponible")
-                self.btn_update_release.configure(state="disabled", text="Sin actualización")
                 self.btn_update_quick.configure(state="disabled", text="Sin actualización")
                 return
             local_key = tuple(int(part) for part in "".join(
@@ -492,12 +482,10 @@ class MainWindow(ttk.Frame):
             ).split(".") if part)
             if remote_key > local_key:
                 self._update_status_var.set(f"Actualización disponible: {release.tag}")
-                self.btn_update_release.configure(state="normal", text=f"Actualizar app {release.tag}")
                 self.btn_update_quick.configure(state="normal", text=f"Actualizar ahora {release.tag}")
             else:
                 self._pending_release = None
                 self._update_status_var.set("Actualizaciones: al día")
-                self.btn_update_release.configure(state="disabled", text="Sin actualización")
                 self.btn_update_quick.configure(state="disabled", text="Sin actualización")
         except Exception:
             pass
@@ -516,7 +504,6 @@ class MainWindow(ttk.Frame):
         if apply_release_update(self.app_root, self._pending_release):
             try:
                 self._update_status_var.set("Actualizaciones: descargando...")
-                self.btn_update_release.configure(state="disabled", text="Descargando actualización...")
                 self.btn_update_quick.configure(state="disabled", text="Descargando actualización...")
             except Exception:
                 pass
