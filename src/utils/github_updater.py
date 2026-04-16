@@ -207,6 +207,7 @@ $targetDir = '{target_dir}'
 $sourceDir = '{extracted_dir}'
 $exePath = '{current_exe}'
 $appName = '{app_name}'
+$preserveDir = Join-Path $targetDir '_update_preserve'
 
 Start-Sleep -Seconds 2
 
@@ -217,16 +218,52 @@ for ($i = 0; $i -lt 20; $i++) {{
   Start-Sleep -Milliseconds 500
 }}
 
+if (Test-Path $preserveDir) {{
+  Remove-Item -LiteralPath $preserveDir -Recurse -Force -ErrorAction SilentlyContinue
+}}
+New-Item -ItemType Directory -Force -Path $preserveDir | Out-Null
+
+$preserveFiles = @(
+  'config\\settings.ini',
+  'config\\ui_state.ini'
+)
+
+foreach ($relPath in $preserveFiles) {{
+  $srcFile = Join-Path $targetDir $relPath
+  if (Test-Path $srcFile) {{
+    $dstFile = Join-Path $preserveDir $relPath
+    $dstDir = Split-Path -Parent $dstFile
+    if ($dstDir) {{
+      New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
+    }}
+    Copy-Item -LiteralPath $srcFile -Destination $dstFile -Force
+  }}
+}}
+
 Get-ChildItem -LiteralPath $targetDir -Force | Where-Object {{
-  $_.Name -notin @('_apply_update.ps1', '_update_payload', 'config', 'app_data')
+  $_.Name -notin @('_apply_update.ps1', '_update_payload', '_update_preserve', 'app_data')
 }} | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
 Get-ChildItem -LiteralPath $sourceDir -Force | ForEach-Object {{
-  if ($_.Name -in @('config', 'app_data')) {{
+  if ($_.Name -in @('app_data')) {{
     return
   }}
   Copy-Item -LiteralPath $_.FullName -Destination $targetDir -Recurse -Force
 }}
+
+foreach ($relPath in $preserveFiles) {{
+  $srcFile = Join-Path $preserveDir $relPath
+  $dstFile = Join-Path $targetDir $relPath
+  if (Test-Path $srcFile) {{
+    $dstDir = Split-Path -Parent $dstFile
+    if ($dstDir) {{
+      New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
+    }}
+    Copy-Item -LiteralPath $srcFile -Destination $dstFile -Force
+  }}
+}}
+
+Remove-Item -LiteralPath $preserveDir -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $sourceDir -Recurse -Force -ErrorAction SilentlyContinue
 
 try {{
