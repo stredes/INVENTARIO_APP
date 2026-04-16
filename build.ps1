@@ -454,6 +454,133 @@ function Publish-Release([string]$RepoSlug, [string]$Tag, [string]$Title, [strin
   Write-Ok "Release actualizado: $Tag"
 }
 
+function Get-VersionTuple([string]$Version) {
+  $baseVersion = if ($null -eq $Version) { "" } else { [string]$Version }
+  $clean = ($baseVersion.Trim().ToLower().TrimStart('v')) -replace '[-_]', '.'
+  $parts = @()
+  foreach ($part in ($clean -split '\.')) {
+    $partText = if ($null -eq $part) { "" } else { [string]$part }
+    $digits = ($partText -replace '[^0-9]', '')
+    if ($digits) {
+      $parts += [int]$digits
+    }
+  }
+  if ($parts.Count -eq 0) { return @(0) }
+  return $parts
+}
+
+function Test-VersionIsNewer([string]$RemoteVersion, [string]$CurrentVersion) {
+  $remote = Get-VersionTuple -Version $RemoteVersion
+  $current = Get-VersionTuple -Version $CurrentVersion
+  $max = [Math]::Max($remote.Count, $current.Count)
+  for ($i = 0; $i -lt $max; $i++) {
+    $r = if ($i -lt $remote.Count) { [int]$remote[$i] } else { 0 }
+    $c = if ($i -lt $current.Count) { [int]$current[$i] } else { 0 }
+    if ($r -gt $c) { return $true }
+    if ($r -lt $c) { return $false }
+  }
+  return $false
+}
+
+function Read-ZipEntryText([string]$ZipPath, [string]$EntryName) {
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+  try {
+    $entry = $archive.Entries | Where-Object { $_.FullName -eq $EntryName } | Select-Object -First 1
+    if (-not $entry) { return $null }
+    $reader = New-Object System.IO.StreamReader($entry.Open(), [System.Text.UTF8Encoding]::new($true))
+    try {
+      return $reader.ReadToEnd()
+    }
+    finally {
+      $reader.Dispose()
+    }
+  }
+  finally {
+    $archive.Dispose()
+  }
+}
+
+function Test-PortablePackage([string]$ZipPath, [string]$AppName, [string]$ExpectedVersion, [string]$ExpectedTag) {
+  if (-not (Test-Path $ZipPath)) {
+    throw "No existe el ZIP portable esperado: $ZipPath"
+  }
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+  try {
+    $entryNames = @($archive.Entries | ForEach-Object { $_.FullName })
+  }
+  finally {
+    $archive.Dispose()
+  }
+
+  if ($entryNames -notcontains "$AppName.exe") {
+    throw "El ZIP portable no contiene $AppName.exe en la raiz."
+  }
+  if ($entryNames -notcontains "config/build_info.json") {
+    throw "El ZIP portable no contiene config/build_info.json."
+  }
+
+  $buildInfoText = Read-ZipEntryText -ZipPath $ZipPath -EntryName "config/build_info.json"
+  if (-not $buildInfoText) {
+    throw "No se pudo leer config/build_info.json desde el ZIP portable."
+  }
+  $buildInfo = $buildInfoText | ConvertFrom-Json
+  if ([string]$buildInfo.version -ne $ExpectedVersion) {
+    throw "El ZIP portable contiene version '$($buildInfo.version)' pero se esperaba '$ExpectedVersion'."
+  }
+  if ([string]$buildInfo.release_tag -ne $ExpectedTag) {
+    throw "El ZIP portable contiene tag '$($buildInfo.release_tag)' pero se esperaba '$ExpectedTag'."
+  }
+  Write-Ok "Paquete portable verificado: version $ExpectedVersion, tag $ExpectedTag"
+}
+
+function Verify-ReleaseUpdateReadiness(
+  [string]$RepoSlug,
+  [string]$ExpectedTag,
+  [string]$PreviousVersion,
+  [string]$PortableAssetPattern,
+  [string]$SetupAssetPattern,
+  [string]$PortableZipPath,
+  [string]$AppName,
+  [switch]$SkipRemoteCheck
+) {
+  Test-PortablePackage -ZipPath $PortableZipPath -AppName $AppName -ExpectedVersion ($ExpectedTag.TrimStart('v')) -ExpectedTag $ExpectedTag
+
+  if ($SkipRemoteCheck) {
+    Write-Info "Se omite validacion remota del release por -SkipPublish."
+    return
+  }
+
+  $url = "https://api.github.com/repos/$RepoSlug/releases/tags/$ExpectedTag"
+  Write-Info "Validando release remoto $ExpectedTag para compatibilidad de actualizacion..."
+  $headers = @{
+    Accept = "application/vnd.github+json"
+    "User-Agent" = "inventario-app-build"
+  }
+  $release = Invoke-RestMethod -Method Get -Uri $url -Headers $headers -ErrorAction Stop
+  if (-not $release) {
+    throw "No se pudo obtener el release remoto $ExpectedTag."
+  }
+  if ($release.draft -or $release.prerelease) {
+    throw "El release $ExpectedTag no es publico estable."
+  }
+  if (-not (Test-VersionIsNewer -RemoteVersion ([string]$release.tag_name) -CurrentVersion $PreviousVersion)) {
+    throw "El release remoto $($release.tag_name) no resulta mas nuevo que la version previa $PreviousVersion."
+  }
+
+  $assetNames = @($release.assets | ForEach-Object { [string]$_.name })
+  $portableMatch = $assetNames | Where-Object { $_ -like $PortableAssetPattern } | Select-Object -First 1
+  $setupMatch = $assetNames | Where-Object { $_ -like $SetupAssetPattern } | Select-Object -First 1
+  if (-not $portableMatch) {
+    throw "El release remoto $ExpectedTag no contiene un asset portable compatible con '$PortableAssetPattern'."
+  }
+  if (-not $setupMatch) {
+    throw "El release remoto $ExpectedTag no contiene un setup compatible con '$SetupAssetPattern'."
+  }
+  Write-Ok "Release remoto validado para update: $ExpectedTag (desde $PreviousVersion)"
+}
+
 $python = Get-PythonCommand
 Write-Info "Python usado para build: $python"
 Initialize-Tooling -PythonExe $python
@@ -579,6 +706,16 @@ if ($setupExe) { $assets += $setupExe }
 if (-not $SkipPublish) {
   Publish-Release -RepoSlug $repoSlug -Tag $buildMeta.Tag -Title "$appName $($buildMeta.Version)" -Assets $assets -Notes $ReleaseNotes -TargetBranch $targetBranch
 }
+
+Verify-ReleaseUpdateReadiness `
+  -RepoSlug $repoSlug `
+  -ExpectedTag $buildMeta.Tag `
+  -PreviousVersion $buildMeta.PreviousVersion `
+  -PortableAssetPattern ([string]$releaseCfg.portable_asset_pattern) `
+  -SetupAssetPattern ([string]$releaseCfg.setup_asset_pattern) `
+  -PortableZipPath $portableZip `
+  -AppName $appName `
+  -SkipRemoteCheck:$SkipPublish
 
 Write-Ok "Build completo: $($buildMeta.Version)"
 
