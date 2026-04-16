@@ -135,6 +135,7 @@ class MainWindow(ttk.Frame):
         self._pending_release: ReleaseInfo | None = None
         self._update_prompted_tag: str | None = None
         self._update_status_var = tk.StringVar(value="Actualizaciones: comprobando...")
+        self._update_badge_var = tk.StringVar(value="Estado de actualización")
         self._responsive_job = None
         self._sidebar_mousewheel_bound = False
         self._sidebar_scroll_enabled = False
@@ -350,16 +351,18 @@ class MainWindow(ttk.Frame):
 
         ttk.Label(brand, text=self._app_meta.company_name, style="HomeBrand.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(brand, text=f"Versión instalada: {self._app_meta.version}", style="HomeSmall.TLabel").grid(row=1, column=0, sticky="w", pady=(10, 0))
-        ttk.Label(brand, textvariable=self._update_status_var, style="HomeSmall.TLabel", wraplength=220, justify="left").grid(row=2, column=0, sticky="w", pady=(8, 0))
+        self.lbl_update_badge = ttk.Label(brand, textvariable=self._update_badge_var, style="InfoBadge.TLabel")
+        self.lbl_update_badge.grid(row=2, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(brand, textvariable=self._update_status_var, style="HomeSmall.TLabel", wraplength=220, justify="left").grid(row=3, column=0, sticky="w", pady=(10, 0))
         self.btn_update_quick = ttk.Button(
             brand,
-            text="Actualizar ahora",
+            text="Buscar e instalar actualización",
             style="HomeUpdate.TButton",
             command=self._on_sidebar_update_click,
             state="disabled",
         )
-        self.btn_update_quick.grid(row=3, column=0, sticky="ew", pady=(10, 0))
-        ttk.Label(brand, text="Navegación principal", style="HomeSmall.TLabel").grid(row=4, column=0, sticky="w", pady=(10, 0))
+        self.btn_update_quick.grid(row=4, column=0, sticky="ew", pady=(12, 0))
+        ttk.Label(brand, text="Navegación principal", style="HomeSmall.TLabel").grid(row=5, column=0, sticky="w", pady=(12, 0))
 
         ttk.Separator(host).grid(row=1, column=0, sticky="ew", pady=(18, 12))
         nav_card = ttk.Frame(host, style="HomeSidebarCard.TFrame", padding=14)
@@ -439,11 +442,13 @@ class MainWindow(ttk.Frame):
     def set_update_release(self, release: ReleaseInfo) -> None:
         self._pending_release = release
         try:
+            self._update_badge_var.set("Nueva versión lista")
+            self.lbl_update_badge.configure(style="SuccessBadge.TLabel")
             self._update_status_var.set(f"Actualización disponible: {release.tag}")
         except Exception:
             pass
         try:
-            self.btn_update_quick.configure(state="normal", text=f"Actualizar ahora {release.tag}")
+            self.btn_update_quick.configure(state="normal", text=f"Instalar {release.tag} ahora")
         except Exception:
             pass
         try:
@@ -469,8 +474,10 @@ class MainWindow(ttk.Frame):
         try:
             if release is None or not release.tag:
                 self._pending_release = None
+                self._update_badge_var.set("Sin novedades")
+                self.lbl_update_badge.configure(style="InfoBadge.TLabel")
                 self._update_status_var.set("Actualizaciones: no disponible")
-                self.btn_update_quick.configure(state="disabled", text="Sin actualización")
+                self.btn_update_quick.configure(state="disabled", text="Sin actualización disponible")
                 return
             local_key = tuple(int(part) for part in "".join(
                 ch if ch.isdigit() or ch == "." else "."
@@ -481,12 +488,16 @@ class MainWindow(ttk.Frame):
                 for ch in release.tag.replace("-", ".").replace("_", ".")
             ).split(".") if part)
             if remote_key > local_key:
+                self._update_badge_var.set("Nueva versión lista")
+                self.lbl_update_badge.configure(style="SuccessBadge.TLabel")
                 self._update_status_var.set(f"Actualización disponible: {release.tag}")
-                self.btn_update_quick.configure(state="normal", text=f"Actualizar ahora {release.tag}")
+                self.btn_update_quick.configure(state="normal", text=f"Instalar {release.tag} ahora")
             else:
                 self._pending_release = None
+                self._update_badge_var.set("Aplicación al día")
+                self.lbl_update_badge.configure(style="InfoBadge.TLabel")
                 self._update_status_var.set("Actualizaciones: al día")
-                self.btn_update_quick.configure(state="disabled", text="Sin actualización")
+                self.btn_update_quick.configure(state="disabled", text="Aplicación actualizada")
         except Exception:
             pass
 
@@ -503,8 +514,10 @@ class MainWindow(ttk.Frame):
             return
         if apply_release_update(self.app_root, self._pending_release):
             try:
+                self._update_badge_var.set("Instalando actualización")
+                self.lbl_update_badge.configure(style="WarningBadge.TLabel")
                 self._update_status_var.set("Actualizaciones: descargando...")
-                self.btn_update_quick.configure(state="disabled", text="Descargando actualización...")
+                self.btn_update_quick.configure(state="disabled", text="Descargando e instalando...")
             except Exception:
                 pass
         else:
