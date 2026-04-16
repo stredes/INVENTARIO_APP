@@ -133,6 +133,7 @@ class MainWindow(ttk.Frame):
         self._current_section_var = tk.StringVar(value="Inicio")
         self._app_meta = get_app_meta()
         self._pending_release: ReleaseInfo | None = None
+        self._update_prompted_tag: str | None = None
         self._update_status_var = tk.StringVar(value="Actualizaciones: comprobando...")
         self._responsive_job = None
         self._sidebar_mousewheel_bound = False
@@ -350,7 +351,15 @@ class MainWindow(ttk.Frame):
         ttk.Label(brand, text=self._app_meta.company_name, style="HomeBrand.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(brand, text=f"Versión instalada: {self._app_meta.version}", style="HomeSmall.TLabel").grid(row=1, column=0, sticky="w", pady=(10, 0))
         ttk.Label(brand, textvariable=self._update_status_var, style="HomeSmall.TLabel", wraplength=220, justify="left").grid(row=2, column=0, sticky="w", pady=(8, 0))
-        ttk.Label(brand, text="Navegación principal", style="HomeSmall.TLabel").grid(row=3, column=0, sticky="w", pady=(10, 0))
+        self.btn_update_quick = ttk.Button(
+            brand,
+            text="Actualizar ahora",
+            style="HomeUpdate.TButton",
+            command=self._on_sidebar_update_click,
+            state="disabled",
+        )
+        self.btn_update_quick.grid(row=3, column=0, sticky="ew", pady=(10, 0))
+        ttk.Label(brand, text="Navegación principal", style="HomeSmall.TLabel").grid(row=4, column=0, sticky="w", pady=(10, 0))
 
         ttk.Separator(host).grid(row=1, column=0, sticky="ew", pady=(18, 12))
         nav_card = ttk.Frame(host, style="HomeSidebarCard.TFrame", padding=14)
@@ -443,12 +452,27 @@ class MainWindow(ttk.Frame):
             pass
         try:
             self.btn_update_release.configure(state="normal", text=f"Actualizar app {release.tag}")
+            self.btn_update_quick.configure(state="normal", text=f"Actualizar ahora {release.tag}")
         except Exception:
             pass
         try:
             self.status.flash(f"Nueva versión disponible: {release.tag}", kind="info", ms=2200)
         except Exception:
             pass
+        if self._update_prompted_tag != release.tag:
+            self._update_prompted_tag = release.tag
+            try:
+                if messagebox.askyesno(
+                    "Actualización disponible",
+                    (
+                        f"Hay una nueva versión disponible: {release.tag}\n\n"
+                        "¿Quieres descargarla e instalarla ahora?"
+                    ),
+                    parent=self.app_root,
+                ):
+                    self._on_sidebar_update_click()
+            except Exception:
+                pass
 
     def set_update_check_result(self, release: ReleaseInfo | None) -> None:
         try:
@@ -456,6 +480,7 @@ class MainWindow(ttk.Frame):
                 self._pending_release = None
                 self._update_status_var.set("Actualizaciones: no disponible")
                 self.btn_update_release.configure(state="disabled", text="Sin actualización")
+                self.btn_update_quick.configure(state="disabled", text="Sin actualización")
                 return
             local_key = tuple(int(part) for part in "".join(
                 ch if ch.isdigit() or ch == "." else "."
@@ -468,20 +493,43 @@ class MainWindow(ttk.Frame):
             if remote_key > local_key:
                 self._update_status_var.set(f"Actualización disponible: {release.tag}")
                 self.btn_update_release.configure(state="normal", text=f"Actualizar app {release.tag}")
+                self.btn_update_quick.configure(state="normal", text=f"Actualizar ahora {release.tag}")
             else:
                 self._pending_release = None
                 self._update_status_var.set("Actualizaciones: al día")
                 self.btn_update_release.configure(state="disabled", text="Sin actualización")
+                self.btn_update_quick.configure(state="disabled", text="Sin actualización")
         except Exception:
             pass
 
     def _on_sidebar_update_click(self) -> None:
         if self._pending_release is None:
+            try:
+                messagebox.showinfo(
+                    "Actualización",
+                    "No hay una actualización lista para instalar en este momento.",
+                    parent=self.app_root,
+                )
+            except Exception:
+                pass
             return
         if apply_release_update(self.app_root, self._pending_release):
             try:
                 self._update_status_var.set("Actualizaciones: descargando...")
                 self.btn_update_release.configure(state="disabled", text="Descargando actualización...")
+                self.btn_update_quick.configure(state="disabled", text="Descargando actualización...")
+            except Exception:
+                pass
+        else:
+            try:
+                messagebox.showwarning(
+                    "Actualización",
+                    (
+                        "No se pudo iniciar la actualización automática.\n\n"
+                        "Revisa el visor de logs para ver el detalle."
+                    ),
+                    parent=self.app_root,
+                )
             except Exception:
                 pass
 
