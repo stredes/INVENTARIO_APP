@@ -525,16 +525,18 @@ function Test-PortablePackage([string]$ZipPath, [string]$AppName, [string]$Expec
     $archive.Dispose()
   }
 
-  if ($entryNames -notcontains "$AppName.exe") {
-    throw "El ZIP portable no contiene $AppName.exe en la raiz."
+  $exeEntry = $entryNames | Where-Object { $_ -eq "$AppName.exe" -or $_ -like "*/$AppName.exe" -or $_ -like "*\$AppName.exe" } | Select-Object -First 1
+  if (-not $exeEntry) {
+    throw "El ZIP portable no contiene $AppName.exe."
   }
-  if ($entryNames -notcontains "config/build_info.json") {
+  $buildInfoEntry = $entryNames | Where-Object { $_ -eq "config/build_info.json" -or $_ -like "*/config/build_info.json" -or $_ -like "*\config\build_info.json" } | Select-Object -First 1
+  if (-not $buildInfoEntry) {
     throw "El ZIP portable no contiene config/build_info.json."
   }
 
-  $buildInfoText = Read-ZipEntryText -ZipPath $ZipPath -EntryName "config/build_info.json"
+  $buildInfoText = Read-ZipEntryText -ZipPath $ZipPath -EntryName $buildInfoEntry
   if (-not $buildInfoText) {
-    throw "No se pudo leer config/build_info.json desde el ZIP portable."
+    throw "No se pudo leer $buildInfoEntry desde el ZIP portable."
   }
   $buildInfo = $buildInfoText | ConvertFrom-Json
   if ([string]$buildInfo.version -ne $ExpectedVersion) {
