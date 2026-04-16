@@ -144,8 +144,19 @@ function Write-BuildInfo($cfg, $buildMeta) {
 
 
 function Test-PythonModule([string]$PythonExe, [string]$module) {
-  & $PythonExe -c "import importlib.util,sys;sys.exit(0 if importlib.util.find_spec('$module') else 1)" | Out-Null
-  return ($LASTEXITCODE -eq 0)
+  $candidates = @($module)
+  if ($module -eq "PyInstaller") {
+    $candidates += "pyinstaller"
+  }
+  foreach ($candidate in $candidates | Select-Object -Unique) {
+    & $PythonExe -c "import importlib.util,sys;sys.exit(0 if importlib.util.find_spec('$candidate') else 1)" | Out-Null
+    if ($LASTEXITCODE -eq 0) { return $true }
+  }
+  if ($module -eq "PyInstaller") {
+    & $PythonExe -m PyInstaller --version | Out-Null
+    if ($LASTEXITCODE -eq 0) { return $true }
+  }
+  return $false
 }
 
 function Install-BuildTooling([string]$PythonExe, [switch]$Upgrade) {
