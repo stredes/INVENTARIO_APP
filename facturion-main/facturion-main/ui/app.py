@@ -11,7 +11,7 @@ import customtkinter as ctk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
-from database.connection import DB_PATH
+from database.connection import DB_PATH, clear_operational_data
 from models.invoice import Invoice
 from models.reconciliation import Reconciliation
 from services.export_service import ExportService
@@ -24,6 +24,7 @@ from utils.app_metadata import APP_NAME, APP_VERSION, GITHUB_REPOSITORY
 from utils.paths import get_backup_dir
 from utils.formatters import format_currency, month_label
 from utils.validators import (
+    format_invoice_date,
     validate_invoice_date,
     validate_month,
     validate_positive_number,
@@ -54,6 +55,7 @@ class FacturionApp(ctk.CTk):
         self.search_var = tk.StringVar()
         self.invoice_sort_state: dict[str, bool] = {}
         self.history_sort_state: dict[str, bool] = {}
+        self.payment_sort_state: dict[str, bool] = {}
 
         self._configure_styles()
         self._build_layout()
@@ -96,7 +98,7 @@ class FacturionApp(ctk.CTk):
 
         ctk.CTkLabel(
             header,
-            text=f"Control mensual de facturas, IVA acumulado y conciliación con SII | v{APP_VERSION}",
+            text=f"Control mensual de facturas, IVA acumulado y pago en SII | v{APP_VERSION}",
             text_color="#b6c2d2",
             font=ctk.CTkFont(size=14),
         ).grid(row=1, column=0, sticky="w", padx=18, pady=(0, 14))
@@ -105,6 +107,13 @@ class FacturionApp(ctk.CTk):
         header_actions.grid(row=0, column=1, rowspan=2, sticky="e", padx=18)
         ctk.CTkButton(header_actions, text="Actualizar app", command=self.check_for_updates).pack(side="left", padx=6)
         ctk.CTkButton(header_actions, text="Respaldar BD", command=self.backup_database).pack(side="left", padx=6)
+        ctk.CTkButton(
+            header_actions,
+            text="Limpiar BD",
+            fg_color="#7f1d1d",
+            hover_color="#991b1b",
+            command=self.clear_database,
+        ).pack(side="left", padx=6)
         ctk.CTkButton(header_actions, text="Configurar IVA", command=self.configure_vat_rate).pack(side="left", padx=6)
 
         body = ctk.CTkFrame(self, corner_radius=18)
@@ -127,12 +136,12 @@ class FacturionApp(ctk.CTk):
         ).pack(anchor="w", padx=18, pady=(18, 14))
 
         self.invoice_number_entry = self._labeled_entry(panel, "Número de factura")
-        self.invoice_date_entry = self._labeled_entry(panel, "Fecha (YYYY-MM-DD)")
+        self.invoice_date_entry = self._labeled_entry(panel, "Fecha (DD/MM/AAAA)")
         self.client_entry = self._labeled_entry(panel, "Cliente")
         self.description_entry = self._labeled_entry(panel, "Descripción o detalle")
         self.net_amount_entry = self._labeled_entry(panel, "Monto neto")
-        self.tag_amount_entry = self._labeled_entry(panel, "Cobro TAG")
-        self.accountant_amount_entry = self._labeled_entry(panel, "Cobro contador")
+        self.tag_amount_entry = self._labeled_entry(panel, "Retención TAG")
+        self.accountant_amount_entry = self._labeled_entry(panel, "Retención contador")
 
         self.calculation_preview = ctk.CTkTextbox(panel, height=96, corner_radius=12)
         self.calculation_preview.pack(fill="x", padx=18, pady=(8, 10))
@@ -140,7 +149,7 @@ class FacturionApp(ctk.CTk):
         actions = ctk.CTkFrame(panel, fg_color="transparent")
         actions.pack(fill="x", padx=18, pady=(4, 8))
         ctk.CTkButton(actions, text="Guardar factura", command=self.save_invoice).pack(fill="x", pady=5)
-        ctk.CTkButton(actions, text="Nuevo registro", fg_color="#334155", command=self.reset_form).pack(fill="x", pady=5)
+        ctk.CTkButton(actions, text="Limpiar formulario", fg_color="#334155", command=self.reset_form).pack(fill="x", pady=5)
         ctk.CTkButton(
             actions,
             text="Eliminar seleccionada",
@@ -158,6 +167,10 @@ class FacturionApp(ctk.CTk):
             "- Fecha válida en formato YYYY-MM-DD\n"
             "- Montos positivos\n"
             "- Advertencia por factura duplicada\n\n"
+            "Regla contable aplicada:\n"
+            "- El IVA se calcula solo sobre el neto.\n"
+            "- TAG y contador son retenciones sin IVA.\n"
+            "- Total liquidado = neto + IVA - retenciones.\n\n"
             "Flujo sugerido:\n"
             "1. Registra facturas durante el mes.\n"
             "2. Revisa acumulados.\n"
@@ -177,7 +190,7 @@ class FacturionApp(ctk.CTk):
         tabs = ctk.CTkTabview(panel, corner_radius=16)
         tabs.grid(row=1, column=0, sticky="nsew", padx=16, pady=(0, 16))
         tabs.add("Facturas")
-        tabs.add("Conciliación")
+        tabs.add("Pagos")
         tabs.add("Historial")
 
         facturas_tab = tabs.tab("Facturas")
@@ -185,7 +198,7 @@ class FacturionApp(ctk.CTk):
         facturas_tab.grid_columnconfigure(1, weight=2)
         facturas_tab.grid_rowconfigure(0, weight=1)
 
-        conciliacion_tab = tabs.tab("Conciliación")
+        conciliacion_tab = tabs.tab("Pagos")
         conciliacion_tab.grid_columnconfigure(0, weight=2)
         conciliacion_tab.grid_columnconfigure(1, weight=3)
         conciliacion_tab.grid_rowconfigure(0, weight=1)
@@ -201,28 +214,72 @@ class FacturionApp(ctk.CTk):
         self._build_history_panel(historial_tab)
 
     def _build_dashboard(self, parent: ctk.CTkFrame) -> None:
-        frame = ctk.CTkFrame(parent, corner_radius=16)
+        frame = ctk.CTkScrollableFrame(parent, corner_radius=16, height=310)
         frame.grid(row=0, column=0, sticky="ew", padx=16, pady=(16, 10))
-        frame.grid_columnconfigure((0, 1, 2), weight=1)
+        frame.grid_columnconfigure(0, weight=1)
         self.dashboard_cards: dict[str, ctk.CTkLabel] = {}
+        self.global_cards: dict[str, ctk.CTkLabel] = {}
 
-        cards = [
-            ("Saldo arrastrado", "opening_balance"),
+        month_frame = ctk.CTkFrame(frame, corner_radius=14, fg_color="transparent")
+        month_frame.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
+        month_frame.grid_columnconfigure((0, 1, 2), weight=1)
+        ctk.CTkLabel(
+            month_frame,
+            text="Resumen del mes actual",
+            font=ctk.CTkFont(size=17, weight="bold"),
+        ).grid(row=0, column=0, columnspan=3, sticky="w", padx=4, pady=(0, 8))
+
+        month_cards = [
+            ("Saldo heredado del mes anterior", "opening_balance"),
+            ("IVA total acumulado del mes", "vat_amount"),
             ("Diferencia IVA", "tax_balance"),
-            ("Diferencia TAG", "tag_balance"),
-            ("Diferencia contador", "accountant_balance"),
-            ("TAG retenido", "tag_amount"),
-            ("Contador retenido", "accountant_amount"),
-            ("Estado conciliación", "balance_status"),
+            ("Saldo TAG", "tag_balance"),
+            ("Saldo contador", "accountant_balance"),
+            ("Retencion TAG del mes", "tag_amount"),
+            ("Retencion contador del mes", "accountant_amount"),
+            ("Estado de pago", "balance_status"),
             ("Saldo final", "balance"),
         ]
-        for index, (label, key) in enumerate(cards):
-            card = ctk.CTkFrame(frame, corner_radius=14, fg_color="#142031")
-            card.grid(row=index // 3, column=index % 3, sticky="ew", padx=8, pady=8)
-            ctk.CTkLabel(card, text=label, text_color="#9fb1c7").pack(anchor="w", padx=12, pady=(10, 2))
-            value = ctk.CTkLabel(card, text="--", font=ctk.CTkFont(size=20, weight="bold"))
-            value.pack(anchor="w", padx=12, pady=(0, 10))
+        for index, (label, key) in enumerate(month_cards):
+            card = ctk.CTkFrame(month_frame, corner_radius=14, fg_color="#142031")
+            card.grid(row=(index // 3) + 1, column=index % 3, sticky="ew", padx=8, pady=6)
+            ctk.CTkLabel(card, text=label, text_color="#9fb1c7").pack(anchor="w", padx=12, pady=(8, 2))
+            value = ctk.CTkLabel(card, text="--", font=ctk.CTkFont(size=18, weight="bold"))
+            value.pack(anchor="w", padx=12, pady=(0, 8))
             self.dashboard_cards[key] = value
+
+        global_frame = ctk.CTkFrame(frame, corner_radius=14, fg_color="transparent")
+        global_frame.grid(row=1, column=0, sticky="ew", padx=8, pady=(6, 8))
+        global_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        ctk.CTkLabel(
+            global_frame,
+            text="Resumen global de todos los meses",
+            font=ctk.CTkFont(size=17, weight="bold"),
+        ).grid(row=0, column=0, columnspan=4, sticky="w", padx=4, pady=(0, 8))
+
+        global_cards = [
+            ("Facturas acumuladas", "count"),
+            ("Neto acumulado", "net_amount"),
+            ("Total liquidado acumulado", "total_amount"),
+            ("IVA total de todos los meses", "vat_amount"),
+            ("IVA pagado total", "sii_vat_amount"),
+            ("IVA pendiente total", "pending_vat_amount"),
+            ("TAG total de todos los meses", "tag_amount"),
+            ("TAG pagado total", "actual_tag_paid"),
+            ("TAG pendiente total", "pending_tag_amount"),
+            ("Contador total de todos los meses", "accountant_amount"),
+            ("Contador pagado total", "actual_accountant_paid"),
+            ("Contador pendiente total", "pending_accountant_amount"),
+            ("Compromisos pendientes", "company_commitments"),
+            ("Ahorro disponible estimado", "available_savings"),
+        ]
+        for index, (label, key) in enumerate(global_cards):
+            card = ctk.CTkFrame(global_frame, corner_radius=14, fg_color="#142031")
+            card.grid(row=(index // 4) + 1, column=index % 4, sticky="ew", padx=8, pady=6)
+            ctk.CTkLabel(card, text=label, text_color="#9fb1c7").pack(anchor="w", padx=12, pady=(8, 2))
+            value = ctk.CTkLabel(card, text="--", font=ctk.CTkFont(size=18, weight="bold"))
+            value.pack(anchor="w", padx=12, pady=(0, 8))
+            self.global_cards[key] = value
 
     def _build_invoice_table(self, parent: ctk.CTkFrame) -> None:
         container = ctk.CTkFrame(parent, corner_radius=16)
@@ -264,7 +321,7 @@ class FacturionApp(ctk.CTk):
             "iva": "IVA",
             "tag": "TAG",
             "contador": "Contador",
-            "total": "Total",
+            "total": "Total liquidado",
         }
         widths = {"id": 60, "numero": 110, "fecha": 110, "cliente": 190, "neto": 110, "iva": 110, "tag": 90, "contador": 110, "total": 120}
         for column in columns:
@@ -295,15 +352,20 @@ class FacturionApp(ctk.CTk):
             ("Cantidad de facturas", "count"),
             ("Total neto", "net_amount"),
             ("IVA acumulado", "vat_amount"),
-            ("TAG retenido", "tag_amount"),
-            ("TAG pagado real", "actual_tag_paid"),
-            ("Diferencia TAG", "tag_balance"),
-            ("Contador retenido", "accountant_amount"),
-            ("Contador pagado real", "actual_accountant_paid"),
-            ("Diferencia contador", "accountant_balance"),
-            ("Total facturado", "total_amount"),
+            ("TAG retenido del mes", "tag_amount"),
+            ("TAG pagado del mes", "actual_tag_paid"),
+            ("TAG acumulado pendiente", "accumulated_tag_amount"),
+            ("TAG pagado acumulado", "accumulated_actual_tag_paid"),
+            ("Saldo TAG acumulado", "tag_balance"),
+            ("Contador retenido del mes", "accountant_amount"),
+            ("Contador pagado del mes", "actual_accountant_paid"),
+            ("Contador acumulado pendiente", "accumulated_accountant_amount"),
+            ("Contador pagado acumulado", "accumulated_actual_accountant_paid"),
+            ("Saldo contador acumulado", "accountant_balance"),
+            ("Total facturado bruto del mes", "billed_total_amount"),
+            ("Total liquidado del mes", "total_amount"),
             ("IVA informado SII", "sii_vat_amount"),
-            ("Saldo arrastrado", "opening_balance"),
+            ("Saldo heredado del mes anterior", "opening_balance"),
             ("Diferencia IVA del mes", "tax_balance"),
             ("Saldo final del mes", "balance"),
             ("Estado", "balance_status"),
@@ -325,7 +387,7 @@ class FacturionApp(ctk.CTk):
 
         ctk.CTkLabel(
             container,
-            text="Conciliación IVA SII",
+            text="Pago IVA SII",
             font=ctk.CTkFont(size=20, weight="bold"),
         ).pack(anchor="w", padx=16, pady=(16, 12))
 
@@ -341,8 +403,60 @@ class FacturionApp(ctk.CTk):
         self.actual_accountant_paid_entry = self._labeled_entry(container, "Contador pagado real del mes")
         self.sii_observation_entry = self._labeled_entry(container, "Observación opcional")
 
-        ctk.CTkButton(container, text="Guardar conciliación", command=self.save_reconciliation).pack(fill="x", padx=16, pady=(8, 8))
-        ctk.CTkButton(container, text="Exportar conciliación Excel", fg_color="#334155", command=self.export_reconciliation_excel).pack(fill="x", padx=16, pady=(0, 16))
+        ctk.CTkButton(container, text="Guardar pago", command=self.save_reconciliation).pack(fill="x", padx=16, pady=(8, 8))
+        ctk.CTkButton(container, text="Limpiar pago", fg_color="#334155", command=self.clear_reconciliation_form).pack(fill="x", padx=16, pady=(0, 8))
+        ctk.CTkButton(container, text="Exportar pagos Excel", fg_color="#475569", command=self.export_reconciliation_excel).pack(fill="x", padx=16, pady=(0, 16))
+
+        ctk.CTkLabel(
+            container,
+            text="Historial de pagos",
+            font=ctk.CTkFont(size=20, weight="bold"),
+        ).pack(anchor="w", padx=16, pady=(8, 10))
+
+        history_box = ctk.CTkFrame(container, corner_radius=16)
+        history_box.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+        history_box.grid_columnconfigure(0, weight=1)
+        history_box.grid_rowconfigure(0, weight=1)
+
+        payment_columns = ("mes", "iva_pagado", "tag_pagado", "contador_pagado", "observacion")
+        self.payment_tree = ttk.Treeview(history_box, columns=payment_columns, show="headings", height=10)
+        payment_headings = {
+            "mes": "Mes",
+            "iva_pagado": "IVA pagado",
+            "tag_pagado": "TAG pagado",
+            "contador_pagado": "Contador pagado",
+            "observacion": "Observación",
+        }
+        for column in payment_columns:
+            self.payment_tree.heading(
+                column,
+                text=payment_headings[column],
+                command=lambda current=column: self.sort_treeview(
+                    tree=self.payment_tree,
+                    column=current,
+                    sort_state=self.payment_sort_state,
+                    heading_map=payment_headings,
+                ),
+            )
+            width = 140 if column != "observacion" else 280
+            self.payment_tree.column(column, anchor="center", width=width, minwidth=110)
+        self.payment_tree.grid(row=0, column=0, sticky="nsew")
+        self.payment_tree.bind("<Double-1>", self.load_selected_payment)
+
+        payment_y_scroll = ttk.Scrollbar(history_box, orient="vertical", command=self.payment_tree.yview)
+        payment_y_scroll.grid(row=0, column=1, sticky="ns")
+        payment_x_scroll = ttk.Scrollbar(history_box, orient="horizontal", command=self.payment_tree.xview)
+        payment_x_scroll.grid(row=1, column=0, sticky="ew")
+        self.payment_tree.configure(yscrollcommand=payment_y_scroll.set, xscrollcommand=payment_x_scroll.set)
+
+        self.payment_detail_label = ctk.CTkLabel(
+            container,
+            text="Haz doble clic en un pago para cargar ese mes en el formulario superior.",
+            text_color="#cbd5e1",
+            justify="left",
+            wraplength=520,
+        )
+        self.payment_detail_label.pack(fill="x", padx=16, pady=(0, 10))
 
     def _build_chart_panel(self, parent: ctk.CTkFrame) -> None:
         container = ctk.CTkFrame(parent, corner_radius=16)
@@ -384,7 +498,7 @@ class FacturionApp(ctk.CTk):
         ctk.CTkButton(actions, text="Ver mes seleccionado", command=self.apply_selected_history_month).pack(side="left", padx=6)
         ctk.CTkButton(actions, text="Exportar historial CSV", fg_color="#334155", command=self.export_history_csv).pack(side="left", padx=6)
 
-        columns = ("mes", "facturas", "iva", "tag_dif", "cont_dif", "sii", "arrastre", "saldo", "estado")
+        columns = ("mes", "facturas", "neto", "iva", "tag_dif", "cont_dif", "sii", "arrastre", "saldo", "estado")
         table_frame = ctk.CTkFrame(container, fg_color="transparent")
         table_frame.grid(row=1, column=0, sticky="nsew", padx=16, pady=(0, 12))
         table_frame.grid_columnconfigure(0, weight=1)
@@ -394,11 +508,12 @@ class FacturionApp(ctk.CTk):
         headings = {
             "mes": "Mes",
             "facturas": "Facturas",
+            "neto": "Neto",
             "iva": "Dif. IVA",
-            "tag_dif": "Dif. TAG",
-            "cont_dif": "Dif. contador",
+            "tag_dif": "Saldo TAG",
+            "cont_dif": "Saldo contador",
             "sii": "IVA SII",
-            "arrastre": "Saldo arrastrado",
+            "arrastre": "Saldo heredado",
             "saldo": "Saldo",
             "estado": "Estado",
         }
@@ -505,6 +620,7 @@ class FacturionApp(ctk.CTk):
         self.refresh_invoice_table()
         self.refresh_summary()
         self.refresh_dashboard()
+        self.refresh_payment_history()
         self.refresh_history()
         self.refresh_chart()
         self.load_reconciliation_fields()
@@ -519,19 +635,25 @@ class FacturionApp(ctk.CTk):
             year=self.selected_year.get(),
         )
         for invoice in invoices:
+            totals = ReportService.calculate_invoice_totals(
+                net_amount=invoice["net_amount"],
+                vat_rate=invoice["vat_rate"],
+                tag_amount=invoice["tag_amount"],
+                accountant_amount=invoice["accountant_amount"],
+            )
             self.invoice_tree.insert(
                 "",
                 "end",
                 values=(
                     invoice["id"],
                     invoice["invoice_number"],
-                    invoice["invoice_date"],
+                    format_invoice_date(invoice["invoice_date"]),
                     invoice["client"],
                     format_currency(invoice["net_amount"]),
                     format_currency(invoice["vat_amount"]),
                     format_currency(invoice["tag_amount"]),
                     format_currency(invoice["accountant_amount"]),
-                    format_currency(invoice["total_amount"]),
+                    format_currency(totals["total_amount"]),
                 ),
             )
 
@@ -543,10 +665,15 @@ class FacturionApp(ctk.CTk):
             "vat_amount",
             "tag_amount",
             "actual_tag_paid",
+            "accumulated_tag_amount",
+            "accumulated_actual_tag_paid",
             "tag_balance",
             "accountant_amount",
             "actual_accountant_paid",
+            "accumulated_accountant_amount",
+            "accumulated_actual_accountant_paid",
             "accountant_balance",
+            "billed_total_amount",
             "total_amount",
             "sii_vat_amount",
             "opening_balance",
@@ -559,7 +686,9 @@ class FacturionApp(ctk.CTk):
 
     def refresh_dashboard(self) -> None:
         summary = ReportService.current_month_summary()
+        global_summary = ReportService.global_summary()
         self.dashboard_cards["opening_balance"].configure(text=format_currency(summary["opening_balance"]))
+        self.dashboard_cards["vat_amount"].configure(text=format_currency(summary["vat_amount"]))
         self.dashboard_cards["tax_balance"].configure(text=format_currency(summary["tax_balance"]))
         self.dashboard_cards["tag_balance"].configure(text=format_currency(summary["tag_balance"]))
         self.dashboard_cards["accountant_balance"].configure(text=format_currency(summary["accountant_balance"]))
@@ -567,6 +696,42 @@ class FacturionApp(ctk.CTk):
         self.dashboard_cards["accountant_amount"].configure(text=format_currency(summary["accountant_amount"]))
         self.dashboard_cards["balance_status"].configure(text=summary["balance_status"])
         self.dashboard_cards["balance"].configure(text=format_currency(summary["balance"]))
+        self.global_cards["count"].configure(text=str(global_summary["count"]))
+        for key in (
+            "net_amount",
+            "total_amount",
+            "vat_amount",
+            "sii_vat_amount",
+            "pending_vat_amount",
+            "tag_amount",
+            "actual_tag_paid",
+            "pending_tag_amount",
+            "accountant_amount",
+            "actual_accountant_paid",
+            "pending_accountant_amount",
+            "company_commitments",
+            "available_savings",
+        ):
+            self.global_cards[key].configure(text=format_currency(global_summary[key]))
+
+    def refresh_payment_history(self) -> None:
+        for item in self.payment_tree.get_children():
+            self.payment_tree.delete(item)
+
+        for row in ReconciliationService.list_all():
+            observation = row.get("observation") or ""
+            self.payment_tree.insert(
+                "",
+                "end",
+                values=(
+                    month_label(row["month"]),
+                    format_currency(row.get("sii_vat_amount", 0)),
+                    format_currency(row.get("actual_tag_paid", 0)),
+                    format_currency(row.get("actual_accountant_paid", 0)),
+                    observation,
+                ),
+                tags=(row["month"], observation),
+            )
 
     def refresh_history(self) -> None:
         for item in self.history_tree.get_children():
@@ -578,6 +743,7 @@ class FacturionApp(ctk.CTk):
                 values=(
                     month_label(row["month"]),
                     row["count"],
+                    format_currency(row["net_amount"]),
                     format_currency(row["tax_balance"]),
                     format_currency(row["tag_balance"]),
                     format_currency(row["accountant_balance"]),
@@ -606,14 +772,47 @@ class FacturionApp(ctk.CTk):
         self.figure.tight_layout()
         self.chart_canvas.draw()
 
+    def update_calculation_preview(
+        self,
+        *,
+        net_amount: float | None = None,
+        tag_amount: float | None = None,
+        accountant_amount: float | None = None,
+    ) -> None:
+        if net_amount is None:
+            preview_text = (
+                "IVA calculado automÃ¡ticamente segÃºn la tasa configurada.\n"
+                "TAG y contador se registran como retenciones sin IVA.\n"
+                "Total liquidado = neto + IVA - TAG - contador."
+            )
+        else:
+            totals = ReportService.calculate_invoice_totals(
+                net_amount=net_amount,
+                vat_rate=self.current_vat_rate,
+                tag_amount=tag_amount or 0.0,
+                accountant_amount=accountant_amount or 0.0,
+            )
+            preview_text = (
+                f"Tasa IVA actual: {self.current_vat_rate:.2f}%\n"
+                f"IVA calculado: {format_currency(totals['vat_amount'])}\n"
+                f"Total bruto facturado: {format_currency(totals['billed_total'])}\n"
+                f"Retenciones TAG + contador: {format_currency(totals['withheld_total'])}\n"
+                f"Total liquidado: {format_currency(totals['total_amount'])}"
+            )
+
+        self.calculation_preview.configure(state="normal")
+        self.calculation_preview.delete("1.0", "end")
+        self.calculation_preview.insert("1.0", preview_text)
+        self.calculation_preview.configure(state="disabled")
+
     def collect_invoice_form(self) -> Invoice:
         invoice_number = validate_required(self.invoice_number_entry.get(), "Número de factura")
         invoice_date = validate_invoice_date(self.invoice_date_entry.get())
         client = validate_required(self.client_entry.get(), "Cliente")
         description = self.description_entry.get().strip()
         net_amount = validate_positive_number(self.net_amount_entry.get(), "Monto neto", allow_zero=False)
-        tag_amount = validate_positive_number(self.tag_amount_entry.get() or "0", "Cobro TAG")
-        accountant_amount = validate_positive_number(self.accountant_amount_entry.get() or "0", "Cobro contador")
+        tag_amount = validate_positive_number(self.tag_amount_entry.get() or "0", "RetenciÃ³n TAG")
+        accountant_amount = validate_positive_number(self.accountant_amount_entry.get() or "0", "RetenciÃ³n contador")
 
         totals = ReportService.calculate_invoice_totals(
             net_amount=net_amount,
@@ -622,15 +821,14 @@ class FacturionApp(ctk.CTk):
             accountant_amount=accountant_amount,
         )
 
-        self.calculation_preview.configure(state="normal")
-        self.calculation_preview.delete("1.0", "end")
-        self.calculation_preview.insert(
-            "1.0",
-            f"Tasa IVA actual: {self.current_vat_rate:.2f}%\n"
-            f"IVA calculado: {format_currency(totals['vat_amount'])}\n"
-            f"Total final: {format_currency(totals['total_amount'])}",
+        if totals["total_amount"] < 0:
+            raise ValueError("Las retenciones TAG y contador no pueden superar el total facturado.")
+
+        self.update_calculation_preview(
+            net_amount=net_amount,
+            tag_amount=tag_amount,
+            accountant_amount=accountant_amount,
         )
-        self.calculation_preview.configure(state="disabled")
 
         return Invoice(
             invoice_number=invoice_number,
@@ -686,9 +884,10 @@ class FacturionApp(ctk.CTk):
             self.accountant_amount_entry,
         ):
             entry.delete(0, "end")
-        self.invoice_date_entry.insert(0, datetime.today().strftime("%Y-%m-%d"))
+        self.invoice_date_entry.insert(0, datetime.today().strftime("%d/%m/%Y"))
         self.tag_amount_entry.insert(0, "0")
         self.accountant_amount_entry.insert(0, "0")
+        self.update_calculation_preview()
         self.calculation_preview.configure(state="normal")
         self.calculation_preview.delete("1.0", "end")
         self.calculation_preview.insert(
@@ -697,6 +896,7 @@ class FacturionApp(ctk.CTk):
             "Total = neto + IVA + TAG + contador.",
         )
         self.calculation_preview.configure(state="disabled")
+        self.update_calculation_preview()
 
     def load_selected_invoice(self, _event: object | None = None) -> None:
         selected = self.invoice_tree.selection()
@@ -711,7 +911,7 @@ class FacturionApp(ctk.CTk):
         self.invoice_number_entry.delete(0, "end")
         self.invoice_number_entry.insert(0, invoice["invoice_number"])
         self.invoice_date_entry.delete(0, "end")
-        self.invoice_date_entry.insert(0, invoice["invoice_date"])
+        self.invoice_date_entry.insert(0, format_invoice_date(invoice["invoice_date"]))
         self.client_entry.delete(0, "end")
         self.client_entry.insert(0, invoice["client"])
         self.description_entry.delete(0, "end")
@@ -722,6 +922,11 @@ class FacturionApp(ctk.CTk):
         self.tag_amount_entry.insert(0, str(invoice["tag_amount"]))
         self.accountant_amount_entry.delete(0, "end")
         self.accountant_amount_entry.insert(0, str(invoice["accountant_amount"]))
+        self.update_calculation_preview(
+            net_amount=invoice["net_amount"],
+            tag_amount=invoice["tag_amount"],
+            accountant_amount=invoice["accountant_amount"],
+        )
 
     def delete_selected_invoice(self) -> None:
         selected = self.invoice_tree.selection()
@@ -765,13 +970,44 @@ class FacturionApp(ctk.CTk):
         self.history_detail_label.configure(
             text=(
                 f"Mes seleccionado: {month_label(month_key)} | "
-                f"Saldo arrastrado: {format_currency(summary['opening_balance'])} | "
+                f"Neto: {format_currency(summary['net_amount'])} | "
+                f"Saldo heredado del mes anterior: {format_currency(summary['opening_balance'])} | "
                 f"Diferencia IVA: {format_currency(summary['tax_balance'])} | "
-                f"Diferencia TAG: {format_currency(summary['tag_balance'])} | "
-                f"Diferencia contador: {format_currency(summary['accountant_balance'])} | "
+                f"Saldo TAG acumulado: {format_currency(summary['tag_balance'])} | "
+                f"Saldo contador acumulado: {format_currency(summary['accountant_balance'])} | "
                 f"Estado: {summary['balance_status']} | "
                 f"Saldo: {format_currency(summary['balance'])} | "
                 f"Observación SII: {observation_text}"
+            )
+        )
+
+    def load_selected_payment(self, _event: object | None = None) -> None:
+        selected = self.payment_tree.selection()
+        if not selected:
+            return
+
+        item = self.payment_tree.item(selected[0])
+        tags = item.get("tags", [])
+        if not tags:
+            return
+
+        month_key = tags[0]
+        observation = tags[1] if len(tags) > 1 else ""
+        year_value, month_value = month_key.split("-")
+        self.selected_year.set(year_value)
+        self.selected_month.set(str(int(month_value)))
+        self.load_reconciliation_fields()
+        self.refresh_summary()
+        self.refresh_dashboard()
+        self.refresh_chart()
+
+        self.payment_detail_label.configure(
+            text=(
+                f"Pago cargado: {month_label(month_key)} | "
+                f"IVA pagado: {item['values'][1]} | "
+                f"TAG pagado: {item['values'][2]} | "
+                f"Contador pagado: {item['values'][3]} | "
+                f"Observación: {observation or 'Sin observación registrada.'}"
             )
         )
 
@@ -793,6 +1029,14 @@ class FacturionApp(ctk.CTk):
             self.actual_tag_paid_entry.insert(0, "0")
             self.actual_accountant_paid_entry.insert(0, "0")
 
+    def clear_reconciliation_form(self) -> None:
+        self.sii_vat_entry.delete(0, "end")
+        self.actual_tag_paid_entry.delete(0, "end")
+        self.actual_accountant_paid_entry.delete(0, "end")
+        self.sii_observation_entry.delete(0, "end")
+        self.actual_tag_paid_entry.insert(0, "0")
+        self.actual_accountant_paid_entry.insert(0, "0")
+
     def save_reconciliation(self) -> None:
         try:
             month_key = validate_month(self.selected_month.get(), self.selected_year.get())
@@ -813,11 +1057,11 @@ class FacturionApp(ctk.CTk):
                 )
             )
             self.refresh_all()
-            messagebox.showinfo("Conciliación guardada", "La conciliación con SII fue guardada correctamente.")
+            messagebox.showinfo("Pago guardado", "El pago en SII fue guardado correctamente.")
         except ValueError as error:
             messagebox.showerror("Validación", str(error))
         except Exception as error:
-            messagebox.showerror("Error", f"No se pudo guardar la conciliación.\n{error}")
+            messagebox.showerror("Error", f"No se pudo guardar el pago.\n{error}")
 
     def configure_vat_rate(self) -> None:
         dialog = ctk.CTkInputDialog(text="Ingresa el nuevo porcentaje de IVA:", title="Configurar IVA")
@@ -825,7 +1069,7 @@ class FacturionApp(ctk.CTk):
         if value is None:
             return
         try:
-            vat_rate = validate_positive_number(value, "IVA", allow_zero=False)
+            vat_rate = validate_positive_number(value, "IVA", allow_zero=False, decimals=2)
             SettingsService.update_vat_rate(vat_rate)
             self.current_vat_rate = vat_rate
             self.reset_form()
@@ -893,6 +1137,25 @@ class FacturionApp(ctk.CTk):
         shutil.copy2(DB_PATH, destination)
         messagebox.showinfo("Respaldo listo", f"Se creó un respaldo en:\n{destination}")
 
+    def clear_database(self) -> None:
+        confirmed = messagebox.askyesno(
+            "Limpiar base de datos",
+            "Se eliminaran todas las facturas y pagos registrados de Facturion.\n"
+            "La configuracion de IVA se conservara.\n\n"
+            "Se recomienda generar un respaldo antes de continuar.\n"
+            "Deseas limpiar la base de datos ahora?",
+        )
+        if not confirmed:
+            return
+        try:
+            clear_operational_data()
+            self.current_invoice_id = None
+            self.reset_form()
+            self.refresh_all()
+            messagebox.showinfo("Base limpiada", "La base de datos operativa de Facturion fue limpiada correctamente.")
+        except Exception as error:
+            messagebox.showerror("Error", f"No se pudo limpiar la base de datos.\n{error}")
+
     def export_invoices_excel(self) -> None:
         invoices = InvoiceService.list_all(
             search=self.search_var.get(),
@@ -910,14 +1173,19 @@ class FacturionApp(ctk.CTk):
             (
                 item["id"],
                 item["invoice_number"],
-                item["invoice_date"],
+                format_invoice_date(item["invoice_date"]),
                 item["client"],
                 item["description"],
                 item["net_amount"],
                 item["vat_amount"],
                 item["tag_amount"],
                 item["accountant_amount"],
-                item["total_amount"],
+                ReportService.calculate_invoice_totals(
+                    net_amount=item["net_amount"],
+                    vat_rate=item["vat_rate"],
+                    tag_amount=item["tag_amount"],
+                    accountant_amount=item["accountant_amount"],
+                )["total_amount"],
             )
             for item in invoices
         ]
@@ -934,15 +1202,20 @@ class FacturionApp(ctk.CTk):
             "Facturas",
             "Neto",
             "IVA",
-            "TAG retenido",
-            "TAG pagado real",
-            "Diferencia TAG",
-            "Contador retenido",
-            "Contador pagado real",
-            "Diferencia contador",
-            "Total",
+            "TAG retenido del mes",
+            "TAG pagado del mes",
+            "TAG acumulado pendiente",
+            "TAG pagado acumulado",
+            "Saldo TAG acumulado",
+            "Contador retenido del mes",
+            "Contador pagado del mes",
+            "Contador acumulado pendiente",
+            "Contador pagado acumulado",
+            "Saldo contador acumulado",
+            "Total bruto",
+            "Total liquidado",
             "IVA SII",
-            "Saldo arrastrado",
+            "Saldo heredado del mes anterior",
             "Diferencia IVA",
             "Saldo final",
             "Estado",
@@ -954,10 +1227,15 @@ class FacturionApp(ctk.CTk):
             summary["vat_amount"],
             summary["tag_amount"],
             summary["actual_tag_paid"],
+            summary["accumulated_tag_amount"],
+            summary["accumulated_actual_tag_paid"],
             summary["tag_balance"],
             summary["accountant_amount"],
             summary["actual_accountant_paid"],
+            summary["accumulated_accountant_amount"],
+            summary["accumulated_actual_accountant_paid"],
             summary["accountant_balance"],
+            summary["billed_total_amount"],
             summary["total_amount"],
             summary["sii_vat_amount"],
             summary["opening_balance"],
@@ -971,7 +1249,7 @@ class FacturionApp(ctk.CTk):
     def export_reconciliation_excel(self) -> None:
         rows_data = ReconciliationService.list_all()
         if not rows_data:
-            messagebox.showwarning("Sin datos", "No hay conciliaciones registradas para exportar.")
+            messagebox.showwarning("Sin datos", "No hay pagos registrados para exportar.")
             return
         path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel", "*.xlsx")])
         if not path:
@@ -987,8 +1265,8 @@ class FacturionApp(ctk.CTk):
             )
             for item in rows_data
         ]
-        ExportService.export_to_excel(path, "Conciliacion_SII", headers, rows)
-        messagebox.showinfo("Exportación lista", "La conciliación mensual fue exportada correctamente.")
+        ExportService.export_to_excel(path, "Pagos_SII", headers, rows)
+        messagebox.showinfo("Exportación lista", "El registro mensual de pagos fue exportado correctamente.")
 
     def export_history_csv(self) -> None:
         history = ReportService.grouped_history()
@@ -1003,15 +1281,20 @@ class FacturionApp(ctk.CTk):
             "Facturas",
             "Neto",
             "IVA interno",
-            "TAG retenido",
-            "TAG pagado real",
-            "Diferencia TAG",
-            "Contador retenido",
-            "Contador pagado real",
-            "Diferencia contador",
-            "Total facturado",
+            "TAG retenido del mes",
+            "TAG pagado del mes",
+            "TAG acumulado pendiente",
+            "TAG pagado acumulado",
+            "Saldo TAG acumulado",
+            "Contador retenido del mes",
+            "Contador pagado del mes",
+            "Contador acumulado pendiente",
+            "Contador pagado acumulado",
+            "Saldo contador acumulado",
+            "Total bruto",
+            "Total liquidado",
             "IVA SII",
-            "Saldo arrastrado",
+            "Saldo heredado del mes anterior",
             "Diferencia IVA",
             "Saldo final",
             "Estado",
@@ -1025,10 +1308,15 @@ class FacturionApp(ctk.CTk):
                 row["vat_amount"],
                 row["tag_amount"],
                 row["actual_tag_paid"],
+                row["accumulated_tag_amount"],
+                row["accumulated_actual_tag_paid"],
                 row["tag_balance"],
                 row["accountant_amount"],
                 row["actual_accountant_paid"],
+                row["accumulated_accountant_amount"],
+                row["accumulated_actual_accountant_paid"],
                 row["accountant_balance"],
+                row["billed_total_amount"],
                 row["total_amount"],
                 row["sii_vat_amount"],
                 row["opening_balance"],
@@ -1047,16 +1335,22 @@ class FacturionApp(ctk.CTk):
         message = (
             f"Mes: {int(self.selected_month.get()):02d}/{self.selected_year.get()}\n"
             f"Facturas: {summary['count']}\n"
-            f"Saldo arrastrado: {format_currency(summary['opening_balance'])}\n"
+            f"Saldo heredado del mes anterior: {format_currency(summary['opening_balance'])}\n"
             f"IVA interno: {format_currency(summary['vat_amount'])}\n"
             f"IVA SII: {format_currency(summary['sii_vat_amount'])}\n"
             f"Diferencia IVA: {format_currency(summary['tax_balance'])}\n"
-            f"TAG retenido: {format_currency(summary['tag_amount'])}\n"
-            f"TAG pagado real: {format_currency(summary['actual_tag_paid'])}\n"
-            f"Diferencia TAG: {format_currency(summary['tag_balance'])}\n"
-            f"Contador retenido: {format_currency(summary['accountant_amount'])}\n"
-            f"Contador pagado real: {format_currency(summary['actual_accountant_paid'])}\n"
-            f"Diferencia contador: {format_currency(summary['accountant_balance'])}\n"
+            f"TAG retenido del mes: {format_currency(summary['tag_amount'])}\n"
+            f"TAG pagado del mes: {format_currency(summary['actual_tag_paid'])}\n"
+            f"TAG acumulado pendiente: {format_currency(summary['accumulated_tag_amount'])}\n"
+            f"TAG pagado acumulado: {format_currency(summary['accumulated_actual_tag_paid'])}\n"
+            f"Saldo TAG acumulado: {format_currency(summary['tag_balance'])}\n"
+            f"Contador retenido del mes: {format_currency(summary['accountant_amount'])}\n"
+            f"Contador pagado del mes: {format_currency(summary['actual_accountant_paid'])}\n"
+            f"Contador acumulado pendiente: {format_currency(summary['accumulated_accountant_amount'])}\n"
+            f"Contador pagado acumulado: {format_currency(summary['accumulated_actual_accountant_paid'])}\n"
+            f"Saldo contador acumulado: {format_currency(summary['accountant_balance'])}\n"
+            f"Total bruto del mes: {format_currency(summary['billed_total_amount'])}\n"
+            f"Total liquidado del mes: {format_currency(summary['total_amount'])}\n"
             f"Saldo final: {format_currency(summary['balance'])}\n"
             f"Estado: {summary['balance_status']}\n\n"
             "Puedes imprimir este resumen usando la función del sistema o exportarlo a CSV/Excel."

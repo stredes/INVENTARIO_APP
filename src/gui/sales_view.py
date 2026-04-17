@@ -166,16 +166,27 @@ class SalesView(ttk.Frame):
         self.service_frame = svc
         self.var_service_desc = tk.StringVar(value="")
         self.var_service_qty = tk.StringVar(value="1")
+        self.var_service_net = tk.StringVar(value="0")
+        self.var_service_vat = tk.StringVar(value="0")
         self.var_service_price = tk.StringVar(value="0")
+        self.var_service_subtotal = tk.StringVar(value="0")
         ttk.Label(svc, text="Descripcion:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
         ttk.Entry(svc, textvariable=self.var_service_desc, width=45).grid(row=0, column=1, sticky="we", padx=4, pady=4)
         ttk.Label(svc, text="Cantidad:").grid(row=0, column=2, sticky="e", padx=4, pady=4)
         ttk.Entry(svc, textvariable=self.var_service_qty, width=10).grid(row=0, column=3, sticky="w", padx=4, pady=4)
-        ttk.Label(svc, text="Precio + IVA:").grid(row=0, column=4, sticky="e", padx=4, pady=4)
-        ttk.Entry(svc, textvariable=self.var_service_price, width=12).grid(row=0, column=5, sticky="w", padx=4, pady=4)
+        ttk.Label(svc, text="Neto:").grid(row=0, column=4, sticky="e", padx=4, pady=4)
+        ttk.Entry(svc, textvariable=self.var_service_net, width=12).grid(row=0, column=5, sticky="w", padx=4, pady=4)
+        ttk.Label(svc, text="IVA:").grid(row=0, column=6, sticky="e", padx=4, pady=4)
+        ttk.Entry(svc, textvariable=self.var_service_vat, width=12, state="readonly").grid(row=0, column=7, sticky="w", padx=4, pady=4)
+        ttk.Label(svc, text="Precio unit. + IVA:").grid(row=0, column=8, sticky="e", padx=4, pady=4)
+        ttk.Entry(svc, textvariable=self.var_service_price, width=12, state="readonly").grid(row=0, column=9, sticky="w", padx=4, pady=4)
+        ttk.Label(svc, text="Subtotal:").grid(row=0, column=10, sticky="e", padx=4, pady=4)
+        ttk.Entry(svc, textvariable=self.var_service_subtotal, width=12, state="readonly").grid(row=0, column=11, sticky="w", padx=4, pady=4)
         self.btn_add_service = ttk.Button(svc, text="Agregar servicio", command=self._on_add_service)
-        self.btn_add_service.grid(row=0, column=6, sticky="w", padx=8, pady=4)
+        self.btn_add_service.grid(row=0, column=12, sticky="w", padx=8, pady=4)
         svc.columnconfigure(1, weight=1)
+        self.var_service_qty.trace_add("write", lambda *_: self._recalc_service_total())
+        self.var_service_net.trace_add("write", lambda *_: self._recalc_service_total())
 
         # ---------- Tabla ----------
         tree_frame = ttk.Frame(self)
@@ -301,6 +312,7 @@ class SalesView(ttk.Frame):
             self.btn_add_service.configure(text="Agregar servicio")
         except Exception:
             pass
+        return
 
         # ---------- Encabezado ----------
         top = ttk.Labelframe(self, text="Encabezado de venta", padding=10)
@@ -707,8 +719,7 @@ class SalesView(ttk.Frame):
 
         self.products = (
             self.session.query(Product)
-            .filter(Product.stock_actual > 0)
-            .order_by(Product.nombre.asc())
+            .order_by(Product.nombre.asc(), Product.id.asc())
             .all()
         )
 
@@ -746,6 +757,7 @@ class SalesView(ttk.Frame):
             self.flt_product.set_dataset(self.products, keyfunc=_disp, searchkeys=_keys)
 
         self._fill_price_from_selected_product()
+        self._recalc_service_total()
 
     def _display_customer(self, c: Customer) -> str:
         rut = getattr(c, "rut", "") or ""
@@ -798,6 +810,25 @@ class SalesView(ttk.Frame):
             if pv > 0:
                 self.ent_price.delete(0, "end")
                 self.ent_price.insert(0, fmt_2(pv))
+        except Exception:
+            pass
+
+    def _recalc_service_total(self):
+        try:
+            net = q2(D(self.var_service_net.get() or 0))
+        except Exception:
+            net = D(0)
+        try:
+            qty = max(0, int(float(self.var_service_qty.get() or 0)))
+        except Exception:
+            qty = 0
+        iva = q2(net * D("0.19"))
+        total = q2(net + iva)
+        subtotal = q2(D(qty) * total)
+        try:
+            self.var_service_vat.set(fmt_2(iva))
+            self.var_service_price.set(fmt_2(total))
+            self.var_service_subtotal.set(fmt_2(subtotal))
         except Exception:
             pass
 
@@ -918,13 +949,15 @@ class SalesView(ttk.Frame):
                 self._warn("La cantidad del servicio debe ser > 0.")
                 return
             try:
-                price = q2(D(self.var_service_price.get() or 0))
+                net = q2(D(self.var_service_net.get() or 0))
             except Exception:
-                self._warn("Precio invalido para el servicio.")
+                self._warn("Monto neto invalido para el servicio.")
                 return
-            if price <= 0:
-                self._warn("Ingrese un precio valido (> 0) para el servicio.")
+            if net <= 0:
+                self._warn("Ingrese un monto neto valido (> 0) para el servicio.")
                 return
+            iva = q2(net * D("0.19"))
+            price = q2(net + iva)
 
             subtotal = q2(D(qty) * price)
             edit_iid = getattr(self, "_edit_iid", None)
@@ -936,11 +969,21 @@ class SalesView(ttk.Frame):
                 self.tree.item(iid, values=("SVC", desc, qty, fmt_2(price), "0.0", fmt_2(subtotal)))
             else:
                 iid = self.tree.insert("", "end", values=("SVC", desc, qty, fmt_2(price), "0.0", fmt_2(subtotal)))
-            self._row_meta[iid] = {"kind": "service", "description": desc, "afecto_iva": True}
+            self._row_meta[iid] = {
+                "kind": "service",
+                "description": desc,
+                "afecto_iva": True,
+                "net_unit": fmt_2(net),
+                "vat_unit": fmt_2(iva),
+                "gross_unit": fmt_2(price),
+            }
             self._update_total()
             self.var_service_desc.set("")
             self.var_service_qty.set("1")
+            self.var_service_net.set("0")
+            self.var_service_vat.set("0")
             self.var_service_price.set("0")
+            self.var_service_subtotal.set("0")
             self._exit_edit_mode()
         except Exception as e:
             self._error(f"No se pudo agregar el servicio:\n{e}")
@@ -1001,7 +1044,14 @@ class SalesView(ttk.Frame):
             if self._row_kind(iid) == "service":
                 self.var_service_desc.set(str(self._row_meta.get(iid, {}).get("description") or name))
                 self.var_service_qty.set(str(qty_s))
-                self.var_service_price.set(str(price_s))
+                meta = self._row_meta.get(iid, {}) or {}
+                gross = q2(D(price_s or 0))
+                net = q2(D(meta.get("net_unit") or (gross / D("1.19") if gross else 0)))
+                iva = q2(D(meta.get("vat_unit") or (gross - net)))
+                self.var_service_net.set(fmt_2(net))
+                self.var_service_vat.set(fmt_2(iva))
+                self.var_service_price.set(fmt_2(gross))
+                self.var_service_subtotal.set(fmt_2(D(qty_s or 0) * gross))
                 self._edit_iid = iid
                 self._enter_edit_mode()
                 return

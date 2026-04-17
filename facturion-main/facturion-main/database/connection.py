@@ -85,3 +85,21 @@ def initialize_database() -> None:
             """
         )
         connection.commit()
+
+
+def clear_operational_data() -> None:
+    """
+    Limpia los datos operativos de Facturion sin borrar configuración.
+
+    Conserva:
+    - tabla settings
+
+    Elimina:
+    - facturas
+    - conciliaciones SII
+    """
+    with get_connection() as connection:
+        cursor = connection.cursor()
+        cursor.execute("DELETE FROM sii_reconciliations")
+        cursor.execute("DELETE FROM invoices")
+        connection.commit()
