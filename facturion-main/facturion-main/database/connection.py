@@ -40,6 +40,7 @@ def initialize_database() -> None:
                 vat_amount REAL NOT NULL,
                 tag_amount REAL NOT NULL DEFAULT 0,
                 accountant_amount REAL NOT NULL DEFAULT 0,
+                savings_amount REAL NOT NULL DEFAULT 0,
                 total_amount REAL NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP

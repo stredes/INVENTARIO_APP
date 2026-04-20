@@ -142,6 +142,7 @@ class FacturionApp(ctk.CTk):
         self.net_amount_entry = self._labeled_entry(panel, "Monto neto")
         self.tag_amount_entry = self._labeled_entry(panel, "Retención TAG")
         self.accountant_amount_entry = self._labeled_entry(panel, "Retención contador")
+        self.savings_amount_entry = self._labeled_entry(panel, "Retención ahorro")
 
         self.calculation_preview = ctk.CTkTextbox(panel, height=96, corner_radius=12)
         self.calculation_preview.pack(fill="x", padx=18, pady=(8, 10))
@@ -169,7 +170,7 @@ class FacturionApp(ctk.CTk):
             "- Advertencia por factura duplicada\n\n"
             "Regla contable aplicada:\n"
             "- El IVA se calcula solo sobre el neto.\n"
-            "- TAG y contador son retenciones sin IVA.\n"
+            "- TAG, contador y ahorro son retenciones sin IVA.\n"
             "- Total liquidado = neto + IVA - retenciones.\n\n"
             "Flujo sugerido:\n"
             "1. Registra facturas durante el mes.\n"
@@ -351,7 +352,7 @@ class FacturionApp(ctk.CTk):
         ctk.CTkButton(filters, text="Mes actual", fg_color="#334155", command=self.reset_filters_to_current_month).pack(side="left", padx=8)
         ctk.CTkButton(filters, text="Exportar Excel", command=self.export_invoices_excel).pack(side="right", padx=8)
 
-        columns = ("id", "numero", "fecha", "cliente", "neto", "iva", "tag", "contador", "total")
+        columns = ("id", "numero", "fecha", "cliente", "neto", "iva", "tag", "contador", "ahorro", "total")
         self.invoice_tree = ttk.Treeview(container, columns=columns, show="headings", height=12)
         headings = {
             "id": "ID",
@@ -362,9 +363,21 @@ class FacturionApp(ctk.CTk):
             "iva": "IVA",
             "tag": "TAG",
             "contador": "Contador",
+            "ahorro": "Ahorro",
             "total": "Total liquidado",
         }
-        widths = {"id": 60, "numero": 110, "fecha": 110, "cliente": 190, "neto": 110, "iva": 110, "tag": 90, "contador": 110, "total": 120}
+        widths = {
+            "id": 60,
+            "numero": 110,
+            "fecha": 110,
+            "cliente": 190,
+            "neto": 110,
+            "iva": 110,
+            "tag": 90,
+            "contador": 110,
+            "ahorro": 100,
+            "total": 120,
+        }
         for column in columns:
             self.invoice_tree.heading(
                 column,
@@ -638,6 +651,7 @@ class FacturionApp(ctk.CTk):
                 vat_rate=invoice["vat_rate"],
                 tag_amount=invoice["tag_amount"],
                 accountant_amount=invoice["accountant_amount"],
+                savings_amount=invoice.get("savings_amount", 0),
             )
             self.invoice_tree.insert(
                 "",
@@ -651,6 +665,7 @@ class FacturionApp(ctk.CTk):
                     format_currency(invoice["vat_amount"]),
                     format_currency(invoice["tag_amount"]),
                     format_currency(invoice["accountant_amount"]),
+                    format_currency(invoice.get("savings_amount", 0)),
                     format_currency(totals["total_amount"]),
                 ),
             )
@@ -732,12 +747,13 @@ class FacturionApp(ctk.CTk):
         net_amount: float | None = None,
         tag_amount: float | None = None,
         accountant_amount: float | None = None,
+        savings_amount: float | None = None,
     ) -> None:
         if net_amount is None:
             preview_text = (
                 "IVA calculado automÃ¡ticamente segÃºn la tasa configurada.\n"
-                "TAG y contador se registran como retenciones sin IVA.\n"
-                "Total liquidado = neto + IVA - TAG - contador."
+                "TAG, contador y ahorro se registran como retenciones sin IVA.\n"
+                "Total liquidado = neto + IVA - TAG - contador - ahorro."
             )
         else:
             totals = ReportService.calculate_invoice_totals(
@@ -745,12 +761,13 @@ class FacturionApp(ctk.CTk):
                 vat_rate=self.current_vat_rate,
                 tag_amount=tag_amount or 0.0,
                 accountant_amount=accountant_amount or 0.0,
+                savings_amount=savings_amount or 0.0,
             )
             preview_text = (
                 f"Tasa IVA actual: {self.current_vat_rate:.2f}%\n"
                 f"IVA calculado: {format_currency(totals['vat_amount'])}\n"
                 f"Total bruto facturado: {format_currency(totals['billed_total'])}\n"
-                f"Retenciones TAG + contador: {format_currency(totals['withheld_total'])}\n"
+                f"Retenciones TAG + contador + ahorro: {format_currency(totals['withheld_total'])}\n"
                 f"Total liquidado: {format_currency(totals['total_amount'])}"
             )
 

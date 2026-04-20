@@ -15,8 +15,8 @@ class InvoiceService:
                 INSERT INTO invoices(
                     invoice_number, invoice_date, client, description,
                     net_amount, vat_rate, vat_amount, tag_amount,
-                    accountant_amount, total_amount, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    accountant_amount, savings_amount, total_amount, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """,
                 (
                     invoice.invoice_number,
@@ -28,6 +28,7 @@ class InvoiceService:
                     invoice.vat_amount,
                     invoice.tag_amount,
                     invoice.accountant_amount,
+                    invoice.savings_amount,
                     invoice.total_amount,
                 ),
             )
@@ -49,6 +50,7 @@ class InvoiceService:
                     vat_amount = ?,
                     tag_amount = ?,
                     accountant_amount = ?,
+                    savings_amount = ?,
                     total_amount = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
@@ -63,6 +65,7 @@ class InvoiceService:
                     invoice.vat_amount,
                     invoice.tag_amount,
                     invoice.accountant_amount,
+                    invoice.savings_amount,
                     invoice.total_amount,
                     invoice_id,
                 ),

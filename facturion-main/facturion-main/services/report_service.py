@@ -19,13 +19,15 @@ class ReportService:
         vat_rate: float,
         tag_amount: float,
         accountant_amount: float,
+        savings_amount: float = 0.0,
     ) -> dict[str, float]:
         net_amount = ReportService.round_money(net_amount)
         tag_amount = ReportService.round_money(tag_amount)
         accountant_amount = ReportService.round_money(accountant_amount)
+        savings_amount = ReportService.round_money(savings_amount)
         vat_amount = ReportService.round_money(net_amount * (vat_rate / 100))
         billed_total = ReportService.round_money(net_amount + vat_amount)
-        withheld_total = ReportService.round_money(tag_amount + accountant_amount)
+        withheld_total = ReportService.round_money(tag_amount + accountant_amount + savings_amount)
         total_amount = ReportService.round_money(billed_total - withheld_total)
         return {
             "vat_amount": vat_amount,
