@@ -18,15 +18,17 @@ class ReconciliationService:
                     actual_tag_paid,
                     actual_accountant_paid,
                     actual_savings_paid,
+                    actual_manuel_paid,
                     observation,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(month) DO UPDATE SET
                     sii_vat_amount = excluded.sii_vat_amount,
                     actual_tag_paid = excluded.actual_tag_paid,
                     actual_accountant_paid = excluded.actual_accountant_paid,
                     actual_savings_paid = excluded.actual_savings_paid,
+                    actual_manuel_paid = excluded.actual_manuel_paid,
                     observation = excluded.observation,
                     updated_at = CURRENT_TIMESTAMP
                 """,
@@ -36,6 +38,7 @@ class ReconciliationService:
                     reconciliation.actual_tag_paid,
                     reconciliation.actual_accountant_paid,
                     reconciliation.actual_savings_paid,
+                    reconciliation.actual_manuel_paid,
                     reconciliation.observation,
                 ),
             )
@@ -49,6 +52,16 @@ class ReconciliationService:
                 (month,),
             ).fetchone()
         return dict(row) if row else None
+
+    @staticmethod
+    def delete_by_month(month: str) -> bool:
+        with get_connection() as connection:
+            cursor = connection.execute(
+                "DELETE FROM sii_reconciliations WHERE month = ?",
+                (month,),
+            )
+            connection.commit()
+            return cursor.rowcount > 0
 
     @staticmethod
     def list_all() -> list[dict[str, Any]]:

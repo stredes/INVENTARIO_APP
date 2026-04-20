@@ -42,12 +42,15 @@ class CatalogView(ttk.Frame):
         self.var_title = tk.StringVar(value="Catálogo de Productos")
         ttk.Entry(self._actions_frame, textvariable=self.var_title, width=36).grid(row=1, column=1, columnspan=3, sticky="we")
 
-        # Filtro por familia (opcional)
-        ttk.Label(self._actions_frame, text="Familia:").grid(row=1, column=4, sticky="e", padx=8)
-        self.var_family = tk.StringVar(value="(todas)")
-        self.cmb_family = ttk.Combobox(self._actions_frame, textvariable=self.var_family, values=["(todas)"], width=18)
-        self.cmb_family.grid(row=1, column=5, sticky="w")
-        ttk.Button(self._actions_frame, text="Admin. familias...", command=self._open_families_manager).grid(row=1, column=6, sticky="w", padx=(6,0))
+        ttk.Button(self._actions_frame, text="Admin. familias...", command=self._open_families_manager).grid(row=1, column=4, sticky="w", padx=(8,0))
+        self.var_family_summary = tk.StringVar(value="Familias: todas")
+        self.family_menu_button = ttk.Menubutton(self._actions_frame, textvariable=self.var_family_summary, direction="below")
+        self.family_menu_button.grid(row=1, column=5, columnspan=2, sticky="we", padx=(6, 0))
+        self._family_menu = tk.Menu(self.family_menu_button, tearoff=False)
+        self.family_menu_button["menu"] = self._family_menu
+        ttk.Button(self._actions_frame, text="Marcar todo", command=self._mark_all_families).grid(row=3, column=5, sticky="we", padx=(6,0), pady=(6,0))
+        ttk.Button(self._actions_frame, text="Desmarcar todo", command=self._unmark_all_families).grid(row=3, column=6, sticky="we", padx=(6,0), pady=(6,0))
+        self.family_vars: dict[str, tk.BooleanVar] = {}
         try:
             self._refresh_family_list()
         except Exception:
@@ -56,14 +59,13 @@ class CatalogView(ttk.Frame):
         # Toggles de contenido
         self.var_show_company = tk.BooleanVar(value=True)
         self.var_show_sku = tk.BooleanVar(value=True)
-        self.var_show_stock = tk.BooleanVar(value=True)
-        self.var_show_net = tk.BooleanVar(value=True)
-        self.var_show_gross = tk.BooleanVar(value=False)
+        self.var_show_stock = tk.BooleanVar(value=False)
+        self.var_show_net = tk.BooleanVar(value=False)
+        self.var_show_gross = tk.BooleanVar(value=True)
         ttk.Checkbutton(self._actions_frame, text="Mostrar empresa", variable=self.var_show_company).grid(row=2, column=0, sticky="w")
         ttk.Checkbutton(self._actions_frame, text="SKU", variable=self.var_show_sku).grid(row=2, column=1, sticky="w")
-        ttk.Checkbutton(self._actions_frame, text="Stock", variable=self.var_show_stock).grid(row=2, column=2, sticky="w")
-        ttk.Checkbutton(self._actions_frame, text="Precio sin IVA", variable=self.var_show_net).grid(row=2, column=3, sticky="w")
-        ttk.Checkbutton(self._actions_frame, text="Precio con IVA", variable=self.var_show_gross).grid(row=2, column=4, sticky="w")
+        ttk.Checkbutton(self._actions_frame, text="Precio sin IVA", variable=self.var_show_net).grid(row=2, column=2, sticky="w")
+        ttk.Checkbutton(self._actions_frame, text="Precio con IVA", variable=self.var_show_gross).grid(row=2, column=3, sticky="w")
 
         ttk.Button(self._actions_frame, text="Vista previa", command=self._on_preview).grid(row=2, column=5, padx=(12, 4))
         ttk.Button(self._actions_frame, text="Imprimir (PDF)", command=self._on_generate).grid(row=2, column=6, padx=4)
@@ -90,12 +92,8 @@ class CatalogView(ttk.Frame):
     def _on_generate(self) -> None:
         try:
             cols, rows = self._layout()
-            fam = (self.var_family.get() or "").strip()
-            fam_param = fam if fam and fam != "(todas)" else None
-            if fam and fam != "(todas)":
-                os.environ["CATALOG_FAMILY"] = fam
-            else:
-                os.environ.pop("CATALOG_FAMILY", None)
+            families, include_no_family = self._selected_family_filter()
+            os.environ.pop("CATALOG_FAMILY", None)
             out = generate_products_catalog(
                 self.session,
                 auto_open=True,
@@ -105,10 +103,11 @@ class CatalogView(ttk.Frame):
                 cols=cols, rows=rows,
                 show_company=self.var_show_company.get(),
                 show_sku=self.var_show_sku.get(),
-                show_stock=self.var_show_stock.get(),
+                show_stock=False,
                 show_price_net=self.var_show_net.get(),
                 show_price_gross=self.var_show_gross.get(),
-                family=fam_param,
+                families=families,
+                include_no_family=include_no_family,
             )
             messagebox.showinfo("Catálogo", f"Catálogo generado:\n{out}")
         except Exception as e:
@@ -138,14 +137,20 @@ class CatalogView(ttk.Frame):
         row_h = (H - margin * 2) // rows
 
         iva = float(self.var_iva.get() or 19.0) / 100.0
-        fam = (self.var_family.get() or "").strip()
         q = self.session.query(Product)
-        if fam and fam != "(todas)":
-            try:
-                from sqlalchemy import func as _f
-                q = q.filter((_f.lower(Product.familia) == fam.lower()) | (_f.lower(Product.familia).like(f"%{fam.lower()}%")))
-            except Exception:
-                q = q.filter(Product.familia == fam)
+        families, include_no_family = self._selected_family_filter()
+        if families is not None:
+            from sqlalchemy import or_, func as _f
+            selected_lower = [item.lower() for item in families]
+            clauses = []
+            if selected_lower:
+                clauses.append(_f.lower(Product.familia).in_(selected_lower))
+            if include_no_family:
+                clauses.append((Product.familia.is_(None)) | (_f.trim(Product.familia) == ""))
+            if clauses:
+                q = q.filter(or_(*clauses))
+            else:
+                q = q.filter(Product.id == -1)
         prods = q.order_by(Product.nombre.asc()).limit(cols * rows).all()
 
         try:
@@ -241,7 +246,6 @@ class CatalogView(ttk.Frame):
 
             name = (p.nombre or "").strip()
             sku = (p.sku or "").strip()
-            stock = int(getattr(p, "stock_actual", 0) or 0)
             price = float(getattr(p, "precio_venta", 0.0) or 0.0)
             neto = int(round(price / (1.0 + iva), 0)) if price > 0 else 0
             # Text layout under the image area
@@ -256,8 +260,6 @@ class CatalogView(ttk.Frame):
             content_lines = [(ln, font_t) for ln in name_lines]
             if self.var_show_sku.get() and sku:
                 content_lines.append((f"SKU: {sku}", font_s))
-            if self.var_show_stock.get():
-                content_lines.append((f"Stock: {stock}", font_s))
             price_lines = []
             if self.var_show_net.get():
                 price_lines.append((f"Precio (sin IVA): {format(neto,',').replace(',', '.')}", font_s))
@@ -312,23 +314,84 @@ class CatalogView(ttk.Frame):
 
     # ---- Familias ----
     def _refresh_family_list(self) -> None:
+        old_values = {name: var.get() for name, var in getattr(self, "family_vars", {}).items()}
         try:
             from src.data.models import Product, Family
             fams_tbl = [ (f.nombre or '').strip() for f in self.session.query(Family).order_by(Family.nombre.asc()).all() ]
         except Exception:
             fams_tbl = []
+        has_no_family = False
         try:
+            from src.data.models import Product
             from sqlalchemy import func as _f
             fams_prod = [ (s or '').strip() for (s,) in self.session.query(_f.distinct(Product.familia)).filter(Product.familia.isnot(None)).all() ]
+            has_no_family = bool(
+                self.session.query(Product.id)
+                .filter((Product.familia.is_(None)) | (_f.trim(Product.familia) == ""))
+                .first()
+            )
         except Exception:
             fams_prod = []
-        vals = ["(todas)"] + [x for x in sorted({*(x for x in fams_tbl if x), *(x for x in fams_prod if x)})]
-        try:
-            self.cmb_family["values"] = vals
-        except Exception:
-            pass
-        if (self.var_family.get() or "") not in vals:
-            self.var_family.set("(todas)")
+        names = [x for x in sorted({*(x for x in fams_tbl if x), *(x for x in fams_prod if x)})]
+        if has_no_family:
+            names.append("(sin familia)")
+        self._render_family_checks(names, old_values)
+
+    def _render_family_checks(self, names: list[str], previous: dict[str, bool]) -> None:
+        self._family_menu.delete(0, "end")
+        self.family_vars = {}
+        if not names:
+            self.var_family_summary.set("Familias: todas")
+            self._family_menu.add_command(label="Sin familias cargadas")
+            return
+
+        for name in names:
+            var = tk.BooleanVar(value=previous.get(name, True))
+            self.family_vars[name] = var
+            self._family_menu.add_checkbutton(
+                label=name,
+                variable=var,
+                command=self._update_family_summary,
+            )
+        self._update_family_summary()
+
+    def _mark_all_families(self) -> None:
+        for var in self.family_vars.values():
+            var.set(True)
+        self._update_family_summary()
+
+    def _unmark_all_families(self) -> None:
+        for var in self.family_vars.values():
+            var.set(False)
+        self._update_family_summary()
+
+    def _update_family_summary(self) -> None:
+        if not self.family_vars:
+            self.var_family_summary.set("Familias: todas")
+            return
+        selected = [name for name, var in self.family_vars.items() if var.get()]
+        total = len(self.family_vars)
+        if len(selected) == total:
+            text = "Familias: todas"
+        elif not selected:
+            text = "Familias: ninguna"
+        elif len(selected) == 1:
+            text = f"Familia: {selected[0]}"
+        else:
+            text = f"Familias: {len(selected)} seleccionadas"
+        if len(text) > 32:
+            text = text[:29].rstrip() + "..."
+        self.var_family_summary.set(text)
+
+    def _selected_family_filter(self) -> tuple[list[str] | None, bool]:
+        if not self.family_vars:
+            return None, True
+        selected = [name for name, var in self.family_vars.items() if var.get()]
+        if len(selected) == len(self.family_vars):
+            return None, True
+        include_no_family = "(sin familia)" in selected
+        families = [name for name in selected if name != "(sin familia)"]
+        return families, include_no_family
 
     def _open_families_manager(self) -> None:
         try:

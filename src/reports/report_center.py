@@ -4,10 +4,12 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import List, Optional, Tuple
 from pathlib import Path
-import csv
+import configparser
 import datetime as dt
 import webbrowser
 from decimal import Decimal
+
+from PIL import Image, ImageDraw, ImageFont
 
 from src.data.database import get_session
 from src.data.models import (
@@ -53,6 +55,40 @@ def _fmt_money(value) -> str:
     return format_currency(value or 0)
 
 
+def _downloads_dir() -> Path:
+    home = Path.home()
+    for cand in ("Downloads", "Descargas", "downloads", "DESCARGAS"):
+        path = home / cand
+        if path.exists():
+            return path
+    return home
+
+
+def _read_company_cfg() -> dict[str, str]:
+    data = {
+        "name": "Inventario App",
+        "rut": "",
+        "address": "",
+        "phone": "",
+        "email": "",
+        "logo": "",
+    }
+    for cfg_path in (Path("config/settings.ini"), Path("config/company.ini")):
+        if not cfg_path.exists():
+            continue
+        cfg = configparser.ConfigParser()
+        cfg.read(cfg_path, encoding="utf-8")
+        section = cfg["company"] if cfg.has_section("company") else cfg["DEFAULT"]
+        data["name"] = section.get("name", section.get("nombre", data["name"])) or data["name"]
+        data["rut"] = section.get("rut", data["rut"]) or data["rut"]
+        data["address"] = section.get("address", section.get("direccion", data["address"])) or data["address"]
+        data["phone"] = section.get("phone", section.get("telefono", data["phone"])) or data["phone"]
+        data["email"] = section.get("email", data["email"]) or data["email"]
+        data["logo"] = section.get("logo", section.get("logo_path", data["logo"])) or data["logo"]
+        break
+    return data
+
+
 # --------------------------- Vista principal -------------------------- #
 class ReportCenter(ttk.Frame):
     """
@@ -73,11 +109,12 @@ class ReportCenter(ttk.Frame):
         ("purchase_orders", "Ordenes de compra (resumen)"),
         ("purchase_by_supplier_product", "Ordenes de compra por proveedor y producto"),
         ("sales_period", "Ventas por periodo"),
+        ("price_list", "Lista de precios"),
         ("investment_by_product", "Inversion monetaria por producto"),
     ]
 
-    SALES_STATES = ["(Todos)", "Pagada", "Confirmada", "Pendiente", "Cancelada", "Eliminada"]
-    RECEIVABLE_STATES = ["(Todos)", "Confirmada", "Pendiente"]
+    SALES_STATES = ["(Todos)", "Pagado", "Pendiente"]
+    RECEIVABLE_STATES = ["(Todos)", "Pendiente"]
     PURCH_STATES = ["(Todos)", "Completada", "Pendiente", "Cancelada", "Eliminada", "Por pagar", "Incompleta"]
     PAYABLE_STATES = ["(Todos)", "Por pagar", "Pendiente", "Incompleta"]
 
@@ -106,7 +143,7 @@ class ReportCenter(ttk.Frame):
         self.cmb_report.bind("<<ComboboxSelected>>", lambda _e: self._on_report_changed())
 
         ttk.Button(top, text="Ejecutar", command=self._run_report).pack(side="right", padx=4)
-        self.btn_export = ttk.Button(top, text="Exportar", command=self._on_export)
+        self.btn_export = ttk.Button(top, text="Exportar PDF", command=self._on_export)
         self.btn_export.pack(side="right", padx=4)
 
         # --------- Filtros ---------
@@ -192,6 +229,8 @@ class ReportCenter(ttk.Frame):
                 self._run_customer_debt_report()
             elif key in ("purchase_orders", "purchase_by_supplier_product", "payables_docs"):
                 self._run_purchases_report(key)
+            elif key == "price_list":
+                self._run_price_list_report()
             elif key == "investment_by_product":
                 self._run_investment_report()
             else:
@@ -205,10 +244,35 @@ class ReportCenter(ttk.Frame):
     def _run_stock_report(self) -> None:
         flt = InventoryFilter(report_type="completo")
         products = self.svc_inventory.fetch(flt)
-        cols = ["ID", "Producto", "SKU", "Unidad", "Stock"]
+        cols = ["ID", "Producto", "SKU", "Unidad", "Stock", "P. compra", "P. venta"]
         rows: List[List] = []
         for p in products:
-            rows.append([p.id, p.nombre or "", p.sku or "", p.unidad_medida or "", int(p.stock_actual or 0)])
+            rows.append([
+                p.id,
+                p.nombre or "",
+                p.sku or "",
+                p.unidad_medida or "",
+                int(p.stock_actual or 0),
+                _fmt_money(p.precio_compra or 0),
+                _fmt_money(p.precio_venta or 0),
+            ])
+        self._current_cols, self._current_rows = cols, rows
+
+    def _run_price_list_report(self) -> None:
+        cols = ["Producto", "Código", "Precio unitario"]
+        q = self.session.query(Product)
+        product_filter = (self.var_product.get() or "").strip()
+        if product_filter:
+            like = f"%{product_filter}%"
+            q = q.filter((Product.nombre.ilike(like)) | (Product.sku.ilike(like)))
+
+        rows: List[List] = []
+        for p in q.order_by(Product.nombre.asc()).all():
+            rows.append([
+                p.nombre or "",
+                p.sku or "",
+                _fmt_money(p.precio_venta or 0),
+            ])
         self._current_cols, self._current_rows = cols, rows
 
     # ------------------------ Ventas ------------------------ #
@@ -229,12 +293,21 @@ class ReportCenter(ttk.Frame):
 
         if key == "receivables_docs":
             if not state or state == "(Todos)":
-                q = q.filter(Sale.estado.in_(self.RECEIVABLE_STATES[1:]))
+                q = q.filter(~Sale.estado.in_(["Pagado", "Pagada", "Confirmada"]))
+            elif state == "Pagado":
+                q = q.filter(Sale.estado.in_(["Pagado", "Pagada", "Confirmada"]))
+            elif state == "Pendiente":
+                q = q.filter(~Sale.estado.in_(["Pagado", "Pagada", "Confirmada"]))
             else:
                 q = q.filter(Sale.estado == state)
         else:
             if state and state != "(Todos)":
-                q = q.filter(Sale.estado == state)
+                if state == "Pagado":
+                    q = q.filter(Sale.estado.in_(["Pagado", "Pagada", "Confirmada"]))
+                elif state == "Pendiente":
+                    q = q.filter(~Sale.estado.in_(["Pagado", "Pagada", "Confirmada"]))
+                else:
+                    q = q.filter(Sale.estado == state)
 
         if party_like:
             like = f"%{party_like}%"
@@ -249,7 +322,7 @@ class ReportCenter(ttk.Frame):
                 s.id,
                 s.fecha_venta.strftime("%Y-%m-%d %H:%M"),
                 getattr(c, "razon_social", "") or "-",
-                s.estado,
+                "Pagado" if str(s.estado or "").strip().lower() in ("pagado", "pagada", "confirmada") else "Pendiente",
                 _fmt_money(s.total_venta or 0),
             ])
         self._current_cols, self._current_rows = cols, rows
@@ -272,7 +345,11 @@ class ReportCenter(ttk.Frame):
         if d_to:   q = q.filter(Sale.fecha_venta <= d_to)
 
         if not state or state == "(Todos)":
-            q = q.filter(Sale.estado.in_(self.RECEIVABLE_STATES[1:]))
+            q = q.filter(~Sale.estado.in_(["Pagado", "Pagada", "Confirmada"]))
+        elif state == "Pagado":
+            q = q.filter(Sale.estado.in_(["Pagado", "Pagada", "Confirmada"]))
+        elif state == "Pendiente":
+            q = q.filter(~Sale.estado.in_(["Pagado", "Pagada", "Confirmada"]))
         else:
             q = q.filter(Sale.estado == state)
 
@@ -294,7 +371,7 @@ class ReportCenter(ttk.Frame):
                 getattr(s, "numero_documento", "") or "",
                 s.fecha_venta.strftime("%Y-%m-%d %H:%M"),
                 getattr(c, "razon_social", "") or "-",
-                s.estado,
+                "Pagado" if str(s.estado or "").strip().lower() in ("pagado", "pagada", "confirmada") else "Pendiente",
                 getattr(s, "estado_externo", "") or "",
                 _fmt_money(getattr(s, "monto_neto", 0) or 0),
                 _fmt_money(getattr(s, "monto_iva", 0) or 0),
@@ -420,13 +497,14 @@ class ReportCenter(ttk.Frame):
 
     # -------------------- Inversion por producto -------------------- #
     def _run_investment_report(self) -> None:
-        cols = ["ID", "Producto", "SKU", "Stock", "P. compra", "Inversion"]
+        cols = ["ID", "Producto", "SKU", "Stock", "P. compra", "P. compra + IVA", "Inversion"]
         data: List[tuple[Decimal, List]] = []
         total = Decimal("0")
         for p in self.session.query(Product).order_by(Product.nombre.asc()).all():
             stock = int(p.stock_actual or 0)
             precio = Decimal(p.precio_compra or 0)
-            inversion = precio * Decimal(stock)
+            precio_iva = precio * Decimal("1.19")
+            inversion = precio_iva * Decimal(stock)
             total += inversion
             row = [
                 p.id,
@@ -434,35 +512,241 @@ class ReportCenter(ttk.Frame):
                 p.sku or "",
                 stock,
                 _fmt_money(precio or 0),
+                _fmt_money(precio_iva or 0),
                 _fmt_money(inversion or 0),
             ]
             data.append((inversion, row))
         data.sort(key=lambda item: item[0], reverse=True)
         rows = [row for _inv, row in data]
-        rows.append(["", "TOTAL", "", "", "", _fmt_money(total or 0)])
+        rows.append(["", "TOTAL", "", "", "", "", _fmt_money(total or 0)])
         self._current_cols, self._current_rows = cols, rows
 
     # -------------------- Exportar / Imprimir -------------------- #
     def _on_export(self) -> None:
         try:
-            key = self._current_report_key or self.REPORTS[self.cmb_report.current() or 0][0]
-            if key == "stock_real":
-                flt = InventoryFilter(report_type="completo")
-                path = generate_inventory_xlsx(self.session, flt, "Stock real")
-                webbrowser.open(str(path))
-                messagebox.showinfo("OK", f"Exportado a:\n{path}")
+            if not self._current_cols:
+                self._run_report()
+                self.table.set_data(self._current_cols, self._current_rows)
+            if not self._current_cols:
+                messagebox.showwarning("Exportar PDF", "No hay datos para exportar.")
                 return
-            # CSV simple para el resto
-            out = Path.home() / "Downloads" / "informe.csv"
-            with out.open("w", newline="", encoding="utf-8") as f:
-                w = csv.writer(f)
-                if self._current_cols: w.writerow(self._current_cols)
-                for r in self._current_rows:
-                    w.writerow(r)
-            webbrowser.open(str(out))
-            messagebox.showinfo("OK", f"Exportado a:\n{out}")
+            path = self._export_current_pdf()
+            webbrowser.open(str(path))
+            messagebox.showinfo("OK", f"PDF generado:\n{path}")
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo exportar:\n{e}")
+
+    def _export_current_pdf(self) -> Path:
+        idx = self.cmb_report.current() or 0
+        key, report_name = self.REPORTS[idx]
+        timestamp = dt.datetime.now()
+        out = _downloads_dir() / f"informe_{key}_{timestamp:%Y%m%d-%H%M%S}.pdf"
+        company = _read_company_cfg()
+
+        pages = self._render_pdf_pages(company, report_name, timestamp)
+        if not pages:
+            raise RuntimeError("No se pudo renderizar el PDF.")
+        pages[0].save(str(out), "PDF", save_all=True, append_images=pages[1:], resolution=150)
+        return out
+
+    def _render_pdf_pages(self, company: dict[str, str], report_name: str, timestamp: dt.datetime) -> list[Image.Image]:
+        width, height = 1754, 1240
+        margin = 70
+        header_h = 178
+        table_top = 250
+        footer_h = 50
+        fonts = self._pdf_fonts()
+        col_widths = self._pdf_column_widths(width - 2 * margin, fonts["cell"])
+        pages: list[Image.Image] = []
+
+        def new_page() -> tuple[Image.Image, ImageDraw.ImageDraw, int]:
+            image = Image.new("RGB", (width, height), "#FFFFFF")
+            draw = ImageDraw.Draw(image)
+            draw.rectangle([0, 0, width, height], fill="#F7FAFD")
+            draw.rectangle([0, 0, width, 20], fill="#0D2F53")
+            draw.rectangle([margin, 45, width - margin, 45 + header_h], fill="#FFFFFF", outline="#B8C6D5", width=2)
+            self._draw_pdf_header(image, draw, company, report_name, timestamp, fonts, margin, width, 45)
+            filters = self._pdf_filters_text()
+            self._draw_wrapped(draw, filters, (margin, 45 + header_h + 18), width - 2 * margin, fonts["small"], "#40566B", 1)
+            self._draw_pdf_record_count(draw, width - margin, 45 + header_h + 14, fonts)
+            self._draw_pdf_table_header(draw, margin, table_top, col_widths, fonts)
+            return image, draw, table_top + 42
+
+        page, draw, y = new_page()
+        pages.append(page)
+        for row_idx, row in enumerate(self._current_rows):
+            wrapped_cells = [
+                self._wrap_text(str(row[idx] if idx < len(row) else ""), fonts["cell"], max(20, col_widths[idx] - 14))
+                for idx in range(len(self._current_cols))
+            ]
+            row_h = max(32, max(len(lines) for lines in wrapped_cells) * 17 + 14)
+            if y + row_h > height - footer_h - 20:
+                page, draw, y = new_page()
+                pages.append(page)
+            fill = "#FFFFFF" if row_idx % 2 == 0 else "#EEF4FA"
+            x = margin
+            for idx, lines in enumerate(wrapped_cells):
+                draw.rectangle([x, y, x + col_widths[idx], y + row_h], fill=fill, outline="#C4D0DC", width=1)
+                ty = y + 7
+                align = self._pdf_column_align(idx)
+                for line in lines[: max(1, (row_h - 10) // 17)]:
+                    if align == "right":
+                        draw.text((x + col_widths[idx] - 8, ty), line, fill="#142B3F", font=fonts["cell"], anchor="ra")
+                    elif align == "center":
+                        draw.text((x + col_widths[idx] // 2, ty), line, fill="#142B3F", font=fonts["cell"], anchor="ma")
+                    else:
+                        draw.text((x + 7, ty), line, fill="#142B3F", font=fonts["cell"])
+                    ty += 17
+                x += col_widths[idx]
+            y += row_h
+
+        total_pages = len(pages)
+        for idx, img in enumerate(pages, start=1):
+            d = ImageDraw.Draw(img)
+            d.text(
+                (width - margin, height - 36),
+                f"Página {idx} de {total_pages} - {timestamp:%d/%m/%Y %H:%M}",
+                fill="#5D6C7A",
+                font=fonts["small"],
+                anchor="ra",
+            )
+            d.text((margin, height - 36), company.get("name") or "Inventario App", fill="#5D6C7A", font=fonts["small"])
+        return pages
+
+    def _pdf_fonts(self) -> dict[str, ImageFont.ImageFont]:
+        def load(size: int, bold: bool = False):
+            candidates = ["arialbd.ttf" if bold else "arial.ttf", "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"]
+            for name in candidates:
+                try:
+                    return ImageFont.truetype(name, size)
+                except Exception:
+                    continue
+            return ImageFont.load_default()
+
+        return {
+            "title": load(34, True),
+            "subtitle": load(18, False),
+            "company": load(18, False),
+            "company_bold": load(22, True),
+            "small": load(15, False),
+            "head": load(15, True),
+            "cell": load(14, False),
+        }
+
+    def _draw_pdf_header(self, image, draw, company: dict[str, str], report_name: str, timestamp: dt.datetime, fonts, margin: int, width: int, top: int) -> None:
+        logo_box = (margin + 18, top + 22, margin + 128, top + 132)
+        draw.rectangle(logo_box, outline="#C4D0DC", width=1, fill="#F4F8FC")
+        logo_path = (company.get("logo") or "").strip()
+        if logo_path:
+            path = Path(logo_path)
+            if not path.is_absolute():
+                path = Path.cwd() / path
+            if path.exists():
+                try:
+                    logo = Image.open(path).convert("RGBA")
+                    logo.thumbnail((106, 106))
+                    px = logo_box[0] + (110 - logo.width) // 2
+                    py = logo_box[1] + (110 - logo.height) // 2
+                    image.paste(logo, (px, py), logo)
+                except Exception:
+                    draw.text((margin + 45, top + 68), "LOGO", fill="#687B8F", font=fonts["small"])
+        else:
+            draw.text((margin + 45, top + 68), "LOGO", fill="#687B8F", font=fonts["small"])
+
+        x = margin + 150
+        draw.text((x, top + 24), company.get("name") or "Inventario App", fill="#0A2B4F", font=fonts["company_bold"])
+        company_lines = [
+            f"RUT: {company.get('rut') or '-'}",
+            company.get("address") or "",
+            f"Tel: {company.get('phone') or '-'}",
+            company.get("email") or "",
+        ]
+        y = top + 56
+        for line in [item for item in company_lines if item]:
+            draw.text((x, y), line, fill="#40566B", font=fonts["company"])
+            y += 22
+
+        draw.text((width - margin - 18, top + 30), report_name, fill="#0A2B4F", font=fonts["title"], anchor="ra")
+        draw.text((width - margin - 18, top + 76), f"Generado el {timestamp:%d/%m/%Y %H:%M}", fill="#5D6C7A", font=fonts["subtitle"], anchor="ra")
+
+    def _pdf_filters_text(self) -> str:
+        parts = []
+        if self.var_date_from.get().strip() or self.var_date_to.get().strip():
+            parts.append(f"Periodo: {self.var_date_from.get().strip() or '-'} a {self.var_date_to.get().strip() or '-'}")
+        state = (self.cmb_state.get() or "").strip()
+        if state and state != "(Todos)":
+            parts.append(f"Estado: {state}")
+        if self.var_party.get().strip():
+            parts.append(f"Tercero: {self.var_party.get().strip()}")
+        if self.var_product.get().strip():
+            parts.append(f"Producto: {self.var_product.get().strip()}")
+        if self.var_total_min.get().strip() or self.var_total_max.get().strip():
+            parts.append(f"Total: {self.var_total_min.get().strip() or '-'} a {self.var_total_max.get().strip() or '-'}")
+        return " | ".join(parts) if parts else "Filtros: todos los registros disponibles."
+
+    def _pdf_column_widths(self, available_width: int, font: ImageFont.ImageFont) -> list[int]:
+        cols = [str(c) for c in self._current_cols]
+        rows = [list(row) for row in self._current_rows]
+        weights = []
+        for idx, col in enumerate(cols):
+            max_len = self._text_width(col, font)
+            for row in rows[:80]:
+                value = row[idx] if idx < len(row) else ""
+                max_len = max(max_len, min(self._text_width(str(value), font), 360))
+            weights.append(max(80, max_len))
+        total_weight = sum(weights) or 1
+        widths = [int(available_width * (w / total_weight)) for w in weights]
+        diff = available_width - sum(widths)
+        if widths:
+            widths[-1] += diff
+        return widths
+
+    def _draw_pdf_table_header(self, draw, x: int, y: int, col_widths: list[int], fonts) -> None:
+        cx = x
+        for idx, title in enumerate(self._current_cols):
+            draw.rectangle([cx, y, cx + col_widths[idx], y + 42], fill="#0D2F53", outline="#0D2F53")
+            lines = self._wrap_text(str(title), fonts["head"], max(20, col_widths[idx] - 14))
+            draw.text((cx + 7, y + 12), lines[0] if lines else "", fill="#FFFFFF", font=fonts["head"])
+            cx += col_widths[idx]
+
+    def _draw_wrapped(self, draw, text: str, pos: tuple[int, int], max_width: int, font, fill: str, max_lines: int = 2) -> None:
+        y = pos[1]
+        for line in self._wrap_text(text, font, max_width)[:max_lines]:
+            draw.text((pos[0], y), line, fill=fill, font=font)
+            y += 18
+
+    @staticmethod
+    def _text_width(text: str, font: ImageFont.ImageFont) -> int:
+        try:
+            box = font.getbbox(str(text))
+            return int(box[2] - box[0])
+        except Exception:
+            return len(str(text)) * 8
+
+    def _wrap_text(self, text: str, font: ImageFont.ImageFont, max_width: int) -> list[str]:
+        text = (text or "").replace("\n", " ").strip()
+        if not text:
+            return [""]
+        words = text.split()
+        lines: list[str] = []
+        line = ""
+        for word in words:
+            candidate = (line + " " + word).strip()
+            if self._text_width(candidate, font) <= max_width:
+                line = candidate
+                continue
+            if line:
+                lines.append(line)
+                line = word
+            else:
+                cut = word
+                while cut and self._text_width(cut + "...", font) > max_width:
+                    cut = cut[:-1]
+                lines.append((cut + "...") if cut else word[:1])
+                line = ""
+        if line:
+            lines.append(line)
+        return lines or [""]
 
     def print_current(self) -> None:
         key = self._current_report_key or self.REPORTS[self.cmb_report.current() or 0][0]

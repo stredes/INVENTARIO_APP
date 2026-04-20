@@ -41,6 +41,7 @@ class HomeView(ttk.Frame):
         self.var_stock = tk.StringVar(value="0")
         self.var_investment = tk.StringVar(value="$0")
         self.var_profit = tk.StringVar(value="$0")
+        self.var_gain = tk.StringVar(value="$0")
         self.var_pending = tk.StringVar(value="0")
         self.var_suppliers = tk.StringVar(value="0")
         self.var_customers = tk.StringVar(value="0")
@@ -129,7 +130,7 @@ class HomeView(ttk.Frame):
         style.configure("HomePanelText.TLabel", background="#FFFFFF", foreground="#556C86", font=(family, 10))
         style.configure("HomeImage.TLabel", background="#FFFFFF")
         style.configure("HomeInfoTitle.TLabel", background="#F5F9FD", foreground="#153A60", font=(family, 10, "bold"))
-        style.configure("HomeInfoText.TLabel", background="#F5F9FD", foreground="#59708A", font=(family, 10))
+        style.configure("HomeInfoText.TLabel", background="#F5F9FD", foreground="#0C2B4F", font=(family, 10, "bold"))
         style.configure("HomeNav.TButton", background="#18324C", foreground="#FFFFFF", padding=(14, 12), font=(family, 10, "bold"))
         style.map("HomeNav.TButton", background=[("active", "#234565")], foreground=[("active", "#FFFFFF")])
         style.configure("HomeUpdate.TButton", background="#C8841A", foreground="#FFFFFF", padding=(14, 12), font=(family, 10, "bold"))
@@ -315,10 +316,11 @@ class HomeView(ttk.Frame):
             ("Base de datos", self.var_db),
             ("Stock total", self.var_stock),
             ("Inversión", self.var_investment),
-            ("Ganancia", self.var_profit),
+            ("Precio stock", self.var_profit),
+            ("Ganancia", self.var_gain),
             ("Proveedores", self.var_suppliers),
             ("Clientes", self.var_customers),
-            ("Ventas confirmadas", self.var_sales),
+            ("Ventas pagadas", self.var_sales),
             ("Compras pendientes", self.var_pending),
         ]
         for row, (title, variable) in enumerate(info_items, start=1):
@@ -488,16 +490,22 @@ class HomeView(ttk.Frame):
             products = self.session.query(func.count(Product.id)).scalar() or 0
             stock = self.session.query(func.coalesce(func.sum(Product.stock_actual), 0)).scalar() or 0
             investment = self.session.query(
-                func.coalesce(func.sum(Product.precio_compra * Product.stock_actual), 0)
+                func.coalesce(func.sum((Product.precio_compra * 1.19) * Product.stock_actual), 0)
             ).scalar() or 0
             profit = self.session.query(
                 func.coalesce(func.sum(Product.precio_venta * Product.stock_actual), 0)
+            ).scalar() or 0
+            gain = self.session.query(
+                func.coalesce(
+                    func.sum((Product.precio_venta - (Product.precio_compra * 1.19)) * Product.stock_actual),
+                    0,
+                )
             ).scalar() or 0
             suppliers = self.session.query(func.count(Supplier.id)).scalar() or 0
             customers = self.session.query(func.count(Customer.id)).scalar() or 0
             sales = (
                 self.session.query(func.count(Sale.id))
-                .filter(Sale.estado == "Confirmada")
+                .filter(Sale.estado.in_(["Pagado", "Pagada", "Confirmada"]))
                 .scalar()
                 or 0
             )
@@ -515,9 +523,10 @@ class HomeView(ttk.Frame):
             self.var_stock.set(f"{stock} unidades")
             self.var_investment.set(self._fmt_money(investment))
             self.var_profit.set(self._fmt_money(profit))
+            self.var_gain.set(self._fmt_money(gain))
             self.var_suppliers.set(f"{suppliers} registros")
             self.var_customers.set(f"{customers} registros")
-            self.var_sales.set(f"{sales} ventas confirmadas")
+            self.var_sales.set(f"{sales} ventas pagadas")
             self.var_pending.set(f"{pending} órdenes pendientes")
             self.var_db.set(f"{backend} conectada correctamente")
             if pending > 0:

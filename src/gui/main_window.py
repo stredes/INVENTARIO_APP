@@ -1182,14 +1182,14 @@ class MainWindow(ttk.Frame):
             ],
             "Ventas": [
                 "Ventas también se simplificó para operar rápido. El flujo base es: seleccionar cliente, agregar productos, revisar cantidades y precio, confirmar la venta y descontar stock al instante.",
-                "Cuando la venta se registra como Pagada o Confirmada, el inventario baja automáticamente. Eso significa que Ventas y Inventario están conectados en tiempo real y no requieren un segundo proceso para descontar existencias.",
+                "Cuando la venta se registra como Pagado, el inventario baja automáticamente. Eso significa que Ventas y Inventario están conectados en tiempo real y no requieren un segundo proceso para descontar existencias.",
                 "La conexión con Clientes y Productos es directa. Sin cliente y sin producto válido, la venta no puede cerrarse. Por eso esos dos módulos son la preparación natural antes de vender.",
                 "Después de confirmar una venta, el siguiente lugar lógico para revisar es Inventario si quieres validar stock remanente, u Órdenes/Informes si necesitas trazabilidad o análisis comercial."
             ],
             "Inventario": [
                 "Inventario es el resultado consolidado de lo que entró por Compras y salió por Ventas. No es solo un listado de stock: es el punto donde validas si el flujo operativo quedó coherente.",
                 "La lectura correcta del módulo es esta: primero revisas cantidades actuales, luego aplicas filtros o acciones y, si trabajas con etiquetas, terminas en el panel de códigos de barras.",
-                "Si detectas una diferencia en stock, el análisis correcto no parte aquí sino en el origen del movimiento. Debes revisar si la compra ingresó como Factura, si la venta fue confirmada o si el producto tiene una configuración incorrecta."
+                "Si detectas una diferencia en stock, el análisis correcto no parte aquí sino en el origen del movimiento. Debes revisar si la compra ingresó como Factura, si la venta fue pagada o si el producto tiene una configuración incorrecta."
             ],
             "Ordenes": [
                 "Órdenes sirve como panel de trazabilidad. Aquí no se crea la operación principal; aquí se revisa lo que ya se registró en Compras y Ventas.",
@@ -1199,7 +1199,7 @@ class MainWindow(ttk.Frame):
             "Informes": [
                 "Informes es la última etapa del flujo. Una vez registrados los maestros, ejecutadas las compras y ventas, y validado el inventario, este módulo te permite transformar la operación en información de control.",
                 "El flujo aquí es: elegir tipo de informe, ejecutar, revisar resultados y exportar. No alimenta a otros módulos; más bien resume lo que ocurrió en todos los anteriores.",
-                "La calidad del informe depende de la calidad del flujo previo. Si faltan productos, clientes, compras o ventas correctamente confirmadas, el informe reflejará esa omisión."
+                "La calidad del informe depende de la calidad del flujo previo. Si faltan productos, clientes, compras o ventas correctamente pagadas, el informe reflejará esa omisión."
             ],
             "Catalogo": [
                 "Catálogo toma la base creada en Productos y la convierte en una salida visual o imprimible. No es un módulo operativo de registro, sino una capa de presentación.",

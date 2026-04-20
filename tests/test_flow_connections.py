@@ -56,7 +56,7 @@ def test_factura_purchase_then_paid_sale_closes_stock_cycle(session):
     sale = sales.create_sale(
         customer_id=customer.id,
         items=[SaleItem(product_id=product.id, cantidad=4, precio_unitario=Decimal("180.00"))],
-        estado="Pagada",
+        estado="Pagado",
         apply_to_stock=True,
     )
 
@@ -64,7 +64,7 @@ def test_factura_purchase_then_paid_sale_closes_stock_cycle(session):
     assert session.get(Purchase, purchase.id) is not None
     assert session.get(Sale, sale.id) is not None
     assert str(purchase.estado).lower() == "completada"
-    assert str(sale.estado).lower() == "pagada"
+    assert str(sale.estado).lower() == "pagado"
     assert product.stock_actual == 6
 
     entries = session.query(StockEntry).filter(StockEntry.id_producto == product.id).all()
@@ -95,7 +95,7 @@ def test_order_purchase_does_not_feed_inventory_until_real_entry_exists(session)
         sales.create_sale(
             customer_id=customer.id,
             items=[SaleItem(product_id=product.id, cantidad=1, precio_unitario=Decimal("180.00"))],
-            estado="Pagada",
+            estado="Pagado",
             apply_to_stock=True,
         )
 
@@ -108,13 +108,13 @@ def test_order_purchase_does_not_feed_inventory_until_real_entry_exists(session)
     sale = sales.create_sale(
         customer_id=customer.id,
         items=[SaleItem(product_id=product.id, cantidad=2, precio_unitario=Decimal("180.00"))],
-        estado="Confirmada",
+        estado="Pagado",
         apply_to_stock=True,
     )
 
     session.refresh(product)
     assert str(factura_purchase.estado).lower() == "completada"
-    assert str(sale.estado).lower() == "confirmada"
+    assert str(sale.estado).lower() == "pagado"
     assert product.stock_actual == 1
 
 
@@ -132,7 +132,7 @@ def test_canceling_purchase_and_sale_reopens_stock_consistently(session):
     sale = sales.create_sale(
         customer_id=customer.id,
         items=[SaleItem(product_id=product.id, cantidad=3, precio_unitario=Decimal("180.00"))],
-        estado="Pagada",
+        estado="Pagado",
         apply_to_stock=True,
     )
 

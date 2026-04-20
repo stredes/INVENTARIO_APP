@@ -131,12 +131,12 @@ def test_full_system_cycle_supports_end_to_end_closure(session):
             SaleItem(product_id=p1.id, cantidad=3, precio_unitario=Decimal("175.00")),
             SaleItem(product_id=p2.id, cantidad=2, precio_unitario=Decimal("90.00")),
         ],
-        estado="Confirmada",
+        estado="Pagado",
         apply_to_stock=True,
     )
     session.refresh(p1)
     session.refresh(p2)
-    assert str(sale.estado).lower() == "confirmada"
+    assert str(sale.estado).lower() == "pagado"
     assert p1.stock_actual == 7
     assert p2.stock_actual == 3
     assert session.query(StockExit).filter(StockExit.id_producto.in_([p1.id, p2.id])).count() == 2
@@ -145,7 +145,7 @@ def test_full_system_cycle_supports_end_to_end_closure(session):
     session.refresh(p1)
     session.refresh(p2)
     session.refresh(sale)
-    assert str(sale.estado).lower() == "cancelada"
+    assert str(sale.estado).lower() == "pendiente"
     assert p1.stock_actual == 10
     assert p2.stock_actual == 5
 

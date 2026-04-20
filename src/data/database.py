@@ -281,6 +281,25 @@ def _create_index_if_missing(engine: Engine, index_sql: str, index_name: str) ->
         conn.exec_driver_sql(index_sql)
 
 
+def _normalize_sale_statuses(engine: Engine) -> None:
+    """Mantiene ventas con solo dos estados: Pagado o Pendiente."""
+    if not _is_sqlite(engine) or not _table_exists(engine, "sales"):
+        return
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            """
+            UPDATE sales
+               SET estado = CASE
+                   WHEN lower(trim(coalesce(estado, ''))) IN ('pagado', 'pagada', 'confirmada', 'confirmado')
+                       THEN 'Pagado'
+                   ELSE 'Pendiente'
+               END
+             WHERE estado IS NULL
+                OR estado NOT IN ('Pagado', 'Pendiente');
+            """
+        )
+
+
 def _ensure_schema(engine: Engine) -> None:
     """
     Aplica pequeñas migraciones idempotentes necesarias para la app.
@@ -435,6 +454,7 @@ def _ensure_schema(engine: Engine) -> None:
         _add_column_if_missing(engine, table="sales", column="nota", type_sql="TEXT")
         _add_column_if_missing(engine, table="sales", column="estado_externo", type_sql="TEXT")
         _add_column_if_missing(engine, table="sales", column="origen", type_sql="TEXT")
+        _normalize_sale_statuses(engine)
 
         if not _table_exists(engine, "sale_service_details"):
             with engine.begin() as conn:

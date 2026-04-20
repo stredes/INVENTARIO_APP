@@ -63,12 +63,14 @@ def test_sale_confirmed_updates_stock_and_totals(session):
     sale = sm.create_sale(
         customer_id=customer.id,
         items=items,
-        estado="Confirmada",
+        estado="Pagado",
         apply_to_stock=True,
+        numero_documento="FAC-001",
     )
 
     expected_total = q2(money_sum([it.subtotal for it in items]))
     assert q2(sale.total_venta) == expected_total
+    assert sale.numero_documento == "FAC-001"
 
     session.refresh(p1)
     session.refresh(p2)
@@ -86,12 +88,12 @@ def test_sale_reserved_does_not_move_stock(session):
     sale = sm.create_sale(
         customer_id=customer.id,
         items=[SaleItem(product_id=p1.id, cantidad=4, precio_unitario=Decimal("50.00"))],
-        estado="Reservada",
+        estado="Pendiente",
         apply_to_stock=True,
     )
     session.refresh(p1)
     assert p1.stock_actual == 10
-    assert str(sale.estado).lower() == "reservada"
+    assert str(sale.estado).lower() == "pendiente"
 
 
 def test_sale_confirmed_without_stock_move(session):
@@ -101,7 +103,7 @@ def test_sale_confirmed_without_stock_move(session):
     sm.create_sale(
         customer_id=customer.id,
         items=[SaleItem(product_id=p1.id, cantidad=3, precio_unitario=Decimal("50.00"))],
-        estado="Confirmada",
+        estado="Pagado",
         apply_to_stock=False,
     )
     session.refresh(p1)
@@ -115,7 +117,7 @@ def test_cancel_sale_reverts_stock(session):
     sale = sm.create_sale(
         customer_id=customer.id,
         items=[SaleItem(product_id=p1.id, cantidad=5, precio_unitario=Decimal("50.00"))],
-        estado="Confirmada",
+        estado="Pagado",
         apply_to_stock=True,
     )
     session.refresh(p1)
@@ -125,7 +127,7 @@ def test_cancel_sale_reverts_stock(session):
     session.refresh(p1)
     session.refresh(sale)
     assert p1.stock_actual == 10
-    assert str(sale.estado).lower() == "cancelada"
+    assert str(sale.estado).lower() == "pendiente"
 
 
 def test_delete_sale_marks_eliminated_and_reverts_stock(session):
@@ -135,7 +137,7 @@ def test_delete_sale_marks_eliminated_and_reverts_stock(session):
     sale = sm.create_sale(
         customer_id=customer.id,
         items=[SaleItem(product_id=p1.id, cantidad=6, precio_unitario=Decimal("50.00"))],
-        estado="Confirmada",
+        estado="Pagado",
         apply_to_stock=True,
     )
     session.refresh(p1)
@@ -145,7 +147,7 @@ def test_delete_sale_marks_eliminated_and_reverts_stock(session):
     session.refresh(p1)
     session.refresh(sale)
     assert p1.stock_actual == 10
-    assert str(sale.estado).lower() == "eliminada"
+    assert str(sale.estado).lower() == "pendiente"
     assert session.get(Sale, sale.id) is not None
 
 
@@ -157,7 +159,7 @@ def test_sale_insufficient_stock_raises(session):
         sm.create_sale(
             customer_id=customer.id,
             items=[SaleItem(product_id=p1.id, cantidad=999, precio_unitario=Decimal("50.00"))],
-            estado="Confirmada",
+            estado="Pagado",
             apply_to_stock=True,
         )
 

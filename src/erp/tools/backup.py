@@ -949,7 +949,12 @@ def import_app_backup_from_xlsx(xlsx_path: Path, *, reset: bool = True) -> None:
                         id_cliente=int(r.get("tercero_id") or 0),
                         fecha_venta=r.get("fecha"),
                         total_venta=_to_val(r.get("total")) or 0,
-                        estado=str(r.get("estado") or "Confirmada"),
+                        estado=(
+                            "Pagado"
+                            if str(r.get("estado") or "Pagado").strip().lower()
+                            in ("pagado", "pagada", "confirmada", "confirmado")
+                            else "Pendiente"
+                        ),
                         numero_documento=str(r.get("numero_documento") or r.get("doc_numero") or ""),
                         mes_referencia=str(r.get("mes_referencia") or ""),
                         monto_neto=_to_val(r.get("monto_neto")) if r.get("monto_neto") is not None else None,

@@ -55,13 +55,10 @@ class SalesManager:
     y su efecto en el inventario.
 
     Estados soportados:
-      - 'Confirmada'  -> puede descontar stock
-      - 'Pagada'      -> puede descontar stock
-      - 'Reservada'   -> NO descuenta stock
-      - 'Cancelada'   -> NO descuenta stock (si venía confirmada/pagada y se cancela con revert, repone stock)
-      - 'Eliminada'   -> NO se borra físicamente; se marca estado='Eliminada' (para listar en otra sección)
+      - 'Pagado'      -> puede descontar stock
+      - 'Pendiente'   -> NO descuenta stock
     """
-    _STATES_THAT_EXIT_STOCK = {"confirmada", "pagada"}
+    _STATES_THAT_EXIT_STOCK = {"pagado", "pagada", "confirmada"}
 
     def __init__(self, session: Optional[Session] = None) -> None:
         self.session: Session = session or get_session()
@@ -107,6 +104,14 @@ class SalesManager:
                 raise SalesError(f"Precio invalido para servicio '{it.descripcion}'")
         return items
 
+    @staticmethod
+    def normalize_state(estado: str | None) -> str:
+        """Reduce estados antiguos/nuevos a solo Pagado o Pendiente."""
+        raw = str(estado or "").strip().lower()
+        if raw in {"pagado", "pagada", "confirmada", "confirmado"}:
+            return "Pagado"
+        return "Pendiente"
+
     # -----------------------------
     # API pública
     # -----------------------------
@@ -117,8 +122,8 @@ class SalesManager:
         items: Iterable[SaleItem],
         service_items: Optional[Iterable[ManualSaleItem]] = None,
         fecha: Optional[datetime] = None,
-        estado: str = "Confirmada",   # 'Confirmada' | 'Pagada' | 'Reservada' | 'Cancelada'
-        apply_to_stock: bool = True,  # si estado es Confirmada/Pagada y True -> descuenta stock
+        estado: str = "Pagado",
+        apply_to_stock: bool = True,
         numero_documento: Optional[str] = None,
         mes_referencia: Optional[str] = None,
         monto_neto: Optional[Decimal] = None,
@@ -130,10 +135,11 @@ class SalesManager:
     ) -> Sale:
         """
         Crea Sale + SaleDetails.
-        - Si estado ∈ {'Confirmada','Pagada'} y apply_to_stock=True -> registra SALIDAS de stock.
-        - 'Reservada' y 'Cancelada' no afectan stock al crear.
+        - Si estado es 'Pagado' y apply_to_stock=True -> registra SALIDAS de stock.
+        - 'Pendiente' no afecta stock al crear.
         """
         fecha = fecha or datetime.utcnow()
+        estado = self.normalize_state(estado)
         self._validate_customer(customer_id)
         raw_items = list(items)
         items = self._validate_items(raw_items) if raw_items else []
@@ -203,15 +209,15 @@ class SalesManager:
 
     def cancel_sale(self, sale_id: int, *, revert_stock: bool = True) -> None:
         """
-        Cambia estado a 'Cancelada'.
+        Cambia estado a 'Pendiente'.
         Si revert_stock=True y la venta estaba en un estado que **descuenta stock**
-        ('Confirmada'/'Pagada'), reingresa stock (entradas).
+        ('Pagado' o estados antiguos equivalentes), reingresa stock (entradas).
         """
         sale = self.sales.get(sale_id)
         if not sale:
             raise SalesError(f"Venta id={sale_id} no existe")
 
-        if sale.estado.lower() == "cancelada":
+        if sale.estado.lower() == "pendiente":
             return
 
         if revert_stock and sale.estado.lower() in self._STATES_THAT_EXIT_STOCK:
@@ -222,15 +228,14 @@ class SalesManager:
                     motivo=f"Reversa venta {sale_id}",
                     when=datetime.utcnow(),
                 )
-        sale.estado = "Cancelada"
+        sale.estado = "Pendiente"
         self.session.commit()
 
     def delete_sale(self, sale_id: int, *, revert_stock: bool = True) -> None:
         """
-        **No borra físicamente**. Marca estado='Eliminada'.
+        **No borra físicamente**. Marca estado='Pendiente'.
         Si estaba en un estado que **descuenta stock** y revert_stock=True,
-        reingresa stock antes de marcar como Eliminada.
-        Esto permite listar las 'Eliminadas' en otra sección/reportería.
+        reingresa stock antes de marcar como Pendiente.
         """
         sale = self.sales.get(sale_id)
         if not sale:
@@ -241,8 +246,8 @@ class SalesManager:
                 self.inventory.register_entry(
                     product_id=det.id_producto,
                     cantidad=det.cantidad,
-                    motivo=f"Reversa venta {sale_id} (eliminada)",
+                    motivo=f"Reversa venta {sale_id}",
                     when=datetime.utcnow(),
                 )
-        sale.estado = "Eliminada"
+        sale.estado = "Pendiente"
         self.session.commit()

@@ -3,7 +3,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Sequence
 import os
 import webbrowser
 
@@ -92,28 +92,39 @@ def generate_products_catalog(
     rows: int = 4,
     show_company: bool = True,
     show_sku: bool = True,
-    show_stock: bool = True,
-    show_price_net: bool = True,
-    show_price_gross: bool = False,
+    show_stock: bool = False,
+    show_price_net: bool = False,
+    show_price_gross: bool = True,
     family: Optional[str] = None,
+    families: Optional[Sequence[str]] = None,
+    include_no_family: bool = True,
     auto_open: bool = True,
 ) -> Path:
     """
     Genera un catálogo PDF de todos los productos con:
       - Imagen (si existe, usando thumbnail),
       - Nombre + SKU,
-      - Stock actual,
-      - Precio de venta sin IVA.
+      - Precio de venta.
 
     Layout: tarjetas en grilla (3 columnas x 4 filas) por página.
     """
     session = session or get_session()
     products: List[Product] = session.query(Product).order_by(Product.nombre.asc()).all()
     try:
-        fam = (family or os.getenv('CATALOG_FAMILY', '') or '').strip()
-        if fam:
-            lf = fam.lower()
-            products = [p for p in products if ((getattr(p, 'familia', None) or '').lower().find(lf) != -1)]
+        if families is not None:
+            selected = {str(item or "").strip().lower() for item in families if str(item or "").strip()}
+            products = [
+                p for p in products
+                if (
+                    ((getattr(p, "familia", None) or "").strip().lower() in selected)
+                    or (include_no_family and not (getattr(p, "familia", None) or "").strip())
+                )
+            ]
+        else:
+            fam = (family or os.getenv('CATALOG_FAMILY', '') or '').strip()
+            if fam:
+                lf = fam.lower()
+                products = [p for p in products if ((getattr(p, 'familia', None) or '').lower().find(lf) != -1)]
     except Exception:
         pass
 
@@ -246,7 +257,6 @@ def generate_products_catalog(
         title = f"<b>{_wrap_title(raw_title, col_w - 8*mm, max_title_lines)}</b>"
         sku = (p.sku or "").strip()
         sku_txt = f"SKU: {sku}" if sku else ""
-        stock = int(getattr(p, "stock_actual", 0) or 0)
         price_raw = float(getattr(p, "precio_venta", 0.0) or 0.0)
         price_net = _price_without_vat(price_raw, iva)
 
@@ -254,8 +264,6 @@ def generate_products_catalog(
         lines = [Paragraph(title, title_style)]
         if show_sku and sku:
             lines.append(Paragraph(sku_txt, styles["tiny"]))
-        if show_stock:
-            lines.append(Paragraph(f"Stock: <b>{stock}</b>", styles["tiny"]))
         if show_price_net:
             lines.append(Paragraph(f"Precio (sin IVA): <b>{int(price_net):,}</b>".replace(",", "."), styles["tiny"]))
         if show_price_gross:

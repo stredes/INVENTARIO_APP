@@ -325,7 +325,7 @@ class Sale(Base):
     id_cliente: Mapped[int] = mapped_column(ForeignKey("customers.id"), nullable=False)
     fecha_venta: Mapped[dt] = mapped_column(DateTime, nullable=False, default=dt.utcnow)
     total_venta: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
-    estado: Mapped[str] = mapped_column(String, nullable=False)  # Borrador/Confirmada/Cancelada
+    estado: Mapped[str] = mapped_column(String, nullable=False)  # Pagado/Pendiente
     numero_documento: Mapped[Optional[str]] = mapped_column(String)
     mes_referencia: Mapped[Optional[str]] = mapped_column(String)
     monto_neto: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2))

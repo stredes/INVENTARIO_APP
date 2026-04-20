@@ -30,7 +30,7 @@ class OrdersAdminView(ttk.Frame):
     Administra Ã“rdenes de Compra y Ã“rdenes de Venta:
     - Listado de OC/OV con estado
     - Ver detalle (ítems)
-    - Marcar Confirmada/Completada (ajusta stock)
+    - Marcar Pagado/Completada (ajusta stock)
     - Cancelar / Eliminar (revierte stock si corresponde)
     """
 
@@ -324,15 +324,14 @@ class OrdersAdminView(ttk.Frame):
     def _init_sales_tab(self, parent):
         top_v = ttk.Frame(parent); top_v.pack(fill="x")
         ttk.Button(top_v, text="Actualizar", command=self._load_sales).pack(side="left", padx=4)
-        ttk.Button(top_v, text="Marcar CONFIRMADA (descontar stock)", command=self._sale_mark_confirmed).pack(side="left", padx=4)
-        ttk.Button(top_v, text="Cancelar (reversa si confirmada)", style="Danger.TButton", command=self._sale_cancel).pack(side="left", padx=4)
-        ttk.Button(top_v, text="Eliminar (reversa si confirmada)", style="Danger.TButton", command=self._sale_delete).pack(side="left", padx=4)
+        ttk.Button(top_v, text="Marcar PAGADO (descontar stock)", command=self._sale_mark_paid).pack(side="left", padx=4)
+        ttk.Button(top_v, text="Marcar PENDIENTE (reversa stock)", style="Danger.TButton", command=self._sale_cancel).pack(side="left", padx=4)
         ttk.Button(top_v, text="Reimprimir OV (PDF)", command=self._sale_print_pdf).pack(side="left", padx=4)
 
         # Editor de estado
         editor = ttk.Frame(parent); editor.pack(fill="x", pady=(6, 0))
         ttk.Label(editor, text="Estado:").pack(side="left")
-        self.SALE_STATES = ("Pagada", "Confirmada", "Pendiente", "Cancelada", "Eliminada")
+        self.SALE_STATES = ("Pagado", "Pendiente")
         self.sale_state_cb = ttk.Combobox(editor, state="readonly", width=14, values=self.SALE_STATES)
         self.sale_state_cb.pack(side="left", padx=4)
         ttk.Button(editor, text="Aplicar estado", command=self._sale_apply_state).pack(side="left", padx=4)
@@ -347,7 +346,7 @@ class OrdersAdminView(ttk.Frame):
             fil_s,
             state="readonly",
             width=14,
-            values=("Todos", "Pagada", "Confirmada", "Pendiente", "Cancelada", "Eliminada"),
+            values=("Todos", "Pagado", "Pendiente"),
         )
         try:
             self.sale_filter_state.current(0)
@@ -1030,20 +1029,18 @@ class OrdersAdminView(ttk.Frame):
         try:
             st = (self.sale_filter_state.get() or "").strip()
             if st and st != "Todos":
-                if st == "Pendiente":
-                    q = q.filter(Sale.estado.in_(["Pendiente", "Reservada"]))
+                if st == "Pagado":
+                    q = q.filter(Sale.estado.in_(["Pagado", "Pagada", "Confirmada"]))
+                elif st == "Pendiente":
+                    q = q.filter(~Sale.estado.in_(["Pagado", "Pagada", "Confirmada"]))
                 else:
                     q = q.filter(Sale.estado == st)
         except Exception:
             pass
         for sale, cust in q:
-            if str(sale.estado).strip().lower() == "eliminada":
-                continue
             fecha = sale.fecha_venta.strftime("%Y-%m-%d %H:%M")
             cliente = getattr(cust, "razon_social", "") or "-"
-            estado = str(sale.estado or "")
-            if estado.strip().lower() == "reservada":
-                estado = "Pendiente"
+            estado = SalesManager.normalize_state(sale.estado)
             rows.append([sale.id, fecha, cliente, estado, format_currency(sale.total_venta)])
             self._sale_ids.append(int(sale.id))
 
@@ -1058,10 +1055,7 @@ class OrdersAdminView(ttk.Frame):
             sale = self.session.get(Sale, sid)
             if sale is not None:
                 try:
-                    estado = str(sale.estado or "")
-                    if estado.strip().lower() == "reservada":
-                        estado = "Pendiente"
-                    self.sale_state_cb.set(estado)
+                    self.sale_state_cb.set(SalesManager.normalize_state(sale.estado))
                 except Exception:
                     pass
 
@@ -1139,30 +1133,10 @@ class OrdersAdminView(ttk.Frame):
         if target.lower() == cur_state.lower():
             return
 
-        if target == "Confirmada":
-            self._sale_mark_confirmed()
-        elif target == "Pagada":
+        if target == "Pagado":
             self._sale_mark_paid()
-        elif target == "Cancelada":
-            self._sale_cancel()
-        elif target == "Eliminada":
-            self._sale_delete()
         elif target == "Pendiente":
-            # Si estaba confirmada/pagada, devolver stock
-            if cur_state.lower() in ("confirmada", "pagada"):
-                def action():
-                    for det in sale.details:
-                        self.inventory.register_entry(
-                            product_id=det.id_producto,
-                            cantidad=det.cantidad,
-                            motivo=f"Reversa venta {sale.id}",
-                        )
-                    sale.estado = "Pendiente"
-                self._handle_db_action(action, f"Venta {sale.id} marcada como PENDIENTE y stock revertido.", self._load_sales)
-            else:
-                def action2():
-                    sale.estado = "Pendiente"
-                self._handle_db_action(action2, f"Venta {sale.id} marcada como PENDIENTE.", self._load_sales)
+            self._sale_cancel()
 
     def _get_selected_sale_id(self) -> Optional[int]:
         tv = getattr(self.tbl_sale, "_fallback", None)
@@ -1258,30 +1232,7 @@ class OrdersAdminView(ttk.Frame):
         return self.session.get(Sale, sid) if sid else None
 
     def _sale_mark_confirmed(self):
-        sale = self._get_selected_sale()
-        if not sale:
-            messagebox.showwarning("Ventas", "Seleccione una venta.")
-            return
-        cur_state = str(sale.estado).strip().lower()
-        if cur_state == "confirmada":
-            messagebox.showinfo("Ventas", "Esta venta ya está CONFIRMADA.")
-            return
-
-        def action():
-            if cur_state not in ("confirmada", "pagada"):
-                for det in sale.details:
-                    self.inventory.register_exit(
-                        product_id=det.id_producto,
-                        cantidad=det.cantidad,
-                        motivo=f"Venta {sale.id}",
-                    )
-            sale.estado = "Confirmada"
-
-        self._handle_db_action(
-            action,
-            f"Venta {sale.id} marcada como CONFIRMADA y stock actualizado.",
-            self._load_sales
-        )
+        self._sale_mark_paid()
 
     def _sale_mark_paid(self):
         sale = self._get_selected_sale()
@@ -1289,23 +1240,23 @@ class OrdersAdminView(ttk.Frame):
             messagebox.showwarning("Ventas", "Seleccione una venta.")
             return
         cur_state = str(sale.estado).strip().lower()
-        if cur_state == "pagada":
+        if cur_state in ("pagado", "pagada", "confirmada"):
             messagebox.showinfo("Ventas", "Esta venta ya está PAGADA.")
             return
 
         def action():
-            if cur_state not in ("confirmada", "pagada"):
+            if cur_state not in ("pagado", "pagada", "confirmada"):
                 for det in sale.details:
                     self.inventory.register_exit(
                         product_id=det.id_producto,
                         cantidad=det.cantidad,
                         motivo=f"Venta {sale.id}",
                     )
-            sale.estado = "Pagada"
+            sale.estado = "Pagado"
 
         self._handle_db_action(
             action,
-            f"Venta {sale.id} marcada como PAGADA y stock actualizado.",
+            f"Venta {sale.id} marcada como PAGADO y stock actualizado.",
             self._load_sales
         )
 
@@ -1368,7 +1319,7 @@ class OrdersAdminView(ttk.Frame):
 
         self._handle_db_action(
             action,
-            f"Venta {sale.id} cancelada.",
+            f"Venta {sale.id} marcada como PENDIENTE.",
             self._load_sales
         )
 
@@ -1385,7 +1336,7 @@ class OrdersAdminView(ttk.Frame):
 
         self._handle_db_action(
             action,
-            f"Venta {sale.id} eliminada.",
+            f"Venta {sale.id} marcada como PENDIENTE.",
             self._load_sales
         )
 

@@ -14,6 +14,20 @@ class ReportService:
         return float(round(value or 0))
 
     @staticmethod
+    def calculate_manuel_deposit(invoice: dict[str, Any]) -> float:
+        """Monto que queda para depositar a Manuel: factura bruta menos IVA y retenciones."""
+        billed_total = ReportService.round_money(
+            float(invoice.get("net_amount", 0) or 0) + float(invoice.get("vat_amount", 0) or 0)
+        )
+        deductions = ReportService.round_money(
+            float(invoice.get("vat_amount", 0) or 0)
+            + float(invoice.get("tag_amount", 0) or 0)
+            + float(invoice.get("accountant_amount", 0) or 0)
+            + float(invoice.get("savings_amount", 0) or 0)
+        )
+        return ReportService.round_money(billed_total - deductions)
+
+    @staticmethod
     def calculate_invoice_totals(
         net_amount: float,
         vat_rate: float,
@@ -70,6 +84,7 @@ class ReportService:
             "savings_amount": 0.0,
             "actual_savings_paid": 0.0,
             "pending_savings_amount": 0.0,
+            "actual_manuel_paid": 0.0,
             "billed_total_amount": 0.0,
             "total_amount": 0.0,
             "company_commitments": 0.0,
@@ -87,6 +102,7 @@ class ReportService:
                 "actual_accountant_paid",
                 "savings_amount",
                 "actual_savings_paid",
+                "actual_manuel_paid",
                 "billed_total_amount",
                 "total_amount",
             ):
@@ -117,7 +133,10 @@ class ReportService:
         totals = ReportService.global_summary()
 
         received_billed_total = ReportService.round_money(
-            sum(float(invoice.get("total_amount", 0) or 0) for invoice in invoices)
+            sum(
+                float(invoice.get("net_amount", 0) or 0) + float(invoice.get("vat_amount", 0) or 0)
+                for invoice in invoices
+            )
         )
         received_vat = ReportService.round_money(sum(float(invoice.get("vat_amount", 0) or 0) for invoice in invoices))
         received_tag = ReportService.round_money(sum(float(invoice.get("tag_amount", 0) or 0) for invoice in invoices))
@@ -128,12 +147,8 @@ class ReportService:
             sum(float(invoice.get("savings_amount", 0) or 0) for invoice in invoices)
         )
         deposit_manuel = ReportService.round_money(
-            sum(float(invoice.get("deposit_manuel_amount", 0) or 0) for invoice in invoices)
+            sum(ReportService.calculate_manuel_deposit(invoice) for invoice in invoices)
         )
-        if deposit_manuel == 0:
-            deposit_manuel = ReportService.round_money(
-                totals["net_amount"] - totals["tag_amount"] - totals["accountant_amount"]
-            )
 
         paid_vat = ReportService.round_money(
             sum(float(invoice.get("paid_vat_amount", 0) or 0) for invoice in invoices)
@@ -147,6 +162,7 @@ class ReportService:
         savings_paid = ReportService.round_money(
             sum(float(invoice.get("paid_savings_amount", 0) or 0) for invoice in invoices)
         )
+        paid_manuel = totals["actual_manuel_paid"]
         if paid_vat == 0 and paid_accountant_base == 0 and paid_tag == 0 and savings_paid == 0:
             paid_vat = totals["sii_vat_amount"]
             paid_accountant_base = totals["actual_accountant_paid"]
@@ -172,6 +188,7 @@ class ReportService:
             "paid_accountant": paid_accountant_display,
             "paid_tag": paid_tag,
             "paid_savings": savings_paid,
+            "paid_manuel": paid_manuel,
             "vat_balance": vat_balance,
             "accountant_balance": accountant_balance,
             "tag_balance": tag_balance,
@@ -260,6 +277,7 @@ class ReportService:
             actual_tag_paid = reconciliation.get("actual_tag_paid", 0.0) if reconciliation else 0.0
             actual_accountant_paid = reconciliation.get("actual_accountant_paid", 0.0) if reconciliation else 0.0
             actual_savings_paid = reconciliation.get("actual_savings_paid", 0.0) if reconciliation else 0.0
+            actual_manuel_paid = reconciliation.get("actual_manuel_paid", 0.0) if reconciliation else 0.0
             tax_balance = ReportService.round_money(entry["vat_amount"] - sii_vat)
             month_tag_delta = ReportService.round_money(entry["tag_amount"] - actual_tag_paid)
             month_accountant_delta = ReportService.round_money(entry["accountant_amount"] - actual_accountant_paid)
@@ -287,6 +305,7 @@ class ReportService:
             entry["actual_tag_paid"] = ReportService.round_money(actual_tag_paid)
             entry["actual_accountant_paid"] = ReportService.round_money(actual_accountant_paid)
             entry["actual_savings_paid"] = ReportService.round_money(actual_savings_paid)
+            entry["actual_manuel_paid"] = ReportService.round_money(actual_manuel_paid)
             entry["accumulated_tag_retained"] = accumulated_tag_retained
             entry["accumulated_tag_amount"] = ReportService.round_money(accumulated_tag_retained - accumulated_actual_tag_paid)
             entry["accumulated_actual_tag_paid"] = accumulated_actual_tag_paid

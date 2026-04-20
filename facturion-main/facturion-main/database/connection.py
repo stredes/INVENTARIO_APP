@@ -77,6 +77,7 @@ def initialize_database() -> None:
                 actual_tag_paid REAL NOT NULL DEFAULT 0,
                 actual_accountant_paid REAL NOT NULL DEFAULT 0,
                 actual_savings_paid REAL NOT NULL DEFAULT 0,
+                actual_manuel_paid REAL NOT NULL DEFAULT 0,
                 observation TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -97,6 +98,10 @@ def initialize_database() -> None:
         if "actual_savings_paid" not in existing_columns:
             cursor.execute(
                 "ALTER TABLE sii_reconciliations ADD COLUMN actual_savings_paid REAL NOT NULL DEFAULT 0"
+            )
+        if "actual_manuel_paid" not in existing_columns:
+            cursor.execute(
+                "ALTER TABLE sii_reconciliations ADD COLUMN actual_manuel_paid REAL NOT NULL DEFAULT 0"
             )
         cursor.execute(
             """

@@ -19,15 +19,15 @@ from src.gui.utils.order_helpers import ensure_treeview_styling, safe_set_combob
 
 class SalesView(ttk.Frame):
     """
-    Crear ventas + Generar OV + ADMIN (cancelar / marcar eliminada).
+    Crear ventas + Generar OV + ADMIN (marcar pendiente).
     Selector de estado y lógica de stock:
-      - Pagada -> puede descontar stock (si checkbox activo)
-      - Reservada / Cancelada -> no descuenta
+      - Pagado -> puede descontar stock (si checkbox activo)
+      - Pendiente -> no descuenta
     Informe de Ventas con filtros + exportación CSV/PDF a Descargas.
     """
 
-    ESTADOS = ["Pagada", "Confirmada", "Pendiente", "Cancelada", "Eliminada"]
-    _STOCK_STATES = {"Pagada", "Confirmada"}
+    ESTADOS = ["Pagado", "Pendiente"]
+    _STOCK_STATES = {"Pagado"}
 
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
@@ -60,16 +60,22 @@ class SalesView(ttk.Frame):
         # Estado y forma de pago en el encabezado (igual que Compras)
         ttk.Label(top, text="Estado:").grid(row=0, column=3, sticky="e", padx=4)
         self.cmb_estado = ttk.Combobox(top, state="readonly", width=14, values=self.ESTADOS)
-        self.cmb_estado.set("Pagada")
+        self.cmb_estado.set("Pagado")
         self.cmb_estado.grid(row=0, column=4, sticky="w", padx=4)
         self.cmb_estado.bind("<<ComboboxSelected>>", lambda _e=None: self._sync_stock_flow())
 
         ttk.Label(top, text="Pago:").grid(row=0, column=5, sticky="e", padx=4)
-        self.PAGOS = ("Contado", "Débito", "Transferencia", "Crédito 30 días")
+        self.PAGOS = ("Pagado", "Pendiente")
         self.cmb_pago = ttk.Combobox(top, state="readonly", width=18, values=self.PAGOS)
         safe_set_combobox_values(self.cmb_pago, self.PAGOS)
-        self.cmb_pago.set("Contado")
+        self.cmb_pago.set("Pagado")
         self.cmb_pago.grid(row=0, column=6, sticky="w", padx=4)
+        self.cmb_pago.bind("<<ComboboxSelected>>", lambda _e=None: self._sync_payment_state())
+
+        self.var_numero_documento = tk.StringVar(value="")
+        ttk.Label(top, text="N° documento:").grid(row=1, column=0, sticky="e", padx=4, pady=4)
+        self.ent_numero_documento = ttk.Entry(top, textvariable=self.var_numero_documento, width=24)
+        self.ent_numero_documento.grid(row=1, column=1, sticky="w", padx=4, pady=4)
         self._sync_stock_flow()
 
         # ---------- Modo Cajero de ventas (POS) ----------
@@ -280,13 +286,23 @@ class SalesView(ttk.Frame):
             pass
 
     def _sync_stock_flow(self) -> None:
-        estado = (self.cmb_estado.get() or "Pagada").strip()
+        estado = (self.cmb_estado.get() or "Pagado").strip()
         apply = estado in self._STOCK_STATES
         self.var_apply.set(apply)
         try:
             self.chk_apply.configure(state="disabled")
         except Exception:
             pass
+
+    def _sync_payment_state(self) -> None:
+        pago = (self.cmb_pago.get() or "Pagado").strip()
+        if pago not in self.ESTADOS:
+            pago = "Pagado"
+        try:
+            self.cmb_estado.set(pago)
+        except Exception:
+            pass
+        self._sync_stock_flow()
 
     @staticmethod
     def _fmt_clp(value) -> str:
@@ -323,7 +339,7 @@ class SalesView(ttk.Frame):
         self.cmb_customer.grid(row=0, column=1, sticky="w", padx=4, pady=4)
 
         self.var_apply = tk.BooleanVar(value=True)
-        ttk.Checkbutton(top, text="Descontar stock (Confirmada/Pagada)", variable=self.var_apply)\
+        ttk.Checkbutton(top, text="Descontar stock (Pagado)", variable=self.var_apply)\
             .grid(row=0, column=2, padx=10)
 
         # Estado y forma de pago en el encabezado (igual que Compras)
@@ -333,14 +349,15 @@ class SalesView(ttk.Frame):
         self.cmb_estado.grid(row=0, column=4, sticky="w", padx=4)
 
         ttk.Label(top, text="Pago:").grid(row=0, column=5, sticky="e", padx=4)
-        self.PAGOS = ("Contado", "Débito", "Transferencia", "Crédito 30 días")
+        self.PAGOS = ("Pagado", "Pendiente")
         self.cmb_pago = ttk.Combobox(top, state="readonly", width=18, values=self.PAGOS)
         try:
-            self.cmb_pago["values"] = ("Contado", "Débito", "Transferencia", "Crédito 30 días")
+            self.cmb_pago["values"] = self.PAGOS
         except Exception:
             pass
-        self.cmb_pago.set("Contado")
+        self.cmb_pago.set("Pagado")
         self.cmb_pago.grid(row=0, column=6, sticky="w", padx=4)
+        self.cmb_pago.bind("<<ComboboxSelected>>", lambda _e=None: self._sync_payment_state())
 
         # ---------- Modo Cajero de ventas (POS) ----------
         self._cashier_mode = tk.BooleanVar(value=False)
@@ -521,12 +538,13 @@ class SalesView(ttk.Frame):
         try:
             if self._cashier_mode.get():
                 self._cashier_frame.pack(fill="x", expand=False, pady=(6, 0))
-                # Sugerir estado Pagada y pago Contado, sin forzarlo
+                # Sugerir estado y pago Pagado, sin forzarlo
                 try:
-                    if self.cmb_estado.get() == "" or self.cmb_estado.get() == "Confirmada":
-                        self.cmb_estado.set("Pagada")
+                    if self.cmb_estado.get() == "":
+                        self.cmb_estado.set("Pagado")
                     if hasattr(self, "cmb_pago") and not self.cmb_pago.get():
-                        self.cmb_pago.set("Contado")
+                        self.cmb_pago.set("Pagado")
+                    self._sync_payment_state()
                 except Exception:
                     pass
                 self.after(10, self._focus_scan)
@@ -600,7 +618,7 @@ class SalesView(ttk.Frame):
                 pass
 
     def _on_quick_checkout(self) -> None:
-        """Confirma venta como 'Pagada' y genera boleta PDF (Descargas).
+        """Confirma venta como 'Pagado' y genera boleta PDF (Descargas).
         Requiere cliente seleccionado.
         """
         try:
@@ -635,8 +653,8 @@ class SalesView(ttk.Frame):
                 if it.get("kind") == "service"
             ]
 
-            # 3) Crear venta como 'Pagada' con descuento inmediato de stock
-            estado = "Pagada"
+            # 3) Crear venta como 'Pagado' con descuento inmediato de stock
+            estado = "Pagado"
             apply_to_stock = True
             create_fn = self._resolve_create_sale()
             sale = create_fn(
@@ -645,6 +663,7 @@ class SalesView(ttk.Frame):
                 service_items=service_items,
                 estado=estado,
                 apply_to_stock=apply_to_stock,
+                numero_documento=(self.var_numero_documento.get() or "").strip() or None,
             )
 
             # 4) Generar Boleta POS (ticket 80mm) en Descargas
@@ -696,7 +715,7 @@ class SalesView(ttk.Frame):
                 self._info(f"Venta registrada y boleta generada:\n{out}")
             except Exception:
                 # Si el PDF falla, al menos informar venta creada
-                self._info("Venta registrada (Pagada). No se pudo generar la boleta.")
+                self._info("Venta registrada (Pagado). No se pudo generar la boleta.")
 
             # 5) Limpiar UI
             self._on_clear_table()
@@ -999,6 +1018,10 @@ class SalesView(ttk.Frame):
             self.tree.delete(iid)
         self._row_meta.clear()
         self._clear_editor_state()
+        try:
+            self.var_numero_documento.set("")
+        except Exception:
+            pass
         self._update_total()
 
     def _update_total(self):
@@ -1228,7 +1251,13 @@ class SalesView(ttk.Frame):
                 if it.get("kind") == "service"
             ]
 
-            estado = (self.cmb_estado.get() or "Pagada").strip()
+            estado = (self.cmb_pago.get() or self.cmb_estado.get() or "Pagado").strip()
+            if estado not in self.ESTADOS:
+                estado = "Pagado"
+            try:
+                self.cmb_estado.set(estado)
+            except Exception:
+                pass
             apply_to_stock = estado in self._STOCK_STATES
 
             create_fn = self._resolve_create_sale()
@@ -1238,6 +1267,7 @@ class SalesView(ttk.Frame):
                 service_items=service_items,
                 estado=estado,
                 apply_to_stock=apply_to_stock,
+                numero_documento=(self.var_numero_documento.get() or "").strip() or None,
             )
 
             self._on_clear_table()
@@ -1319,17 +1349,17 @@ class SalesView(ttk.Frame):
         try:
             sid = int(self.ent_sale_id.get())
             self.sm.cancel_sale(sid, revert_stock=True)
-            self._info(f"Venta {sid} cancelada.")
+            self._info(f"Venta {sid} marcada como Pendiente.")
         except Exception as e:
             self._error(f"No se pudo cancelar:\n{e}")
 
     def _on_delete_sale(self):
         try:
             sid = int(self.ent_sale_id.get())
-            if not messagebox.askyesno("Confirmar", f"¿Marcar venta {sid} como Eliminada? Se revertirá stock si corresponde."):
+            if not messagebox.askyesno("Confirmar", f"¿Marcar venta {sid} como Pendiente? Se revertirá stock si corresponde."):
                 return
             self.sm.delete_sale(sid, revert_stock=True)
-            self._info(f"Venta {sid} marcada como Eliminada.")
+            self._info(f"Venta {sid} marcada como Pendiente.")
         except Exception as e:
             self._error(f"No se pudo eliminar:\n{e}")
 
@@ -1376,7 +1406,12 @@ class SalesView(ttk.Frame):
         )
 
         if estado:
-            q = q.filter(getattr(Sale, "estado") == estado)
+            if estado == "Pagado":
+                q = q.filter(getattr(Sale, "estado").in_(["Pagado", "Pagada", "Confirmada"]))
+            elif estado == "Pendiente":
+                q = q.filter(~getattr(Sale, "estado").in_(["Pagado", "Pagada", "Confirmada"]))
+            else:
+                q = q.filter(getattr(Sale, "estado") == estado)
 
         if total_min is not None:
             q = q.filter(getattr(Sale, "total_venta") >= float(total_min))
@@ -1399,7 +1434,7 @@ class SalesView(ttk.Frame):
         for s in q.all():
             fecha = getattr(s, "fecha_venta", None)
             total = getattr(s, "total_venta", None)
-            est = getattr(s, "estado", None) or ""
+            est = "Pagado" if str(getattr(s, "estado", "") or "").strip().lower() in ("pagado", "pagada", "confirmada") else "Pendiente"
             cliente = ""
             cust_obj = getattr(s, "customer", None)
             if cust_obj is not None:
@@ -1446,8 +1481,6 @@ class SalesView(ttk.Frame):
 
         total_general = 0.0
         for r in rows:
-            if str(r.get("estado", "")).strip().lower() == "eliminada":
-                continue
             f = r.get("fecha")
             if hasattr(f, "strftime"):
                 fecha_txt = f.strftime("%d/%m/%Y %H:%M") if hasattr(f, "hour") else f.strftime("%d/%m/%Y")
@@ -1477,8 +1510,6 @@ class SalesView(ttk.Frame):
                 w = csv.writer(f, delimiter=";")
                 w.writerow(["ID", "Fecha", "Cliente", "Estado", "Total"])
                 for r in rows:
-                    if str(r.get("estado", "")).strip().lower() == "eliminada":
-                        continue
                     fval = r["fecha"]
                     ftxt = fval.strftime("%d/%m/%Y %H:%M") if hasattr(fval, "strftime") else str(fval or "")
                     # Para CSV, dejamos valor entero en pesos (sin separadores)
@@ -1511,7 +1542,7 @@ class SalesView(ttk.Frame):
             date_from = self.ent_from.get().strip()
             date_to = self.ent_to.get().strip()
 
-            filtered_rows = [r for r in rows if str(r.get("estado", "")).strip().lower() != "eliminada"]
+            filtered_rows = list(rows)
 
             out = generate_sales_report_to_downloads(
                 rows=filtered_rows,

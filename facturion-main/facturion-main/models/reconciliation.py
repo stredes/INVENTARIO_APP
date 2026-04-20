@@ -11,5 +11,6 @@ class Reconciliation:
     actual_tag_paid: float = 0.0
     actual_accountant_paid: float = 0.0
     actual_savings_paid: float = 0.0
+    actual_manuel_paid: float = 0.0
     observation: str = ""
     id: Optional[int] = None
