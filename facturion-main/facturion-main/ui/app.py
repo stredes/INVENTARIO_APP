@@ -194,8 +194,7 @@ class FacturionApp(ctk.CTk):
         tabs.add("Historial")
 
         facturas_tab = tabs.tab("Facturas")
-        facturas_tab.grid_columnconfigure(0, weight=3)
-        facturas_tab.grid_columnconfigure(1, weight=2)
+        facturas_tab.grid_columnconfigure(0, weight=1)
         facturas_tab.grid_rowconfigure(0, weight=1)
 
         conciliacion_tab = tabs.tab("Pagos")
@@ -208,78 +207,120 @@ class FacturionApp(ctk.CTk):
         historial_tab.grid_rowconfigure(0, weight=1)
 
         self._build_invoice_table(facturas_tab)
-        self._build_summary_panel(facturas_tab)
         self._build_reconciliation_panel(conciliacion_tab)
         self._build_chart_panel(conciliacion_tab)
         self._build_history_panel(historial_tab)
 
     def _build_dashboard(self, parent: ctk.CTkFrame) -> None:
-        frame = ctk.CTkScrollableFrame(parent, corner_radius=16, height=310)
+        frame = ctk.CTkScrollableFrame(parent, corner_radius=16, height=330)
         frame.grid(row=0, column=0, sticky="ew", padx=16, pady=(16, 10))
         frame.grid_columnconfigure(0, weight=1)
-        self.dashboard_cards: dict[str, ctk.CTkLabel] = {}
-        self.global_cards: dict[str, ctk.CTkLabel] = {}
+        self.excel_cards: dict[str, ctk.CTkLabel] = {}
+        self._build_excel_cards(frame)
 
-        month_frame = ctk.CTkFrame(frame, corner_radius=14, fg_color="transparent")
-        month_frame.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
-        month_frame.grid_columnconfigure((0, 1, 2), weight=1)
-        ctk.CTkLabel(
-            month_frame,
-            text="Resumen del mes actual",
-            font=ctk.CTkFont(size=17, weight="bold"),
-        ).grid(row=0, column=0, columnspan=3, sticky="w", padx=4, pady=(0, 8))
-
-        month_cards = [
-            ("Saldo heredado del mes anterior", "opening_balance"),
-            ("IVA total acumulado del mes", "vat_amount"),
-            ("Diferencia IVA", "tax_balance"),
-            ("Saldo TAG", "tag_balance"),
-            ("Saldo contador", "accountant_balance"),
-            ("Retencion TAG del mes", "tag_amount"),
-            ("Retencion contador del mes", "accountant_amount"),
-            ("Estado de pago", "balance_status"),
-            ("Saldo final", "balance"),
+    def _build_excel_cards(self, parent: ctk.CTkFrame) -> None:
+        sections = [
+            (
+                "Recepcion",
+                [
+                    ("Total de Facturar\nrecepcionadas", "received_billed_total", False),
+                    ("Iva\nRecepcionado", "received_vat", False),
+                    ("Tag Recepcionados", "received_tag", False),
+                    ("Contador\nrecepcionado", "received_accountant", False),
+                    ("Ahorro\nrecepcionado", "received_savings", False),
+                    ("Deposito\nManuel", "deposit_manuel", False),
+                ],
+            ),
+            (
+                "Pagos",
+                [
+                    ("Pago Iva", "paid_vat", True),
+                    ("Pago contador", "paid_accountant", False),
+                    ("Pago Tag", "paid_tag", False),
+                    ("Pag ahorra", "paid_savings", False),
+                ],
+            ),
+            (
+                "Saldos",
+                [
+                    ("Saldo Iva", "vat_balance", False),
+                    ("Saldo Contador", "accountant_balance", False),
+                    ("Saldo tag", "tag_balance", True),
+                    ("Saldo Ahorro", "savings_balance", False),
+                    ("Saldo total", "total_balance", False),
+                ],
+            ),
         ]
-        for index, (label, key) in enumerate(month_cards):
-            card = ctk.CTkFrame(month_frame, corner_radius=14, fg_color="#142031")
-            card.grid(row=(index // 3) + 1, column=index % 3, sticky="ew", padx=8, pady=6)
-            ctk.CTkLabel(card, text=label, text_color="#9fb1c7").pack(anchor="w", padx=12, pady=(8, 2))
-            value = ctk.CTkLabel(card, text="--", font=ctk.CTkFont(size=18, weight="bold"))
-            value.pack(anchor="w", padx=12, pady=(0, 8))
-            self.dashboard_cards[key] = value
 
-        global_frame = ctk.CTkFrame(frame, corner_radius=14, fg_color="transparent")
-        global_frame.grid(row=1, column=0, sticky="ew", padx=8, pady=(6, 8))
-        global_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        for row_index, (title, cards) in enumerate(sections):
+            section = ctk.CTkFrame(parent, fg_color="transparent")
+            section.grid(row=row_index, column=0, sticky="ew", padx=8, pady=(8, 10))
+            section.grid_columnconfigure(tuple(range(6)), weight=1, uniform=f"excel_cards_{row_index}")
+
+            title_bar = ctk.CTkFrame(
+                section,
+                height=38,
+                corner_radius=12,
+                fg_color="#132131",
+                border_width=1,
+                border_color="#253246",
+            )
+            title_bar.grid(row=0, column=0, columnspan=6, sticky="ew", pady=(0, 12))
+            title_bar.grid_propagate(False)
+            ctk.CTkLabel(
+                title_bar,
+                text=title,
+                text_color="#f8fafc",
+                font=ctk.CTkFont(size=18, weight="bold"),
+            ).place(relx=0.5, rely=0.5, anchor="center")
+
+            for index, (label, key, alert) in enumerate(cards):
+                column = index if title != "Saldos" or index < 4 else 5
+                self._add_excel_card(section, row=1, column=column, label=label, key=key, alert=alert)
+
+    def _add_excel_card(
+        self,
+        parent: ctk.CTkFrame,
+        *,
+        row: int,
+        column: int,
+        label: str,
+        key: str,
+        alert: bool = False,
+    ) -> None:
+        card = ctk.CTkFrame(
+            parent,
+            width=150,
+            height=68,
+            corner_radius=12,
+            fg_color="#142031",
+            border_width=1,
+            border_color="#253246",
+        )
+        card.grid(row=row, column=column, sticky="ew", padx=10, pady=2)
+        card.grid_propagate(False)
+        text_color = "#f87171" if alert else "#cbd5e1"
+        value_color = "#fecaca" if alert else "#f8fafc"
         ctk.CTkLabel(
-            global_frame,
-            text="Resumen global de todos los meses",
-            font=ctk.CTkFont(size=17, weight="bold"),
-        ).grid(row=0, column=0, columnspan=4, sticky="w", padx=4, pady=(0, 8))
+            card,
+            text=label,
+            text_color=text_color,
+            font=ctk.CTkFont(size=13, weight="bold" if alert else "normal"),
+            justify="center",
+        ).pack(fill="x", padx=4, pady=(4, 0))
 
-        global_cards = [
-            ("Facturas acumuladas", "count"),
-            ("Neto acumulado", "net_amount"),
-            ("Total liquidado acumulado", "total_amount"),
-            ("IVA total de todos los meses", "vat_amount"),
-            ("IVA pagado total", "sii_vat_amount"),
-            ("IVA pendiente total", "pending_vat_amount"),
-            ("TAG total de todos los meses", "tag_amount"),
-            ("TAG pagado total", "actual_tag_paid"),
-            ("TAG pendiente total", "pending_tag_amount"),
-            ("Contador total de todos los meses", "accountant_amount"),
-            ("Contador pagado total", "actual_accountant_paid"),
-            ("Contador pendiente total", "pending_accountant_amount"),
-            ("Compromisos pendientes", "company_commitments"),
-            ("Ahorro disponible estimado", "available_savings"),
-        ]
-        for index, (label, key) in enumerate(global_cards):
-            card = ctk.CTkFrame(global_frame, corner_radius=14, fg_color="#142031")
-            card.grid(row=(index // 4) + 1, column=index % 4, sticky="ew", padx=8, pady=6)
-            ctk.CTkLabel(card, text=label, text_color="#9fb1c7").pack(anchor="w", padx=12, pady=(8, 2))
-            value = ctk.CTkLabel(card, text="--", font=ctk.CTkFont(size=18, weight="bold"))
-            value.pack(anchor="w", padx=12, pady=(0, 8))
-            self.global_cards[key] = value
+        value_row = ctk.CTkFrame(card, fg_color="transparent")
+        value_row.pack(fill="x", side="bottom", padx=6, pady=(0, 4))
+        ctk.CTkLabel(value_row, text="$", text_color=text_color, width=16, anchor="w").pack(side="left")
+        value = ctk.CTkLabel(
+            value_row,
+            text="--",
+            text_color=value_color,
+            font=ctk.CTkFont(size=13, weight="bold" if alert else "normal"),
+            anchor="e",
+        )
+        value.pack(side="right", fill="x", expand=True)
+        self.excel_cards[key] = value
 
     def _build_invoice_table(self, parent: ctk.CTkFrame) -> None:
         container = ctk.CTkFrame(parent, corner_radius=16)
@@ -338,48 +379,6 @@ class FacturionApp(ctk.CTk):
             self.invoice_tree.column(column, width=widths[column], anchor="center")
         self.invoice_tree.grid(row=1, column=0, sticky="nsew", padx=16, pady=(0, 16))
         self.invoice_tree.bind("<<TreeviewSelect>>", self.load_selected_invoice)
-
-    def _build_summary_panel(self, parent: ctk.CTkFrame) -> None:
-        container = ctk.CTkScrollableFrame(parent, corner_radius=16)
-        container.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
-        ctk.CTkLabel(
-            container,
-            text="Resumen mensual",
-            font=ctk.CTkFont(size=20, weight="bold"),
-        ).pack(anchor="w", padx=16, pady=(16, 12))
-        self.summary_labels: dict[str, ctk.CTkLabel] = {}
-        for label, key in [
-            ("Cantidad de facturas", "count"),
-            ("Total neto", "net_amount"),
-            ("IVA acumulado", "vat_amount"),
-            ("TAG retenido del mes", "tag_amount"),
-            ("TAG pagado del mes", "actual_tag_paid"),
-            ("TAG acumulado pendiente", "accumulated_tag_amount"),
-            ("TAG pagado acumulado", "accumulated_actual_tag_paid"),
-            ("Saldo TAG acumulado", "tag_balance"),
-            ("Contador retenido del mes", "accountant_amount"),
-            ("Contador pagado del mes", "actual_accountant_paid"),
-            ("Contador acumulado pendiente", "accumulated_accountant_amount"),
-            ("Contador pagado acumulado", "accumulated_actual_accountant_paid"),
-            ("Saldo contador acumulado", "accountant_balance"),
-            ("Total facturado bruto del mes", "billed_total_amount"),
-            ("Total liquidado del mes", "total_amount"),
-            ("IVA informado SII", "sii_vat_amount"),
-            ("Saldo heredado del mes anterior", "opening_balance"),
-            ("Diferencia IVA del mes", "tax_balance"),
-            ("Saldo final del mes", "balance"),
-            ("Estado", "balance_status"),
-        ]:
-            box = ctk.CTkFrame(container, fg_color="#132131", corner_radius=12)
-            box.pack(fill="x", padx=16, pady=5)
-            ctk.CTkLabel(box, text=label, text_color="#9fb1c7").pack(anchor="w", padx=14, pady=(10, 2))
-            value = ctk.CTkLabel(box, text="--", font=ctk.CTkFont(size=18, weight="bold"))
-            value.pack(anchor="w", padx=14, pady=(0, 10))
-            self.summary_labels[key] = value
-        self.summary_message = ctk.CTkLabel(container, text="", wraplength=360, justify="left", text_color="#cbd5e1")
-        self.summary_message.pack(fill="x", padx=16, pady=(12, 12))
-        ctk.CTkButton(container, text="Exportar resumen CSV", command=self.export_summary_csv).pack(fill="x", padx=16, pady=4)
-        ctk.CTkButton(container, text="Imprimir reporte mensual", fg_color="#334155", command=self.print_monthly_report).pack(fill="x", padx=16, pady=(4, 16))
 
     def _build_reconciliation_panel(self, parent: ctk.CTkFrame) -> None:
         container = ctk.CTkScrollableFrame(parent, corner_radius=16)
@@ -618,7 +617,6 @@ class FacturionApp(ctk.CTk):
 
     def refresh_all(self) -> None:
         self.refresh_invoice_table()
-        self.refresh_summary()
         self.refresh_dashboard()
         self.refresh_payment_history()
         self.refresh_history()
@@ -658,61 +656,17 @@ class FacturionApp(ctk.CTk):
             )
 
     def refresh_summary(self) -> None:
-        summary = ReportService.monthly_summary(self.selected_month.get(), self.selected_year.get())
-        self.summary_labels["count"].configure(text=str(summary["count"]))
-        for key in (
-            "net_amount",
-            "vat_amount",
-            "tag_amount",
-            "actual_tag_paid",
-            "accumulated_tag_amount",
-            "accumulated_actual_tag_paid",
-            "tag_balance",
-            "accountant_amount",
-            "actual_accountant_paid",
-            "accumulated_accountant_amount",
-            "accumulated_actual_accountant_paid",
-            "accountant_balance",
-            "billed_total_amount",
-            "total_amount",
-            "sii_vat_amount",
-            "opening_balance",
-            "tax_balance",
-            "balance",
-        ):
-            self.summary_labels[key].configure(text=format_currency(summary[key]))
-        self.summary_labels["balance_status"].configure(text=summary["balance_status"])
-        self.summary_message.configure(text=summary["balance_message"])
+        self.refresh_dashboard()
 
     def refresh_dashboard(self) -> None:
-        summary = ReportService.current_month_summary()
-        global_summary = ReportService.global_summary()
-        self.dashboard_cards["opening_balance"].configure(text=format_currency(summary["opening_balance"]))
-        self.dashboard_cards["vat_amount"].configure(text=format_currency(summary["vat_amount"]))
-        self.dashboard_cards["tax_balance"].configure(text=format_currency(summary["tax_balance"]))
-        self.dashboard_cards["tag_balance"].configure(text=format_currency(summary["tag_balance"]))
-        self.dashboard_cards["accountant_balance"].configure(text=format_currency(summary["accountant_balance"]))
-        self.dashboard_cards["tag_amount"].configure(text=format_currency(summary["tag_amount"]))
-        self.dashboard_cards["accountant_amount"].configure(text=format_currency(summary["accountant_amount"]))
-        self.dashboard_cards["balance_status"].configure(text=summary["balance_status"])
-        self.dashboard_cards["balance"].configure(text=format_currency(summary["balance"]))
-        self.global_cards["count"].configure(text=str(global_summary["count"]))
-        for key in (
-            "net_amount",
-            "total_amount",
-            "vat_amount",
-            "sii_vat_amount",
-            "pending_vat_amount",
-            "tag_amount",
-            "actual_tag_paid",
-            "pending_tag_amount",
-            "accountant_amount",
-            "actual_accountant_paid",
-            "pending_accountant_amount",
-            "company_commitments",
-            "available_savings",
-        ):
-            self.global_cards[key].configure(text=format_currency(global_summary[key]))
+        summary = ReportService.excel_cards_summary()
+        blank_when_zero = {"paid_tag", "paid_savings", "tag_balance", "savings_balance"}
+        for key, value in summary.items():
+            if key in self.excel_cards:
+                if key in blank_when_zero and float(value or 0) == 0:
+                    self.excel_cards[key].configure(text="-")
+                else:
+                    self.excel_cards[key].configure(text=format_currency(value).replace("$", "").strip())
 
     def refresh_payment_history(self) -> None:
         for item in self.payment_tree.get_children():

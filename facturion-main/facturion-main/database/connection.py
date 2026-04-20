@@ -46,6 +46,20 @@ def initialize_database() -> None:
             )
             """
         )
+        invoice_columns = {
+            row["name"] for row in cursor.execute("PRAGMA table_info(invoices)").fetchall()
+        }
+        for column in (
+            "deposit_amount",
+            "savings_amount",
+            "deposit_manuel_amount",
+            "paid_vat_amount",
+            "paid_accountant_amount",
+            "paid_savings_amount",
+            "paid_tag_amount",
+        ):
+            if column not in invoice_columns:
+                cursor.execute(f"ALTER TABLE invoices ADD COLUMN {column} REAL NOT NULL DEFAULT 0")
         cursor.execute("DROP INDEX IF EXISTS idx_invoices_number_date")
         cursor.execute(
             """

@@ -99,6 +99,74 @@ class ReportService:
         return totals
 
     @staticmethod
+    def excel_cards_summary() -> dict[str, float]:
+        invoices = InvoiceService.list_all()
+        totals = ReportService.global_summary()
+
+        received_billed_total = ReportService.round_money(
+            sum(float(invoice.get("total_amount", 0) or 0) for invoice in invoices)
+        )
+        received_vat = ReportService.round_money(sum(float(invoice.get("vat_amount", 0) or 0) for invoice in invoices))
+        received_tag = ReportService.round_money(sum(float(invoice.get("tag_amount", 0) or 0) for invoice in invoices))
+        received_accountant = ReportService.round_money(
+            sum(float(invoice.get("accountant_amount", 0) or 0) for invoice in invoices)
+        )
+        savings_received = ReportService.round_money(
+            sum(float(invoice.get("savings_amount", 0) or 0) for invoice in invoices)
+        )
+        deposit_manuel = ReportService.round_money(
+            sum(float(invoice.get("deposit_manuel_amount", 0) or 0) for invoice in invoices)
+        )
+        if deposit_manuel == 0:
+            deposit_manuel = ReportService.round_money(
+                totals["net_amount"] - totals["tag_amount"] - totals["accountant_amount"]
+            )
+
+        paid_vat = ReportService.round_money(
+            sum(float(invoice.get("paid_vat_amount", 0) or 0) for invoice in invoices)
+        )
+        paid_accountant_base = ReportService.round_money(
+            sum(float(invoice.get("paid_accountant_amount", 0) or 0) for invoice in invoices)
+        )
+        paid_tag = ReportService.round_money(
+            sum(float(invoice.get("paid_tag_amount", 0) or 0) for invoice in invoices)
+        )
+        savings_paid = ReportService.round_money(
+            sum(float(invoice.get("paid_savings_amount", 0) or 0) for invoice in invoices)
+        )
+        if paid_vat == 0 and paid_accountant_base == 0 and paid_tag == 0 and savings_paid == 0:
+            paid_vat = totals["sii_vat_amount"]
+            paid_accountant_base = totals["actual_accountant_paid"]
+            paid_tag = totals["actual_tag_paid"]
+
+        # The workbook's "Pago contador" card sums the detail payment and its total row.
+        paid_accountant_display = ReportService.round_money(paid_accountant_base * 2)
+        savings_balance = 0.0
+        vat_balance = ReportService.round_money(received_vat - paid_vat)
+        tag_balance = 0.0
+        accountant_balance = ReportService.round_money(received_accountant - paid_accountant_base)
+        total_balance = ReportService.round_money(
+            vat_balance + accountant_balance
+        )
+        return {
+            "received_billed_total": received_billed_total,
+            "received_vat": received_vat,
+            "received_tag": received_tag,
+            "received_accountant": received_accountant,
+            "received_savings": savings_received,
+            "deposit_manuel": deposit_manuel,
+            "paid_vat": paid_vat,
+            "paid_accountant": paid_accountant_display,
+            "paid_tag": paid_tag,
+            "paid_savings": savings_paid,
+            "vat_balance": vat_balance,
+            "accountant_balance": accountant_balance,
+            "tag_balance": tag_balance,
+            "savings_balance": savings_balance,
+            "total_balance": total_balance,
+        }
+
+    @staticmethod
     def _build_monthly_balances(include_month: str | None = None) -> dict[str, dict[str, Any]]:
         invoices = InvoiceService.list_all()
         grouped: dict[str, dict[str, Any]] = defaultdict(
