@@ -1,12 +1,12 @@
 {
     "app_name":  "InventarioApp",
     "company_name":  "Tamapal Spa",
-    "version":  "0.1.14",
-    "release_tag":  "v0.1.14",
+    "version":  "0.1.15",
+    "release_tag":  "v0.1.15",
     "channel":  "stable",
     "repo_owner":  "stredes",
     "repo_name":  "inventario_app",
     "portable_asset_pattern":  "InventarioApp-portable-*.zip",
     "setup_asset_pattern":  "InventarioApp-setup-*.exe",
-    "built_at_utc":  "2026-04-20T14:30:07.7308221Z"
+    "built_at_utc":  "2026-04-20T14:38:42.0705138Z"
 }

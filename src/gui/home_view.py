@@ -39,6 +39,8 @@ class HomeView(ttk.Frame):
         self.var_active = tk.StringVar(value="Inicio")
         self.var_products = tk.StringVar(value="0")
         self.var_stock = tk.StringVar(value="0")
+        self.var_investment = tk.StringVar(value="$0")
+        self.var_profit = tk.StringVar(value="$0")
         self.var_pending = tk.StringVar(value="0")
         self.var_suppliers = tk.StringVar(value="0")
         self.var_customers = tk.StringVar(value="0")
@@ -59,6 +61,8 @@ class HomeView(ttk.Frame):
         self._mode_buttons: list[ttk.Button] = []
         self._cards_left = None
         self._main_panel = None
+        self._content_canvas: tk.Canvas | None = None
+        self._content_scroll_window: int | None = None
 
         self._load_company_info()
         self._configure_styles()
@@ -154,8 +158,26 @@ class HomeView(ttk.Frame):
             content_column = 0
             content_padding = (0, 0, 0, 0)
 
-        content = ttk.Frame(self, style="HomeContent.TFrame", padding=content_padding)
-        content.grid(row=0, column=content_column, sticky="nsew")
+        content_host = ttk.Frame(self, style="HomeContent.TFrame")
+        content_host.grid(row=0, column=content_column, sticky="nsew")
+        content_host.rowconfigure(0, weight=1)
+        content_host.columnconfigure(0, weight=1)
+
+        canvas = tk.Canvas(content_host, highlightthickness=0, bd=0, background="#E6EDF5")
+        scrollbar = ttk.Scrollbar(content_host, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+
+        content = ttk.Frame(canvas, style="HomeContent.TFrame", padding=content_padding)
+        scroll_window = canvas.create_window((0, 0), window=content, anchor="nw")
+        canvas.bind("<Configure>", self._on_content_canvas_configure, add="+")
+        content.bind("<Configure>", self._on_content_frame_configure, add="+")
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self.bind_all(seq, self._on_content_mousewheel, add="+")
+
+        self._content_canvas = canvas
+        self._content_scroll_window = scroll_window
         content.columnconfigure(0, weight=3)
         content.columnconfigure(1, weight=2)
         self._content_parent = content
@@ -292,6 +314,8 @@ class HomeView(ttk.Frame):
         info_items = [
             ("Base de datos", self.var_db),
             ("Stock total", self.var_stock),
+            ("Inversión", self.var_investment),
+            ("Ganancia", self.var_profit),
             ("Proveedores", self.var_suppliers),
             ("Clientes", self.var_customers),
             ("Ventas confirmadas", self.var_sales),
@@ -344,6 +368,40 @@ class HomeView(ttk.Frame):
         step_label = ttk.Label(box, text=text, style="HomeStepText.TLabel", wraplength=560, justify="left")
         step_label.grid(row=1, column=1, sticky="w", pady=(6, 0))
         self._step_text_labels.append(step_label)
+
+    def _on_content_frame_configure(self, _event=None) -> None:
+        canvas = self._content_canvas
+        if canvas is None or not canvas.winfo_exists():
+            return
+        try:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        except Exception:
+            pass
+
+    def _on_content_canvas_configure(self, event) -> None:
+        canvas = self._content_canvas
+        if canvas is None or self._content_scroll_window is None:
+            return
+        try:
+            canvas.itemconfigure(self._content_scroll_window, width=event.width)
+        except Exception:
+            pass
+
+    def _on_content_mousewheel(self, event) -> None:
+        canvas = self._content_canvas
+        if canvas is None or not canvas.winfo_exists():
+            return
+        try:
+            if not str(event.widget).startswith(str(self)):
+                return
+            if event.delta:
+                canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            elif getattr(event, "num", None) == 4:
+                canvas.yview_scroll(-1, "units")
+            elif getattr(event, "num", None) == 5:
+                canvas.yview_scroll(1, "units")
+        except Exception:
+            pass
 
     def _on_resize(self, _event=None) -> None:
         try:
@@ -408,6 +466,14 @@ class HomeView(ttk.Frame):
         if cb is not None:
             cb()
 
+    @staticmethod
+    def _fmt_money(value) -> str:
+        try:
+            amount = float(value or 0)
+            return f"${amount:,.0f}".replace(",", ".")
+        except Exception:
+            return "$0"
+
     def set_active_view(self, name: str) -> None:
         if not name:
             return
@@ -421,6 +487,12 @@ class HomeView(ttk.Frame):
         try:
             products = self.session.query(func.count(Product.id)).scalar() or 0
             stock = self.session.query(func.coalesce(func.sum(Product.stock_actual), 0)).scalar() or 0
+            investment = self.session.query(
+                func.coalesce(func.sum(Product.precio_compra * Product.stock_actual), 0)
+            ).scalar() or 0
+            profit = self.session.query(
+                func.coalesce(func.sum(Product.precio_venta * Product.stock_actual), 0)
+            ).scalar() or 0
             suppliers = self.session.query(func.count(Supplier.id)).scalar() or 0
             customers = self.session.query(func.count(Customer.id)).scalar() or 0
             sales = (
@@ -441,6 +513,8 @@ class HomeView(ttk.Frame):
 
             self.var_products.set(f"{products}")
             self.var_stock.set(f"{stock} unidades")
+            self.var_investment.set(self._fmt_money(investment))
+            self.var_profit.set(self._fmt_money(profit))
             self.var_suppliers.set(f"{suppliers} registros")
             self.var_customers.set(f"{customers} registros")
             self.var_sales.set(f"{sales} ventas confirmadas")
