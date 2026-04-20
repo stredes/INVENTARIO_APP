@@ -67,6 +67,9 @@ class ReportService:
             "accountant_amount": 0.0,
             "actual_accountant_paid": 0.0,
             "pending_accountant_amount": 0.0,
+            "savings_amount": 0.0,
+            "actual_savings_paid": 0.0,
+            "pending_savings_amount": 0.0,
             "billed_total_amount": 0.0,
             "total_amount": 0.0,
             "company_commitments": 0.0,
@@ -82,6 +85,8 @@ class ReportService:
                 "actual_tag_paid",
                 "accountant_amount",
                 "actual_accountant_paid",
+                "savings_amount",
+                "actual_savings_paid",
                 "billed_total_amount",
                 "total_amount",
             ):
@@ -92,8 +97,14 @@ class ReportService:
         totals["pending_accountant_amount"] = ReportService.round_money(
             totals["accountant_amount"] - totals["actual_accountant_paid"]
         )
+        totals["pending_savings_amount"] = ReportService.round_money(
+            totals["savings_amount"] - totals["actual_savings_paid"]
+        )
         totals["company_commitments"] = ReportService.round_money(
-            totals["pending_vat_amount"] + totals["pending_tag_amount"] + totals["pending_accountant_amount"]
+            totals["pending_vat_amount"]
+            + totals["pending_tag_amount"]
+            + totals["pending_accountant_amount"]
+            + totals["pending_savings_amount"]
         )
         totals["available_savings"] = ReportService.round_money(
             totals["total_amount"] - totals["pending_vat_amount"]
@@ -140,15 +151,15 @@ class ReportService:
             paid_vat = totals["sii_vat_amount"]
             paid_accountant_base = totals["actual_accountant_paid"]
             paid_tag = totals["actual_tag_paid"]
+            savings_paid = totals["actual_savings_paid"]
 
-        # The workbook's "Pago contador" card sums the detail payment and its total row.
-        paid_accountant_display = ReportService.round_money(paid_accountant_base * 2)
-        savings_balance = 0.0
+        paid_accountant_display = paid_accountant_base
         vat_balance = ReportService.round_money(received_vat - paid_vat)
-        tag_balance = 0.0
+        tag_balance = ReportService.round_money(received_tag - paid_tag)
         accountant_balance = ReportService.round_money(received_accountant - paid_accountant_base)
+        savings_balance = ReportService.round_money(savings_received - savings_paid)
         total_balance = ReportService.round_money(
-            vat_balance + accountant_balance
+            vat_balance + tag_balance + accountant_balance + savings_balance
         )
         return {
             "received_billed_total": received_billed_total,
@@ -179,6 +190,7 @@ class ReportService:
                 "vat_amount": 0.0,
                 "tag_amount": 0.0,
                 "accountant_amount": 0.0,
+                "savings_amount": 0.0,
                 "billed_total_amount": 0.0,
                 "total_amount": 0.0,
             }
@@ -194,9 +206,14 @@ class ReportService:
             entry["vat_amount"] += invoice["vat_amount"]
             entry["tag_amount"] += invoice["tag_amount"]
             entry["accountant_amount"] += invoice["accountant_amount"]
+            entry["savings_amount"] += invoice.get("savings_amount", 0) or 0
             entry["billed_total_amount"] += ReportService.round_money(invoice["net_amount"] + invoice["vat_amount"])
             entry["total_amount"] += ReportService.round_money(
-                invoice["net_amount"] + invoice["vat_amount"] - invoice["tag_amount"] - invoice["accountant_amount"],
+                invoice["net_amount"]
+                + invoice["vat_amount"]
+                - invoice["tag_amount"]
+                - invoice["accountant_amount"]
+                - (invoice.get("savings_amount", 0) or 0),
             )
 
         all_months = set(grouped.keys()) | set(reconciliations.keys())
@@ -207,10 +224,13 @@ class ReportService:
         previous_closing_balance = 0.0
         previous_tag_balance = 0.0
         previous_accountant_balance = 0.0
+        previous_savings_balance = 0.0
         accumulated_tag_retained = 0.0
         accumulated_actual_tag_paid = 0.0
         accumulated_accountant_retained = 0.0
         accumulated_actual_accountant_paid = 0.0
+        accumulated_savings_retained = 0.0
+        accumulated_actual_savings_paid = 0.0
 
         for month_key in sorted(all_months):
             entry = grouped.get(month_key, {}).copy() or {
@@ -220,23 +240,35 @@ class ReportService:
                 "vat_amount": 0.0,
                 "tag_amount": 0.0,
                 "accountant_amount": 0.0,
+                "savings_amount": 0.0,
                 "billed_total_amount": 0.0,
                 "total_amount": 0.0,
             }
-            for key in ("net_amount", "vat_amount", "tag_amount", "accountant_amount", "billed_total_amount", "total_amount"):
+            for key in (
+                "net_amount",
+                "vat_amount",
+                "tag_amount",
+                "accountant_amount",
+                "savings_amount",
+                "billed_total_amount",
+                "total_amount",
+            ):
                 entry[key] = ReportService.round_money(entry[key])
 
             reconciliation = reconciliations.get(month_key)
-            sii_vat = reconciliation["sii_vat_amount"] if reconciliation else 0.0
-            actual_tag_paid = reconciliation["actual_tag_paid"] if reconciliation else 0.0
-            actual_accountant_paid = reconciliation["actual_accountant_paid"] if reconciliation else 0.0
+            sii_vat = reconciliation.get("sii_vat_amount", 0.0) if reconciliation else 0.0
+            actual_tag_paid = reconciliation.get("actual_tag_paid", 0.0) if reconciliation else 0.0
+            actual_accountant_paid = reconciliation.get("actual_accountant_paid", 0.0) if reconciliation else 0.0
+            actual_savings_paid = reconciliation.get("actual_savings_paid", 0.0) if reconciliation else 0.0
             tax_balance = ReportService.round_money(entry["vat_amount"] - sii_vat)
             month_tag_delta = ReportService.round_money(entry["tag_amount"] - actual_tag_paid)
             month_accountant_delta = ReportService.round_money(entry["accountant_amount"] - actual_accountant_paid)
+            month_savings_delta = ReportService.round_money(entry["savings_amount"] - actual_savings_paid)
             tag_balance = ReportService.round_money(previous_tag_balance + month_tag_delta)
             accountant_balance = ReportService.round_money(previous_accountant_balance + month_accountant_delta)
-            charges_delta = ReportService.round_money(month_tag_delta + month_accountant_delta)
-            charges_total = ReportService.round_money(tag_balance + accountant_balance)
+            savings_balance = ReportService.round_money(previous_savings_balance + month_savings_delta)
+            charges_delta = ReportService.round_money(month_tag_delta + month_accountant_delta + month_savings_delta)
+            charges_total = ReportService.round_money(tag_balance + accountant_balance + savings_balance)
             opening_balance = ReportService.round_money(previous_closing_balance)
             closing_balance = ReportService.round_money(opening_balance + tax_balance - charges_delta)
 
@@ -246,10 +278,15 @@ class ReportService:
                 accumulated_accountant_retained + entry["accountant_amount"]
             )
             accumulated_actual_accountant_paid = ReportService.round_money(accumulated_actual_accountant_paid + actual_accountant_paid)
+            accumulated_savings_retained = ReportService.round_money(accumulated_savings_retained + entry["savings_amount"])
+            accumulated_actual_savings_paid = ReportService.round_money(
+                accumulated_actual_savings_paid + actual_savings_paid
+            )
 
             entry["sii_vat_amount"] = sii_vat
             entry["actual_tag_paid"] = ReportService.round_money(actual_tag_paid)
             entry["actual_accountant_paid"] = ReportService.round_money(actual_accountant_paid)
+            entry["actual_savings_paid"] = ReportService.round_money(actual_savings_paid)
             entry["accumulated_tag_retained"] = accumulated_tag_retained
             entry["accumulated_tag_amount"] = ReportService.round_money(accumulated_tag_retained - accumulated_actual_tag_paid)
             entry["accumulated_actual_tag_paid"] = accumulated_actual_tag_paid
@@ -258,11 +295,18 @@ class ReportService:
                 accumulated_accountant_retained - accumulated_actual_accountant_paid
             )
             entry["accumulated_actual_accountant_paid"] = accumulated_actual_accountant_paid
+            entry["accumulated_savings_retained"] = accumulated_savings_retained
+            entry["accumulated_savings_amount"] = ReportService.round_money(
+                accumulated_savings_retained - accumulated_actual_savings_paid
+            )
+            entry["accumulated_actual_savings_paid"] = accumulated_actual_savings_paid
             entry["month_tag_balance"] = month_tag_delta
             entry["month_accountant_balance"] = month_accountant_delta
+            entry["month_savings_balance"] = month_savings_delta
             entry["tax_balance"] = tax_balance
             entry["tag_balance"] = tag_balance
             entry["accountant_balance"] = accountant_balance
+            entry["savings_balance"] = savings_balance
             entry["charges_delta"] = charges_delta
             entry["charges_total"] = charges_total
             entry["opening_balance"] = opening_balance
@@ -276,12 +320,14 @@ class ReportService:
                 tax_balance,
                 tag_balance,
                 accountant_balance,
+                savings_balance,
             )
 
             balanced[month_key] = entry
             previous_closing_balance = closing_balance
             previous_tag_balance = tag_balance
             previous_accountant_balance = accountant_balance
+            previous_savings_balance = savings_balance
 
         return balanced
 
@@ -303,28 +349,32 @@ class ReportService:
         tax_balance: float,
         tag_balance: float,
         accountant_balance: float,
+        savings_balance: float = 0.0,
     ) -> str:
-        charges_total = ReportService.round_money(tag_balance + accountant_balance)
+        charges_total = ReportService.round_money(tag_balance + accountant_balance + savings_balance)
         if not has_reconciliation:
             return (
                 "Aun no se ha ingresado IVA SII para este mes. "
                 f"Saldo heredado del mes anterior: {opening_balance:.0f}. "
-                f"Retenciones pendientes de TAG + contador: {charges_total:.0f}."
+                f"Retenciones pendientes de TAG + contador + ahorro: {charges_total:.0f}."
             )
         if balance > 0:
             return (
                 f"Saldo a favor luego de heredar {opening_balance:.0f} del mes anterior, "
                 f"sumar diferencia IVA de {tax_balance:.0f} y "
-                f"restar saldo TAG acumulado de {tag_balance:.0f} mas saldo contador acumulado de {accountant_balance:.0f}."
+                f"restar saldos acumulados de TAG {tag_balance:.0f}, contador {accountant_balance:.0f} "
+                f"y ahorro {savings_balance:.0f}."
             )
         if balance < 0:
             return (
                 f"Saldo en contra luego de heredar {opening_balance:.0f} del mes anterior, "
                 f"sumar diferencia IVA de {tax_balance:.0f} y "
-                f"restar saldo TAG acumulado de {tag_balance:.0f} mas saldo contador acumulado de {accountant_balance:.0f}."
+                f"restar saldos acumulados de TAG {tag_balance:.0f}, contador {accountant_balance:.0f} "
+                f"y ahorro {savings_balance:.0f}."
             )
         return (
             f"Saldo cuadrado: herencia del mes anterior {opening_balance:.0f}, "
             f"diferencia IVA de {tax_balance:.0f}, "
-            f"restando saldo TAG acumulado de {tag_balance:.0f} y saldo contador acumulado de {accountant_balance:.0f}."
+            f"restando saldos acumulados de TAG {tag_balance:.0f}, contador {accountant_balance:.0f} "
+            f"y ahorro {savings_balance:.0f}."
         )

@@ -15,6 +15,6 @@ class Invoice:
     vat_amount: float
     tag_amount: float
     accountant_amount: float
-    savings_amount: float
-    total_amount: float
+    savings_amount: float = 0.0
+    total_amount: float = 0.0
     id: Optional[int] = None

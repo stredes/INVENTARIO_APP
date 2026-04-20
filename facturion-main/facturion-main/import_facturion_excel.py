@@ -118,6 +118,7 @@ def _normalize_factura_payment_rows(workbook_path: Path) -> list[dict[str, objec
                 "sii_vat_amount": 0.0,
                 "actual_tag_paid": 0.0,
                 "actual_accountant_paid": 0.0,
+                "actual_savings_paid": 0.0,
             },
         )
         row["sii_vat_amount"] = ReportService.round_money(
@@ -129,6 +130,9 @@ def _normalize_factura_payment_rows(workbook_path: Path) -> list[dict[str, objec
         row["actual_tag_paid"] = ReportService.round_money(
             float(row["actual_tag_paid"]) + _to_float(raw[headers["pago tag"]])
         )
+        row["actual_savings_paid"] = ReportService.round_money(
+            float(row["actual_savings_paid"]) + _to_float(raw[headers["pago de ahorro"]])
+        )
 
     return [
         row
@@ -136,6 +140,7 @@ def _normalize_factura_payment_rows(workbook_path: Path) -> list[dict[str, objec
         if float(row["sii_vat_amount"]) > 0
         or float(row["actual_tag_paid"]) > 0
         or float(row["actual_accountant_paid"]) > 0
+        or float(row["actual_savings_paid"]) > 0
     ]
 
 
@@ -187,6 +192,7 @@ def _normalize_payment_rows(workbook_path: Path, month_years: dict[int, set[int]
                 "sii_vat_amount": ReportService.round_money(sii_vat_amount),
                 "actual_tag_paid": ReportService.round_money(actual_tag_paid),
                 "actual_accountant_paid": ReportService.round_money(actual_accountant_paid),
+                "actual_savings_paid": 0.0,
             }
         )
 
@@ -298,6 +304,7 @@ def import_workbook(workbook_path: Path, client_name: str, cleanup: bool) -> tup
                     """
                     UPDATE sii_reconciliations
                     SET sii_vat_amount = ?, actual_tag_paid = ?, actual_accountant_paid = ?,
+                        actual_savings_paid = ?,
                         observation = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                     """,
@@ -305,6 +312,7 @@ def import_workbook(workbook_path: Path, client_name: str, cleanup: bool) -> tup
                         float(row["sii_vat_amount"]),
                         float(row["actual_tag_paid"]),
                         float(row["actual_accountant_paid"]),
+                        float(row.get("actual_savings_paid", 0)),
                         f"Importado desde {workbook_path.name}",
                         int(existing["id"]),
                     ),
@@ -314,15 +322,17 @@ def import_workbook(workbook_path: Path, client_name: str, cleanup: bool) -> tup
                 connection.execute(
                     """
                     INSERT INTO sii_reconciliations(
-                        month, sii_vat_amount, actual_tag_paid, actual_accountant_paid, observation, updated_at
+                        month, sii_vat_amount, actual_tag_paid, actual_accountant_paid,
+                        actual_savings_paid, observation, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                     """,
                     (
                         row["month"],
                         float(row["sii_vat_amount"]),
                         float(row["actual_tag_paid"]),
                         float(row["actual_accountant_paid"]),
+                        float(row.get("actual_savings_paid", 0)),
                         f"Importado desde {workbook_path.name}",
                     ),
                 )

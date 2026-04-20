@@ -17,14 +17,16 @@ class ReconciliationService:
                     sii_vat_amount,
                     actual_tag_paid,
                     actual_accountant_paid,
+                    actual_savings_paid,
                     observation,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(month) DO UPDATE SET
                     sii_vat_amount = excluded.sii_vat_amount,
                     actual_tag_paid = excluded.actual_tag_paid,
                     actual_accountant_paid = excluded.actual_accountant_paid,
+                    actual_savings_paid = excluded.actual_savings_paid,
                     observation = excluded.observation,
                     updated_at = CURRENT_TIMESTAMP
                 """,
@@ -33,6 +35,7 @@ class ReconciliationService:
                     reconciliation.sii_vat_amount,
                     reconciliation.actual_tag_paid,
                     reconciliation.actual_accountant_paid,
+                    reconciliation.actual_savings_paid,
                     reconciliation.observation,
                 ),
             )

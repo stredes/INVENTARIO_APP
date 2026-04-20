@@ -1015,6 +1015,7 @@ class ProductsView(ttk.Frame):
                 self.var_p_mas_iva.set(0.0)
                 self.var_margen.set(30.0)
             self.var_pventa.set(pv)
+            self._select_family_for_current_product()
             # Unidad
             try:
                 unidad_val = getattr(p, 'unidad_medida', None) or 'unidad'
@@ -1043,6 +1044,7 @@ class ProductsView(ttk.Frame):
                 self._ensure_unidad_value(unidad_val)
                 self.var_unidad.set(unidad_val)
             except Exception: self.var_unidad.set("unidad")
+            self._set_family_value("")
 
         if self._current_product and self._current_product.id:
             self.img_box.set_product(self._current_product.id, on_image_changed=self._on_image_changed)
@@ -1137,6 +1139,7 @@ class ProductsView(ttk.Frame):
         self.var_iva_monto.set(0.0)
         self.var_p_mas_iva.set(0.0)
         self.var_pventa.set(0.0)
+        self._set_family_value("")
         self.img_box.set_product(None)
         self.btn_save.config(state="normal")
         self.btn_update.config(state="disabled")
@@ -1305,6 +1308,8 @@ class ProductsView(ttk.Frame):
             self.cmb_familia["values"] = fam_set
         except Exception:
             pass
+        if self._current_product is not None:
+            self._select_family_for_current_product()
 
         def _disp(s: Supplier) -> str:
             rut = (s.rut or "").strip()
@@ -1321,6 +1326,26 @@ class ProductsView(ttk.Frame):
                 self.cmb_location["values"] = [(l.nombre or "").strip() for l in self._locations]
             except Exception:
                 pass
+
+    def _set_family_value(self, value: str | None) -> None:
+        """Actualiza el combo de familia sin reutilizar el valor de otro producto."""
+        family = (value or "").strip()
+        try:
+            values = list(self.cmb_familia.cget("values") or [])
+            if family and family not in values:
+                self.cmb_familia["values"] = sorted([*values, family])
+        except Exception:
+            pass
+        try:
+            self.var_familia.set(family)
+        except Exception:
+            pass
+
+    def _select_family_for_current_product(self) -> None:
+        if not self._current_product:
+            self._set_family_value("")
+            return
+        self._set_family_value(getattr(self._current_product, "familia", None))
 
     def _select_supplier_for_current_product(self):
         """selecciona en los combos proveedor y Ubicación del producto cargado (si existe)."""
@@ -1378,6 +1403,7 @@ class ProductsView(ttk.Frame):
         self.wait_window(dlg)
         # Refrescar lista tras cerrar
         self.refresh_lookups()
+        self._select_family_for_current_product()
 
     # ---------- Solo fallback: limpiar selección al click de encabezado ----------
     def _on_tree_click(self, event):
