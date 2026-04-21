@@ -212,7 +212,7 @@ class ReportService:
                 "total_amount": 0.0,
             }
         )
-        reconciliations = {item["month"]: item for item in ReconciliationService.list_all()}
+        reconciliations = {item["month"]: item for item in ReconciliationService.list_monthly_totals()}
 
         for invoice in invoices:
             month_key = invoice["invoice_date"][:7]

@@ -49,6 +49,7 @@ class FacturionApp(ctk.CTk):
                 pass
 
         self.current_invoice_id: int | None = None
+        self.current_payment_id: int | None = None
         self.current_vat_rate = SettingsService.get_vat_rate()
         self.selected_month = tk.StringVar(value=str(datetime.today().month))
         self.selected_year = tk.StringVar(value=str(datetime.today().year))
@@ -151,7 +152,8 @@ class FacturionApp(ctk.CTk):
         actions = ctk.CTkFrame(panel, fg_color="transparent")
         actions.pack(fill="x", padx=18, pady=(4, 8))
         ctk.CTkButton(actions, text="Guardar factura", command=self.save_invoice).pack(fill="x", pady=5)
-        ctk.CTkButton(actions, text="Limpiar formulario", fg_color="#334155", command=self.reset_form).pack(fill="x", pady=5)
+        ctk.CTkButton(actions, text="Nueva factura", fg_color="#0f766e", command=self.new_invoice_form).pack(fill="x", pady=5)
+        ctk.CTkButton(actions, text="Limpiar formulario", fg_color="#334155", command=self.new_invoice_form).pack(fill="x", pady=5)
         ctk.CTkButton(
             actions,
             text="Eliminar seleccionada",
@@ -200,8 +202,8 @@ class FacturionApp(ctk.CTk):
         facturas_tab.grid_rowconfigure(0, weight=1)
 
         conciliacion_tab = tabs.tab("Pagos")
-        conciliacion_tab.grid_columnconfigure(0, weight=2)
-        conciliacion_tab.grid_columnconfigure(1, weight=3)
+        conciliacion_tab.grid_columnconfigure(0, weight=4)
+        conciliacion_tab.grid_columnconfigure(1, weight=2)
         conciliacion_tab.grid_rowconfigure(0, weight=1)
 
         historial_tab = tabs.tab("Historial")
@@ -394,7 +396,7 @@ class FacturionApp(ctk.CTk):
             )
             self.invoice_tree.column(column, width=widths[column], anchor="center")
         self.invoice_tree.grid(row=1, column=0, sticky="nsew", padx=16, pady=(0, 16))
-        self.invoice_tree.bind("<<TreeviewSelect>>", self.load_selected_invoice)
+        self.invoice_tree.bind("<Double-1>", self.load_selected_invoice)
 
     def _build_reconciliation_panel(self, parent: ctk.CTkFrame) -> None:
         container = ctk.CTkScrollableFrame(parent, corner_radius=16)
@@ -421,6 +423,7 @@ class FacturionApp(ctk.CTk):
         self.sii_observation_entry = self._labeled_entry(container, "Observación opcional")
 
         ctk.CTkButton(container, text="Guardar pago", command=self.save_reconciliation).pack(fill="x", padx=16, pady=(8, 8))
+        ctk.CTkButton(container, text="Nuevo pago", fg_color="#0f766e", command=self.new_payment_form).pack(fill="x", padx=16, pady=(0, 8))
         ctk.CTkButton(container, text="Limpiar pago", fg_color="#334155", command=self.clear_reconciliation_form).pack(fill="x", padx=16, pady=(0, 8))
         ctk.CTkButton(
             container,
@@ -485,23 +488,26 @@ class FacturionApp(ctk.CTk):
         self.payment_detail_label.pack(fill="x", padx=16, pady=(0, 10))
 
     def _build_chart_panel(self, parent: ctk.CTkFrame) -> None:
-        container = ctk.CTkFrame(parent, corner_radius=16)
-        container.grid(row=0, column=1, sticky="nsew")
+        container = ctk.CTkFrame(parent, corner_radius=16, height=330)
+        container.grid(row=0, column=1, sticky="new")
+        container.grid_propagate(False)
         container.grid_columnconfigure(0, weight=1)
-        container.grid_rowconfigure(1, weight=1)
 
         ctk.CTkLabel(
             container,
             text="Gráfico mensual",
-            font=ctk.CTkFont(size=20, weight="bold"),
-        ).grid(row=0, column=0, sticky="w", padx=16, pady=(16, 8))
+            font=ctk.CTkFont(size=17, weight="bold"),
+        ).grid(row=0, column=0, sticky="w", padx=14, pady=(12, 4))
 
-        self.figure = Figure(figsize=(5.2, 4.2), dpi=100)
+        self.figure = Figure(figsize=(4.2, 2.25), dpi=100)
         self.axis = self.figure.add_subplot(111)
+        self.figure.subplots_adjust(left=0.14, right=0.97, top=0.84, bottom=0.22)
         self.figure.patch.set_facecolor("#101826")
         self.axis.set_facecolor("#101826")
         self.chart_canvas = FigureCanvasTkAgg(self.figure, master=container)
-        self.chart_canvas.get_tk_widget().grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        chart_widget = self.chart_canvas.get_tk_widget()
+        chart_widget.configure(height=260)
+        chart_widget.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 10))
 
     def _build_history_panel(self, parent: ctk.CTkFrame) -> None:
         container = ctk.CTkFrame(parent, corner_radius=16)
@@ -716,7 +722,7 @@ class FacturionApp(ctk.CTk):
                     format_currency(row.get("actual_manuel_paid", 0)),
                     observation,
                 ),
-                tags=(row["month"], observation),
+                tags=(str(row["id"]), row["month"], observation),
             )
 
     def refresh_history(self) -> None:
@@ -876,6 +882,11 @@ class FacturionApp(ctk.CTk):
 
     def reset_form(self) -> None:
         self.current_invoice_id = None
+        if hasattr(self, "invoice_tree"):
+            try:
+                self.invoice_tree.selection_remove(self.invoice_tree.selection())
+            except Exception:
+                pass
         for entry in (
             self.invoice_number_entry,
             self.invoice_date_entry,
@@ -901,6 +912,9 @@ class FacturionApp(ctk.CTk):
         )
         self.calculation_preview.configure(state="disabled")
         self.update_calculation_preview()
+
+    def new_invoice_form(self) -> None:
+        self.reset_form()
 
     def load_selected_invoice(self, _event: object | None = None) -> None:
         selected = self.invoice_tree.selection()
@@ -1009,15 +1023,21 @@ class FacturionApp(ctk.CTk):
 
         item = self.payment_tree.item(selected[0])
         tags = item.get("tags", [])
-        if not tags:
+        if len(tags) < 2:
             return
 
-        month_key = tags[0]
-        observation = tags[1] if len(tags) > 1 else ""
+        payment_id = int(tags[0])
+        month_key = tags[1]
+        observation = tags[2] if len(tags) > 2 else ""
+        row = ReconciliationService.get(payment_id)
+        if not row:
+            messagebox.showwarning("Pago no encontrado", "El pago seleccionado ya no existe.")
+            return
         year_value, month_value = month_key.split("-")
+        self.current_payment_id = payment_id
         self.selected_year.set(year_value)
         self.selected_month.set(str(int(month_value)))
-        self.load_reconciliation_fields()
+        self._fill_reconciliation_fields(row)
         self.refresh_summary()
         self.refresh_dashboard()
         self.refresh_chart()
@@ -1035,30 +1055,31 @@ class FacturionApp(ctk.CTk):
         )
 
     def load_reconciliation_fields(self) -> None:
+        self.clear_reconciliation_form()
+
+    def _fill_reconciliation_fields(self, row: dict) -> None:
         month_value = self.selected_month.get() or str(datetime.today().month)
         year_value = self.selected_year.get() or str(datetime.today().year)
-        month_key = f"{year_value}-{int(month_value):02d}"
-        row = ReconciliationService.get_by_month(month_key)
         self.sii_vat_entry.delete(0, "end")
         self.actual_tag_paid_entry.delete(0, "end")
         self.actual_accountant_paid_entry.delete(0, "end")
         self.actual_savings_paid_entry.delete(0, "end")
         self.actual_manuel_paid_entry.delete(0, "end")
         self.sii_observation_entry.delete(0, "end")
-        if row:
-            self.sii_vat_entry.insert(0, str(row["sii_vat_amount"]))
-            self.actual_tag_paid_entry.insert(0, str(row.get("actual_tag_paid", 0)))
-            self.actual_accountant_paid_entry.insert(0, str(row.get("actual_accountant_paid", 0)))
-            self.actual_savings_paid_entry.insert(0, str(row.get("actual_savings_paid", 0)))
-            self.actual_manuel_paid_entry.insert(0, str(row.get("actual_manuel_paid", 0)))
-            self.sii_observation_entry.insert(0, row["observation"] or "")
-        else:
-            self.actual_tag_paid_entry.insert(0, "0")
-            self.actual_accountant_paid_entry.insert(0, "0")
-            self.actual_savings_paid_entry.insert(0, "0")
-            self.actual_manuel_paid_entry.insert(0, "0")
+        self.sii_vat_entry.insert(0, str(row.get("sii_vat_amount", 0)))
+        self.actual_tag_paid_entry.insert(0, str(row.get("actual_tag_paid", 0)))
+        self.actual_accountant_paid_entry.insert(0, str(row.get("actual_accountant_paid", 0)))
+        self.actual_savings_paid_entry.insert(0, str(row.get("actual_savings_paid", 0)))
+        self.actual_manuel_paid_entry.insert(0, str(row.get("actual_manuel_paid", 0)))
+        self.sii_observation_entry.insert(0, row.get("observation") or "")
 
     def clear_reconciliation_form(self) -> None:
+        self.current_payment_id = None
+        if hasattr(self, "payment_tree"):
+            try:
+                self.payment_tree.selection_remove(self.payment_tree.selection())
+            except Exception:
+                pass
         self.sii_vat_entry.delete(0, "end")
         self.actual_tag_paid_entry.delete(0, "end")
         self.actual_accountant_paid_entry.delete(0, "end")
@@ -1069,6 +1090,10 @@ class FacturionApp(ctk.CTk):
         self.actual_accountant_paid_entry.insert(0, "0")
         self.actual_savings_paid_entry.insert(0, "0")
         self.actual_manuel_paid_entry.insert(0, "0")
+
+    def new_payment_form(self) -> None:
+        self.clear_reconciliation_form()
+        self.payment_detail_label.configure(text="Nuevo pago: completa los montos y guarda el mes seleccionado.")
 
     def save_reconciliation(self) -> None:
         try:
@@ -1088,19 +1113,24 @@ class FacturionApp(ctk.CTk):
                 "Manuel pagado real",
             )
             observation = self.sii_observation_entry.get().strip()
-            ReconciliationService.upsert(
-                Reconciliation(
-                    month=month_key,
-                    sii_vat_amount=sii_vat_amount,
-                    actual_tag_paid=actual_tag_paid,
-                    actual_accountant_paid=actual_accountant_paid,
-                    actual_savings_paid=actual_savings_paid,
-                    actual_manuel_paid=actual_manuel_paid,
-                    observation=observation,
-                )
+            reconciliation = Reconciliation(
+                month=month_key,
+                sii_vat_amount=sii_vat_amount,
+                actual_tag_paid=actual_tag_paid,
+                actual_accountant_paid=actual_accountant_paid,
+                actual_savings_paid=actual_savings_paid,
+                actual_manuel_paid=actual_manuel_paid,
+                observation=observation,
             )
+            if self.current_payment_id is None:
+                ReconciliationService.create(reconciliation)
+                message = "El pago fue registrado correctamente."
+            else:
+                ReconciliationService.update(self.current_payment_id, reconciliation)
+                message = "El pago fue actualizado correctamente."
+            self.current_payment_id = None
             self.refresh_all()
-            messagebox.showinfo("Pago guardado", "El pago en SII fue guardado correctamente.")
+            messagebox.showinfo("Pago guardado", message)
         except ValueError as error:
             messagebox.showerror("Validación", str(error))
         except Exception as error:
@@ -1114,11 +1144,12 @@ class FacturionApp(ctk.CTk):
 
         item = self.payment_tree.item(selected[0])
         tags = item.get("tags", [])
-        if not tags:
+        if len(tags) < 2:
             messagebox.showwarning("Selección requerida", "No se pudo identificar el mes del pago.")
             return
 
-        month_key = str(tags[0])
+        payment_id = int(tags[0])
+        month_key = str(tags[1])
         if not messagebox.askyesno(
             "Eliminar pago",
             f"¿Eliminar el pago registrado para {month_label(month_key)}?",
@@ -1126,7 +1157,7 @@ class FacturionApp(ctk.CTk):
             return
 
         try:
-            deleted = ReconciliationService.delete_by_month(month_key)
+            deleted = ReconciliationService.delete(payment_id)
             if not deleted:
                 messagebox.showwarning("Pago no encontrado", "El pago seleccionado ya no existe.")
             self.clear_reconciliation_form()

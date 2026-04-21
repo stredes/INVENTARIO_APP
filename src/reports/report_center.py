@@ -684,8 +684,29 @@ class ReportCenter(ttk.Frame):
             parts.append(f"Total: {self.var_total_min.get().strip() or '-'} a {self.var_total_max.get().strip() or '-'}")
         return " | ".join(parts) if parts else "Filtros: todos los registros disponibles."
 
+    def _draw_pdf_record_count(self, draw, right_x: int, y: int, fonts) -> None:
+        text = f"Registros: {len(self._current_rows)}"
+        text_w = self._text_width(text, fonts["small"])
+        x0 = right_x - text_w - 22
+        draw.rectangle([x0, y - 4, right_x, y + 22], fill="#E9F2FB", outline="#B8C6D5", width=1)
+        draw.text((right_x - 11, y), text, fill="#0D2F53", font=fonts["small"], anchor="ra")
+
+    def _pdf_column_align(self, idx: int) -> str:
+        if idx >= len(self._current_cols):
+            return "left"
+        name = str(self._current_cols[idx]).lower()
+        if any(token in name for token in ("precio", "total", "subtotal", "saldo", "iva", "monto", "inversion")):
+            return "right"
+        if any(token in name for token in ("id", "codigo", "código", "sku", "fecha", "estado", "stock", "cant", "unidad")):
+            return "center"
+        return "left"
+
     def _pdf_column_widths(self, available_width: int, font: ImageFont.ImageFont) -> list[int]:
         cols = [str(c) for c in self._current_cols]
+        if self._current_report_key == "price_list" and len(cols) == 3:
+            widths = [int(available_width * 0.56), int(available_width * 0.22)]
+            widths.append(available_width - sum(widths))
+            return widths
         rows = [list(row) for row in self._current_rows]
         weights = []
         for idx, col in enumerate(cols):

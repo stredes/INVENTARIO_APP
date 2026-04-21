@@ -72,7 +72,7 @@ def initialize_database() -> None:
             """
             CREATE TABLE IF NOT EXISTS sii_reconciliations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                month TEXT NOT NULL UNIQUE,
+                month TEXT NOT NULL,
                 sii_vat_amount REAL NOT NULL,
                 actual_tag_paid REAL NOT NULL DEFAULT 0,
                 actual_accountant_paid REAL NOT NULL DEFAULT 0,
@@ -103,6 +103,55 @@ def initialize_database() -> None:
             cursor.execute(
                 "ALTER TABLE sii_reconciliations ADD COLUMN actual_manuel_paid REAL NOT NULL DEFAULT 0"
             )
+        unique_month = False
+        for index_row in cursor.execute("PRAGMA index_list(sii_reconciliations)").fetchall():
+            if not int(index_row["unique"] or 0):
+                continue
+            index_name = index_row["name"]
+            columns = [
+                info_row["name"]
+                for info_row in cursor.execute(f"PRAGMA index_info({index_name})").fetchall()
+            ]
+            if columns == ["month"]:
+                unique_month = True
+                break
+        if unique_month:
+            cursor.execute("ALTER TABLE sii_reconciliations RENAME TO sii_reconciliations_old")
+            cursor.execute(
+                """
+                CREATE TABLE sii_reconciliations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    month TEXT NOT NULL,
+                    sii_vat_amount REAL NOT NULL,
+                    actual_tag_paid REAL NOT NULL DEFAULT 0,
+                    actual_accountant_paid REAL NOT NULL DEFAULT 0,
+                    actual_savings_paid REAL NOT NULL DEFAULT 0,
+                    actual_manuel_paid REAL NOT NULL DEFAULT 0,
+                    observation TEXT,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                """
+                INSERT INTO sii_reconciliations(
+                    id, month, sii_vat_amount, actual_tag_paid, actual_accountant_paid,
+                    actual_savings_paid, actual_manuel_paid, observation, created_at, updated_at
+                )
+                SELECT
+                    id, month, sii_vat_amount, actual_tag_paid, actual_accountant_paid,
+                    actual_savings_paid, actual_manuel_paid, observation, created_at, updated_at
+                FROM sii_reconciliations_old
+                """
+            )
+            cursor.execute("DROP TABLE sii_reconciliations_old")
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_sii_reconciliations_month
+            ON sii_reconciliations(month)
+            """
+        )
         cursor.execute(
             """
             INSERT OR IGNORE INTO settings(key, value)
