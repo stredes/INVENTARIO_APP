@@ -285,6 +285,9 @@ class OrdersAdminView(ttk.Frame):
         ttk.Label(editor, text="Monto a pagar:").pack(side="left", padx=(16, 4))
         self.var_partial_payment = tk.StringVar(value="0")
         ttk.Entry(editor, textvariable=self.var_partial_payment, width=13).pack(side="left", padx=4)
+        ttk.Label(editor, text="Fecha pago:").pack(side="left", padx=(8, 4))
+        self.var_partial_payment_date = tk.StringVar(value=datetime.now().strftime("%d/%m/%Y"))
+        ttk.Entry(editor, textvariable=self.var_partial_payment_date, width=12).pack(side="left", padx=4)
         ttk.Button(editor, text="Pagar parcializado", command=self._purchase_partial_payment).pack(side="left", padx=4)
 
         # Filtros: Proveedor + Estado
@@ -1046,6 +1049,33 @@ class OrdersAdminView(ttk.Frame):
             raw = raw.replace(",", ".")
         return q2(D(raw))
 
+    @staticmethod
+    def _format_date_autoslash(value: str) -> str:
+        digits = "".join(ch for ch in str(value or "") if ch.isdigit())[:8]
+        if len(digits) <= 2:
+            return digits
+        if len(digits) <= 4:
+            return f"{digits[:2]}/{digits[2:]}"
+        return f"{digits[:2]}/{digits[2:4]}/{digits[4:]}"
+
+    @classmethod
+    def _parse_date_input(cls, value: str, label: str):
+        text = (value or "").strip()
+        if not text:
+            return None
+        normalized = cls._format_date_autoslash(text)
+        try:
+            return datetime.strptime(normalized, "%d/%m/%Y")
+        except ValueError as exc:
+            raise ValueError(f"{label} debe tener formato DD/MM/AAAA.") from exc
+
+    def _normalize_date_field(self, var: tk.StringVar, label: str):
+        value = (var.get() or "").strip()
+        parsed = self._parse_date_input(value, label)
+        if parsed:
+            var.set(parsed.strftime("%d/%m/%Y"))
+        return parsed
+
     def _purchase_partial_payment(self):
         pur = self._get_selected_purchase()
         if not pur:
@@ -1056,6 +1086,11 @@ class OrdersAdminView(ttk.Frame):
         except Exception:
             messagebox.showwarning("Compras", "Ingrese un monto válido para pagar.")
             return
+        try:
+            payment_date = self._normalize_date_field(self.var_partial_payment_date, "Fecha pago") or datetime.now()
+        except Exception as exc:
+            messagebox.showwarning("Compras", str(exc))
+            return
         if amount <= 0:
             messagebox.showwarning("Compras", "El monto a pagar debe ser mayor a 0.")
             return
@@ -1065,7 +1100,7 @@ class OrdersAdminView(ttk.Frame):
                 self.session,
                 pur,
                 amount,
-                datetime.now(),
+                payment_date,
                 "Pago parcial desde Ordenes",
             )
 
@@ -1076,6 +1111,7 @@ class OrdersAdminView(ttk.Frame):
         )
         try:
             self.var_partial_payment.set("0")
+            self.var_partial_payment_date.set(datetime.now().strftime("%d/%m/%Y"))
         except Exception:
             pass
 

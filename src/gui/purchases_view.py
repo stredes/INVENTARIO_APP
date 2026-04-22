@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox
 from typing import List, Optional, Dict
 from pathlib import Path
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from src.data.database import get_session
 from src.data.models import Product, Supplier, Purchase, PurchaseDetail, Location
@@ -55,35 +55,41 @@ class PurchasesView(ttk.Frame):
         # ---------- Encabezado ----------
         head = ttk.Labelframe(self, text="Encabezado de compra", padding=10)
         head.pack(fill="x", expand=False)
+        for col in range(10):
+            head.columnconfigure(col, weight=0)
 
-        ttk.Label(head, text="Proveedor:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
-        self.cmb_supplier = ttk.Combobox(head, state="readonly", width=50)
-        self.cmb_supplier.grid(row=0, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(head, text="Proveedor:").grid(row=0, column=0, sticky="e", padx=(4, 6), pady=(4, 6))
+        self.cmb_supplier = ttk.Combobox(head, state="readonly", width=46)
+        self.cmb_supplier.grid(row=0, column=1, sticky="w", padx=(0, 22), pady=(4, 6))
         self.cmb_supplier.bind("<<ComboboxSelected>>", self._on_supplier_selected)
 
         self.var_apply = tk.BooleanVar(value=True)
         self.chk_apply = ttk.Checkbutton(head, text="Ingreso inmediato a inventario", variable=self.var_apply)
-        self.chk_apply.grid(row=0, column=2, padx=10)
+        self.chk_apply.grid(row=9, column=0, padx=10)
+        self.chk_apply.grid_remove()
 
         # Estado + forma de pago (acordeón = combobox)
-        ttk.Label(head, text="Estado:").grid(row=0, column=3, sticky="e", padx=4)
+        self.lbl_estado = ttk.Label(head, text="Estado:")
+        self.lbl_estado.grid(row=9, column=1, sticky="e", padx=4)
+        self.lbl_estado.grid_remove()
         self.ESTADOS = ("Pendiente", "Incompleta", "Por pagar", PARTIAL_STATE, "Completada", "Cancelada", "Eliminada")
         self.cmb_estado = ttk.Combobox(head, state="readonly", width=14, values=self.ESTADOS)
         self.cmb_estado.set("Pendiente")
-        self.cmb_estado.grid(row=0, column=4, sticky="w", padx=4)
+        self.cmb_estado.grid(row=9, column=2, sticky="w", padx=4)
+        self.cmb_estado.grid_remove()
         self.cmb_estado.bind("<<ComboboxSelected>>", lambda _e=None: self._on_estado_change())
 
-        ttk.Label(head, text="Pago:").grid(row=0, column=5, sticky="e", padx=4)
+        ttk.Label(head, text="Pago:").grid(row=0, column=2, sticky="e", padx=(4, 6), pady=(4, 6))
         self.PAGOS = ("Crédito 30 días", "Efectivo", "Débito", "Transferencia", "Cheque")
         self.cmb_pago = ttk.Combobox(head, state="readonly", width=18, values=self.PAGOS)
         safe_set_combobox_values(self.cmb_pago, self.PAGOS)
         self.cmb_pago.set(get_po_payment_method())
-        self.cmb_pago.grid(row=0, column=6, sticky="w", padx=4)
+        self.cmb_pago.grid(row=0, column=3, sticky="w", padx=(0, 22), pady=(4, 6))
         # Modo simplificado: Factura u Orden de compra
-        ttk.Label(head, text="Modo:").grid(row=0, column=7, sticky="e", padx=4)
+        ttk.Label(head, text="Modo:").grid(row=0, column=4, sticky="e", padx=(4, 6), pady=(4, 6))
         self.var_mode = tk.StringVar(value="Factura")
         self.cmb_mode = ttk.Combobox(head, textvariable=self.var_mode, values=["Factura", "Orden de compra"], width=16, state="readonly")
-        self.cmb_mode.grid(row=0, column=8, sticky="w", padx=4)
+        self.cmb_mode.grid(row=0, column=5, sticky="w", padx=(0, 4), pady=(4, 6))
         try:
             self.var_mode.set(get_ui_purchases_mode("Factura"))
         except Exception:
@@ -94,21 +100,28 @@ class PurchasesView(ttk.Frame):
             pass
 
         # ---- Campos adicionales de cabecera ----
-        ttk.Label(head, text="Número doc:").grid(row=1, column=0, sticky="e", padx=4, pady=2)
+        ttk.Label(head, text="Número doc:").grid(row=1, column=0, sticky="e", padx=(4, 6), pady=(2, 4))
         self.var_numdoc = tk.StringVar()
-        ttk.Entry(head, textvariable=self.var_numdoc, width=18).grid(row=1, column=1, sticky="w")
+        ttk.Entry(head, textvariable=self.var_numdoc, width=18).grid(row=1, column=1, sticky="w", padx=(0, 22), pady=(2, 4))
 
-        ttk.Label(head, text="F. documento:").grid(row=1, column=2, sticky="e")
+        ttk.Label(head, text="Fecha emisión:").grid(row=1, column=2, sticky="e", padx=(4, 6), pady=(2, 4))
         self.var_fdoc = tk.StringVar()
-        ttk.Entry(head, textvariable=self.var_fdoc, width=12).grid(row=1, column=3, sticky="w")
+        self.ent_fdoc = ttk.Entry(head, textvariable=self.var_fdoc, width=12)
+        self.ent_fdoc.grid(row=1, column=3, sticky="w", padx=(0, 22), pady=(2, 4))
+        self.ent_fdoc.bind("<Return>", self._on_issue_date_commit)
+        self.ent_fdoc.bind("<KP_Enter>", self._on_issue_date_commit)
+        self.ent_fdoc.bind("<FocusOut>", self._on_issue_date_commit)
 
-        ttk.Label(head, text="F. contable:").grid(row=1, column=4, sticky="e")
+        ttk.Label(head, text="F. contable:").grid(row=1, column=4, sticky="e", padx=(4, 6), pady=(2, 4))
         self.var_fcont = tk.StringVar()
-        ttk.Entry(head, textvariable=self.var_fcont, width=12).grid(row=1, column=5, sticky="w")
+        ttk.Entry(head, textvariable=self.var_fcont, width=12).grid(row=1, column=5, sticky="w", padx=(0, 22), pady=(2, 4))
 
-        ttk.Label(head, text="F. venc.: ").grid(row=1, column=6, sticky="e")
+        ttk.Label(head, text="F. venc.:").grid(row=1, column=6, sticky="e", padx=(4, 6), pady=(2, 4))
         self.var_fvenc = tk.StringVar()
-        ttk.Entry(head, textvariable=self.var_fvenc, width=12).grid(row=1, column=7, sticky="w")
+        ttk.Entry(head, textvariable=self.var_fvenc, width=12).grid(row=1, column=7, sticky="w", padx=(0, 22), pady=(2, 4))
+
+        self.var_initial_payment = tk.StringVar(value="0")
+        self.var_initial_payment_date = tk.StringVar(value="")
 
         ttk.Label(head, text="Moneda:").grid(row=2, column=0, sticky="e")
         self.var_moneda = tk.StringVar(value="PESO CHILENO")
@@ -138,10 +151,10 @@ class PurchasesView(ttk.Frame):
         self.var_ajiva = tk.StringVar(value="0")
         ttk.Entry(head, textvariable=self.var_ajiva, width=10).grid(row=3, column=5, sticky="w")
 
-        ttk.Label(head, text="Stock:").grid(row=3, column=6, sticky="e")
+        ttk.Label(head, text="Stock:").grid(row=1, column=8, sticky="e", padx=(4, 6), pady=(2, 4))
         self.var_stockpol = tk.StringVar(value="No Mueve")
         self.cmb_stockpol = ttk.Combobox(head, textvariable=self.var_stockpol, values=["No Mueve", "Mueve"], width=10, state="readonly")
-        self.cmb_stockpol.grid(row=3, column=7, sticky="w")
+        self.cmb_stockpol.grid(row=1, column=9, sticky="w", padx=(0, 4), pady=(2, 4))
         # Ajusta política inicial de stock según estado por defecto
         try:
             self._on_estado_change()
@@ -221,9 +234,8 @@ class PurchasesView(ttk.Frame):
 
         # Ocultar campos no requeridos en el encabezado
         self._head_hide_coords = {
-            (0,2),(0,3),(0,4),
             (2,0),(2,1),(2,2),(2,3),(2,4),(2,5),(2,6),(2,7),
-            (3,0),(3,1),(3,2),(3,3),(3,4),(3,5),
+            (3,0),(3,1),(3,2),(3,3),(3,4),(3,5),(3,6),(3,7),
             (4,0),(4,1),(4,4),(4,5),
             (6,0),(6,1),
         }
@@ -235,15 +247,6 @@ class PurchasesView(ttk.Frame):
                     w.grid_remove()
         except Exception:
             pass
-        try:
-            for rc in ((1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7)):
-                for w in head.winfo_children():
-                    gi = w.grid_info()
-                    if (int(gi.get('row', -1)), int(gi.get('column', -1))) == rc:
-                        w.grid_remove()
-        except Exception:
-            pass
-
 # ---------- Detalle ----------
         det = ttk.Labelframe(self, text="Detalle de compra", padding=10)
         det.pack(fill="x", expand=False, pady=(8, 0))
@@ -386,12 +389,6 @@ class PurchasesView(ttk.Frame):
         bottom.pack(fill="x", expand=False, pady=10)
         self.lbl_total = ttk.Label(bottom, text="Total: 0.00", font=("", 11, "bold"))
         self.lbl_total.pack(side="left")
-        ttk.Label(bottom, text="Monto pagado:").pack(side="left", padx=(18, 4))
-        self.var_initial_payment = tk.StringVar(value="0")
-        ttk.Entry(bottom, textvariable=self.var_initial_payment, width=12).pack(side="left")
-        ttk.Label(bottom, text="Fecha:").pack(side="left", padx=(8, 4))
-        self.var_initial_payment_date = tk.StringVar(value=datetime.now().strftime("%d/%m/%Y"))
-        ttk.Entry(bottom, textvariable=self.var_initial_payment_date, width=12).pack(side="left")
 
         self.btn_delete_item = ttk.Button(bottom, text="Eliminar ítem", style="Danger.TButton", command=self._on_delete_item)
         self.btn_delete_item.pack(side="right", padx=6)
@@ -679,6 +676,49 @@ class PurchasesView(ttk.Frame):
         except Exception:
             return D(0)
 
+    @staticmethod
+    def _format_date_autoslash(value: str) -> str:
+        digits = "".join(ch for ch in str(value or "") if ch.isdigit())[:8]
+        if len(digits) <= 2:
+            return digits
+        if len(digits) <= 4:
+            return f"{digits[:2]}/{digits[2:]}"
+        return f"{digits[:2]}/{digits[2:4]}/{digits[4:]}"
+
+    @classmethod
+    def _parse_date_input(cls, value: str, label: str):
+        text = (value or "").strip()
+        if not text:
+            return None
+        normalized = cls._format_date_autoslash(text)
+        try:
+            return datetime.strptime(normalized, "%d/%m/%Y")
+        except ValueError as exc:
+            raise ValueError(f"{label} debe tener formato DD/MM/AAAA.") from exc
+
+    def _normalize_date_field(self, var: tk.StringVar, label: str):
+        value = (var.get() or "").strip()
+        parsed = self._parse_date_input(value, label)
+        if parsed:
+            var.set(parsed.strftime("%d/%m/%Y"))
+        return parsed
+
+    def _normalize_issue_and_due_dates(self) -> Optional[datetime]:
+        issue_date = self._normalize_date_field(self.var_fdoc, "Fecha emisión")
+        if issue_date:
+            self.var_fvenc.set((issue_date + timedelta(days=30)).strftime("%d/%m/%Y"))
+        return issue_date
+
+    def _on_issue_date_commit(self, _event=None):
+        try:
+            self._normalize_issue_and_due_dates()
+        except Exception as exc:
+            try:
+                self._warn(str(exc))
+            except Exception:
+                pass
+        return "break" if _event is not None and getattr(_event, "keysym", "") in ("Return", "KP_Enter") else None
+
     def _update_price_field(self):
         p = self._selected_product()
         price = self._price_with_iva(p) if p else Decimal(0)
@@ -889,15 +929,6 @@ class PurchasesView(ttk.Frame):
     def _on_confirm_purchase(self):
         """Confirma compra usando PurchaseManager (que también valida coherencia)."""
         try:
-            def parse_optional_date(value: str, label: str):
-                text = (value or "").strip()
-                if not text:
-                    return None
-                try:
-                    return datetime.strptime(text, "%d/%m/%Y")
-                except ValueError as exc:
-                    raise ValueError(f"{label} debe tener formato DD/MM/AAAA.") from exc
-
             sup = self._selected_supplier()
             if not sup:
                 self._warn("Seleccione un proveedor.")
@@ -911,9 +942,9 @@ class PurchasesView(ttk.Frame):
             except Exception:
                 mode = 'Factura'
 
-            fecha_documento = parse_optional_date(getattr(self, 'var_fdoc', tk.StringVar()).get(), "Fecha documento")
-            fecha_contable = parse_optional_date(getattr(self, 'var_fcont', tk.StringVar()).get(), "Fecha contable")
-            fecha_vencimiento = parse_optional_date(getattr(self, 'var_fvenc', tk.StringVar()).get(), "Fecha vencimiento")
+            fecha_documento = self._normalize_issue_and_due_dates()
+            fecha_contable = self._normalize_date_field(self.var_fcont, "Fecha contable")
+            fecha_vencimiento = self._normalize_date_field(self.var_fvenc, "Fecha vencimiento")
             initial_payment_date = datetime.now()
 
             # Validación extra en UI: por si editaron manualmente la tabla
@@ -934,7 +965,7 @@ class PurchasesView(ttk.Frame):
                     self._warn("El monto pagado no puede superar el total de la compra.")
                     return
                 if initial_payment > 0:
-                    initial_payment_date = parse_optional_date(
+                    initial_payment_date = self._parse_date_input(
                         getattr(self, "var_initial_payment_date", tk.StringVar()).get(),
                         "Fecha de pago",
                     ) or datetime.now()
@@ -1011,7 +1042,7 @@ class PurchasesView(ttk.Frame):
             self._on_clear_table()
             try:
                 self.var_initial_payment.set("0")
-                self.var_initial_payment_date.set(datetime.now().strftime("%d/%m/%Y"))
+                self.var_initial_payment_date.set("")
             except Exception:
                 pass
             self.cmb_product.set("")
