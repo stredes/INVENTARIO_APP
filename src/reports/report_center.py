@@ -8,13 +8,14 @@ import configparser
 import datetime as dt
 import webbrowser
 from decimal import Decimal
+from sqlalchemy import func
 
 from PIL import Image, ImageDraw, ImageFont
 
 from src.data.database import get_session
 from src.data.models import (
     Product, Supplier, Customer,
-    Purchase, PurchaseDetail, Reception,
+    Purchase, PurchaseDetail, PurchasePayment, Reception,
     Sale,
 )
 from src.gui.utils.order_helpers import format_currency
@@ -104,6 +105,7 @@ class ReportCenter(ttk.Frame):
     REPORTS = [
         ("stock_real", "Stock real"),
         ("payables_docs", "Facturas o guias que debo"),
+        ("supplier_debts", "Deudas a proveedores"),
         ("receivables_docs", "Facturas o guias pendientes que me deben"),
         ("customer_debt", "Deuda por cliente"),
         ("purchase_orders", "Ordenes de compra (resumen)"),
@@ -115,8 +117,8 @@ class ReportCenter(ttk.Frame):
 
     SALES_STATES = ["(Todos)", "Pagado", "Pendiente"]
     RECEIVABLE_STATES = ["(Todos)", "Pendiente"]
-    PURCH_STATES = ["(Todos)", "Completada", "Pendiente", "Cancelada", "Eliminada", "Por pagar", "Incompleta"]
-    PAYABLE_STATES = ["(Todos)", "Por pagar", "Pendiente", "Incompleta"]
+    PURCH_STATES = ["(Todos)", "Completada", "Pendiente", "Cancelada", "Eliminada", "Por pagar", "Ingreso parcial", "Incompleta"]
+    PAYABLE_STATES = ["(Todos)", "Por pagar", "Ingreso parcial", "Pendiente", "Incompleta"]
 
     def __init__(self, master: tk.Misc):
         super().__init__(master, padding=10)
@@ -207,7 +209,7 @@ class ReportCenter(ttk.Frame):
             self.cmb_state["values"] = self.PURCH_STATES
             try: self.cmb_state.current(0)
             except Exception: pass
-        elif key == "payables_docs":
+        elif key in ("payables_docs", "supplier_debts"):
             self.cmb_state["values"] = self.PAYABLE_STATES
             try: self.cmb_state.current(0)
             except Exception: pass
@@ -229,6 +231,8 @@ class ReportCenter(ttk.Frame):
                 self._run_customer_debt_report()
             elif key in ("purchase_orders", "purchase_by_supplier_product", "payables_docs"):
                 self._run_purchases_report(key)
+            elif key == "supplier_debts":
+                self._run_supplier_debts_report()
             elif key == "price_list":
                 self._run_price_list_report()
             elif key == "investment_by_product":
@@ -237,6 +241,15 @@ class ReportCenter(ttk.Frame):
                 self._current_cols, self._current_rows = [], []
             # Cargar en tabla
             self.table.set_data(self._current_cols, self._current_rows)
+            if key == "supplier_debts":
+                try:
+                    state_idx = self._current_cols.index("Estado")
+                    self.table.set_row_backgrounds([
+                        "#ffdddd" if len(row) > state_idx and str(row[state_idx]) == "Ingreso parcial" else None
+                        for row in self._current_rows
+                    ])
+                except Exception:
+                    pass
         except Exception as e:
             messagebox.showerror("Informes", f"No se pudo ejecutar el informe:\n{e}")
 
@@ -384,6 +397,73 @@ class ReportCenter(ttk.Frame):
         self._current_cols, self._current_rows = cols, rows
 
     # ---------------------- Compras ---------------------- #
+    def _purchase_paid_map(self, purchase_ids: list[int]) -> dict[int, float]:
+        if not purchase_ids:
+            return {}
+        rows = (
+            self.session.query(PurchasePayment.id_compra, func.coalesce(func.sum(PurchasePayment.monto), 0))
+            .filter(PurchasePayment.id_compra.in_(purchase_ids))
+            .group_by(PurchasePayment.id_compra)
+            .all()
+        )
+        return {int(pid): float(total or 0) for pid, total in rows}
+
+    def _run_supplier_debts_report(self) -> None:
+        d_from, d_to = self._get_date_filters()
+        state = (self.cmb_state.get() or "").strip()
+        party_like = (self.var_party.get() or "").strip()
+
+        q = self.session.query(Purchase, Supplier).join(Supplier, Supplier.id == Purchase.id_proveedor)
+        if d_from:
+            q = q.filter(Purchase.fecha_compra >= d_from)
+        if d_to:
+            q = q.filter(Purchase.fecha_compra <= d_to)
+        if state and state != "(Todos)":
+            q = q.filter(Purchase.estado == state)
+        else:
+            q = q.filter(Purchase.estado.in_(["Por pagar", "Ingreso parcial", "Pendiente", "Incompleta"]))
+        if party_like:
+            like = f"%{party_like}%"
+            q = q.filter((Supplier.razon_social.ilike(like)) | (Supplier.rut.ilike(like)))
+
+        purchases = q.order_by(Supplier.razon_social.asc(), Purchase.fecha_compra.asc(), Purchase.id.asc()).all()
+        paid_by_purchase = self._purchase_paid_map([int(p.id) for p, _s in purchases])
+        cols = ["Proveedor", "Compra", "Doc", "Fecha", "Estado", "Total", "Pagado", "Deuda", "Vencimiento"]
+        rows: List[List] = []
+        total_by_supplier: dict[int, float] = {}
+        supplier_names: dict[int, str] = {}
+        grand_total = 0.0
+
+        for purchase, supplier in purchases:
+            total = float(purchase.total_compra or 0)
+            paid = float(paid_by_purchase.get(int(purchase.id), 0))
+            debt = max(total - paid, 0.0)
+            if debt <= 0 and str(purchase.estado or "") != "Ingreso parcial":
+                continue
+            supplier_id = int(supplier.id)
+            supplier_name = getattr(supplier, "razon_social", "") or "-"
+            supplier_names[supplier_id] = supplier_name
+            total_by_supplier[supplier_id] = total_by_supplier.get(supplier_id, 0.0) + debt
+            grand_total += debt
+            rows.append([
+                supplier_name,
+                f"OC-{purchase.id}",
+                purchase.numero_documento or "",
+                purchase.fecha_compra.strftime("%Y-%m-%d") if purchase.fecha_compra else "",
+                purchase.estado,
+                _fmt_money(total),
+                _fmt_money(paid),
+                _fmt_money(debt),
+                purchase.fecha_vencimiento.strftime("%Y-%m-%d") if purchase.fecha_vencimiento else "",
+            ])
+
+        if rows:
+            rows.append(["", "", "", "", "", "", "", "", ""])
+            for supplier_id, total_debt in sorted(total_by_supplier.items(), key=lambda item: supplier_names.get(item[0], "")):
+                rows.append([supplier_names.get(supplier_id, ""), "TOTAL PROVEEDOR", "", "", "", "", "", _fmt_money(total_debt), ""])
+            rows.append(["", "TOTAL GENERAL", "", "", "", "", "", _fmt_money(grand_total), ""])
+        self._current_cols, self._current_rows = cols, rows
+
     def _run_purchases_report(self, key: str) -> None:
         d_from, d_to = self._get_date_filters()
         state = (self.cmb_state.get() or "").strip()
@@ -583,7 +663,7 @@ class ReportCenter(ttk.Frame):
             if y + row_h > height - footer_h - 20:
                 page, draw, y = new_page()
                 pages.append(page)
-            fill = "#FFFFFF" if row_idx % 2 == 0 else "#EEF4FA"
+            fill = self._pdf_row_fill(row, row_idx)
             x = margin
             for idx, lines in enumerate(wrapped_cells):
                 draw.rectangle([x, y, x + col_widths[idx], y + row_h], fill=fill, outline="#C4D0DC", width=1)
@@ -700,6 +780,16 @@ class ReportCenter(ttk.Frame):
         if any(token in name for token in ("id", "codigo", "código", "sku", "fecha", "estado", "stock", "cant", "unidad")):
             return "center"
         return "left"
+
+    def _pdf_row_fill(self, row: List, row_idx: int) -> str:
+        if self._current_report_key == "supplier_debts":
+            try:
+                state_idx = self._current_cols.index("Estado")
+                if len(row) > state_idx and str(row[state_idx]) == "Ingreso parcial":
+                    return "#FFE1E1"
+            except Exception:
+                pass
+        return "#FFFFFF" if row_idx % 2 == 0 else "#EEF4FA"
 
     def _pdf_column_widths(self, available_width: int, font: ImageFont.ImageFont) -> list[int]:
         cols = [str(c) for c in self._current_cols]

@@ -4,9 +4,11 @@ from tkinter import ttk, messagebox
 from typing import List, Optional, Dict
 from pathlib import Path
 from decimal import Decimal
+from datetime import datetime
 
 from src.data.database import get_session
 from src.data.models import Product, Supplier, Purchase, PurchaseDetail, Location
+from src.core.purchase_payments import add_purchase_payment, PARTIAL_STATE
 from src.gui.widgets.autocomplete_combobox import AutoCompleteCombobox
 from src.data.repository import ProductRepository, SupplierRepository
 from src.core import PurchaseManager, PurchaseItem
@@ -65,7 +67,7 @@ class PurchasesView(ttk.Frame):
 
         # Estado + forma de pago (acordeón = combobox)
         ttk.Label(head, text="Estado:").grid(row=0, column=3, sticky="e", padx=4)
-        self.ESTADOS = ("Pendiente", "Incompleta", "Por pagar", "Completada", "Cancelada", "Eliminada")
+        self.ESTADOS = ("Pendiente", "Incompleta", "Por pagar", PARTIAL_STATE, "Completada", "Cancelada", "Eliminada")
         self.cmb_estado = ttk.Combobox(head, state="readonly", width=14, values=self.ESTADOS)
         self.cmb_estado.set("Pendiente")
         self.cmb_estado.grid(row=0, column=4, sticky="w", padx=4)
@@ -384,6 +386,12 @@ class PurchasesView(ttk.Frame):
         bottom.pack(fill="x", expand=False, pady=10)
         self.lbl_total = ttk.Label(bottom, text="Total: 0.00", font=("", 11, "bold"))
         self.lbl_total.pack(side="left")
+        ttk.Label(bottom, text="Monto pagado:").pack(side="left", padx=(18, 4))
+        self.var_initial_payment = tk.StringVar(value="0")
+        ttk.Entry(bottom, textvariable=self.var_initial_payment, width=12).pack(side="left")
+        ttk.Label(bottom, text="Fecha:").pack(side="left", padx=(8, 4))
+        self.var_initial_payment_date = tk.StringVar(value=datetime.now().strftime("%d/%m/%Y"))
+        ttk.Entry(bottom, textvariable=self.var_initial_payment_date, width=12).pack(side="left")
 
         self.btn_delete_item = ttk.Button(bottom, text="Eliminar ítem", style="Danger.TButton", command=self._on_delete_item)
         self.btn_delete_item.pack(side="right", padx=6)
@@ -455,7 +463,7 @@ class PurchasesView(ttk.Frame):
         except Exception:
             est = ''
         try:
-            if est in ('Completada', 'Por pagar'):
+            if est in ('Completada', 'Por pagar', PARTIAL_STATE):
                 self.var_apply.set(True)
                 try:
                     self.var_stockpol.set('Mueve')
@@ -511,9 +519,8 @@ class PurchasesView(ttk.Frame):
         except Exception:
             pass
         try:
-            state = "disabled"
-            self.cmb_estado.configure(state=state)
-            self.cmb_stockpol.configure(state=state)
+            self.cmb_estado.configure(state="disabled")
+            self.cmb_stockpol.configure(state="readonly")
             self.chk_apply.configure(state="disabled")
         except Exception:
             pass
@@ -904,15 +911,26 @@ class PurchasesView(ttk.Frame):
                     return
 
             if mode == "Factura":
-                estado = "Completada"
-                apply_to_stock = True
+                total_preview = q2(money_sum(it.subtotal for it in items))
+                initial_payment = q2(self._parse_money_input(getattr(self, "var_initial_payment", tk.StringVar(value="0")).get()))
+                if initial_payment < 0:
+                    self._warn("El monto pagado no puede ser negativo.")
+                    return
+                if initial_payment > total_preview:
+                    self._warn("El monto pagado no puede superar el total de la compra.")
+                    return
+                estado = "Completada" if initial_payment >= total_preview else (PARTIAL_STATE if initial_payment > 0 else "Por pagar")
+                stockpol = (getattr(self, 'var_stockpol', tk.StringVar(value='Mueve')).get() or 'Mueve')
+                apply_to_stock = stockpol.lower().startswith("mueve")
             elif mode == "Orden de compra":
+                initial_payment = D(0)
                 estado = "Pendiente"
                 apply_to_stock = False
             else:
+                initial_payment = D(0)
                 estado = (getattr(self, 'cmb_estado', None).get() if hasattr(self, 'cmb_estado') else "Completada") or "Completada"
                 stockpol = (getattr(self, 'var_stockpol', tk.StringVar(value='No Mueve')).get() or 'No Mueve')
-                apply_to_stock = stockpol.lower().startswith("mueve") and (estado in ("Completada", "Por pagar"))
+                apply_to_stock = stockpol.lower().startswith("mueve") and (estado in ("Completada", "Por pagar", PARTIAL_STATE))
 
             pur = self.pm.create_purchase(
                 supplier_id=sup.id,
@@ -959,12 +977,28 @@ class PurchasesView(ttk.Frame):
                     pur.ajuste_impuesto = D(getattr(self, 'var_ajimp', tk.StringVar(value='0')).get() or '0')
                 except Exception:
                     pur.ajuste_impuesto = D(0)
+                if mode == "Factura" and initial_payment > 0:
+                    payment_date_text = (getattr(self, "var_initial_payment_date", tk.StringVar()).get() or "").strip()
+                    payment_date = datetime.strptime(payment_date_text, "%d/%m/%Y") if payment_date_text else datetime.now()
+                    add_purchase_payment(
+                        self.session,
+                        pur,
+                        initial_payment,
+                        payment_date,
+                        "Pago inicial al registrar factura",
+                    )
                 self.session.commit()
             except Exception:
-                self.session.rollback(); self.session.commit()
+                self.session.rollback()
+                raise
 
             # limpiar
             self._on_clear_table()
+            try:
+                self.var_initial_payment.set("0")
+                self.var_initial_payment_date.set(datetime.now().strftime("%d/%m/%Y"))
+            except Exception:
+                pass
             self.cmb_product.set("")
             self.cmb_product.focus_set()
             if mode == "Factura":

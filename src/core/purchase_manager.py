@@ -142,14 +142,14 @@ class PurchaseManager:
                     id_compra=pur.id,
                     id_producto=it.product_id,
                     cantidad=it.cantidad,
-                    received_qty=(it.cantidad if estado_norm in ("completada", "por pagar") else 0),
+                    received_qty=(it.cantidad if estado_norm in ("completada", "por pagar", "ingreso parcial") else 0),
                     precio_unitario=q2(it.precio_unitario),  # con IVA
                     subtotal=q2(it.subtotal),
                 )
                 self.details.add(det)
 
             # Stock (si corresponde)
-            if estado_norm in ("completada", "por pagar") and apply_to_stock:
+            if estado_norm in ("completada", "por pagar", "ingreso parcial") and apply_to_stock:
                 for it in items:
                     # Ubicación: usar la ubicación por defecto del producto si existe
                     try:

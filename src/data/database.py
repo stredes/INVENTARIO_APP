@@ -446,6 +446,28 @@ def _ensure_schema(engine: Engine) -> None:
         _add_column_if_missing(engine, table="purchases", column="referencia", type_sql="TEXT")
         _add_column_if_missing(engine, table="purchases", column="ajuste_impuesto", type_sql="NUMERIC")
 
+        if not _table_exists(engine, "purchase_payments"):
+            with engine.begin() as conn:
+                conn.exec_driver_sql(
+                    """
+                    CREATE TABLE IF NOT EXISTS purchase_payments (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id_compra INTEGER NOT NULL REFERENCES purchases(id) ON DELETE CASCADE,
+                        monto NUMERIC NOT NULL,
+                        fecha_pago DATETIME NOT NULL,
+                        nota TEXT
+                    );
+                    """
+                )
+        try:
+            _create_index_if_missing(
+                engine,
+                index_sql='CREATE INDEX IF NOT EXISTS idx_purchase_payments_compra ON purchase_payments(id_compra);',
+                index_name='idx_purchase_payments_compra',
+            )
+        except Exception:
+            pass
+
         _add_column_if_missing(engine, table="sales", column="numero_documento", type_sql="TEXT")
         _add_column_if_missing(engine, table="sales", column="mes_referencia", type_sql="TEXT")
         _add_column_if_missing(engine, table="sales", column="monto_neto", type_sql="NUMERIC")

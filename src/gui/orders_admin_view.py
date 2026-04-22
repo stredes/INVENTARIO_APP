@@ -10,16 +10,18 @@ from sqlalchemy import func
 from src.data.database import get_session
 from src.data.models import (
     Supplier, Customer, Product,
-    Purchase, PurchaseDetail,
+    Purchase, PurchaseDetail, PurchasePayment,
     Sale, SaleDetail, SaleServiceDetail,
     Reception,
 )
 from src.core.inventory_manager import InventoryManager
 from src.core.purchase_manager import PurchaseManager
+from src.core.purchase_payments import add_purchase_payment, debt_amount, paid_amount, PARTIAL_STATE
 from src.core.sales_manager import SalesManager
 from src.utils.po_generator import generate_po_to_downloads
 from src.utils.so_generator import generate_so_to_downloads
 from src.gui.utils.order_helpers import ensure_treeview_styling, format_currency
+from src.utils.money import D, q2
 
 # Grilla tipo hoja (tksheet si está instalado; si no, Treeview)
 from src.gui.widgets.grid_table import GridTable
@@ -35,8 +37,8 @@ class OrdersAdminView(ttk.Frame):
     """
 
     # ----- Columnas (títulos + anchos) -----
-    PUR_COLS = ["ID", "N° OC", "Fecha", "Proveedor", "Estado", "Total", "Docs"]
-    PUR_W    = [70, 110, 130, 260, 120, 120, 220]
+    PUR_COLS = ["ID", "N° OC", "Fecha", "Proveedor", "Estado", "Total", "Pagado", "Deuda", "Docs"]
+    PUR_W    = [70, 110, 130, 240, 130, 110, 110, 110, 220]
 
     PUR_DET_COLS = ["ID Prod", "Producto", "Cant.", "Precio", "Subtotal"]
     PUR_DET_W    = [80, 320, 80, 110, 130]
@@ -276,10 +278,14 @@ class OrdersAdminView(ttk.Frame):
         # Editor de estado (más directo)
         editor = ttk.Frame(parent); editor.pack(fill="x", pady=(6, 0))
         ttk.Label(editor, text="Estado:").pack(side="left")
-        self.PUR_STATES = ("Pendiente", "Incompleta", "Por pagar", "Completada", "Cancelada", "Eliminada")
+        self.PUR_STATES = ("Pendiente", "Incompleta", "Por pagar", PARTIAL_STATE, "Completada", "Cancelada", "Eliminada")
         self.pur_state_cb = ttk.Combobox(editor, state="readonly", width=14, values=self.PUR_STATES)
         self.pur_state_cb.pack(side="left", padx=4)
         ttk.Button(editor, text="Aplicar estado", command=self._purchase_apply_state).pack(side="left", padx=4)
+        ttk.Label(editor, text="Monto a pagar:").pack(side="left", padx=(16, 4))
+        self.var_partial_payment = tk.StringVar(value="0")
+        ttk.Entry(editor, textvariable=self.var_partial_payment, width=13).pack(side="left", padx=4)
+        ttk.Button(editor, text="Pagar parcializado", command=self._purchase_partial_payment).pack(side="left", padx=4)
 
         # Filtros: Proveedor + Estado
         fil_p = ttk.Frame(parent); fil_p.pack(fill="x", pady=(6, 0))
@@ -287,7 +293,7 @@ class OrdersAdminView(ttk.Frame):
         self.pur_filter_supplier = ttk.Combobox(fil_p, state="readonly", width=40)
         self.pur_filter_supplier.pack(side="left", padx=4)
         ttk.Label(fil_p, text="Estado:").pack(side="left")
-        self.pur_filter_state = ttk.Combobox(fil_p, state="readonly", width=14, values=("Todos", "Pendiente", "Incompleta", "Por pagar", "Completada", "Cancelada"))
+        self.pur_filter_state = ttk.Combobox(fil_p, state="readonly", width=14, values=("Todos", "Pendiente", "Incompleta", "Por pagar", PARTIAL_STATE, "Completada", "Cancelada"))
         try:
             self.pur_filter_state.current(0)
         except Exception:
@@ -439,6 +445,7 @@ class OrdersAdminView(ttk.Frame):
         except Exception:
             Reception = None  # type: ignore
 
+        row_colors: List[Optional[str]] = []
         for pur, sup in q:
             fecha = pur.fecha_compra.strftime("%Y-%m-%d %H:%M")
             proveedor = getattr(sup, "razon_social", "") or "-"
@@ -460,10 +467,27 @@ class OrdersAdminView(ttk.Frame):
                     docs = ", ".join(parts)
             except Exception:
                 docs = ""
-            rows.append([pur.id, f"OC-{pur.id}", fecha, proveedor, pur.estado, format_currency(pur.total_compra), docs])
+            paid = paid_amount(self.session, int(pur.id))
+            debt = debt_amount(self.session, pur)
+            rows.append([
+                pur.id,
+                f"OC-{pur.id}",
+                fecha,
+                proveedor,
+                pur.estado,
+                format_currency(pur.total_compra),
+                format_currency(paid),
+                format_currency(debt),
+                docs,
+            ])
+            row_colors.append("#ffdddd" if str(pur.estado or "") == PARTIAL_STATE else None)
             self._pur_ids.append(int(pur.id))
 
         self._set_table_data(self.tbl_pur, self.PUR_COLS, self.PUR_W, rows)
+        try:
+            self.tbl_pur.set_row_backgrounds(row_colors)
+        except Exception:
+            pass
         # Limpia detalle
         self._set_table_data(self.tbl_pur_det, self.PUR_DET_COLS, self.PUR_DET_W, [])
 
@@ -1008,6 +1032,53 @@ class OrdersAdminView(ttk.Frame):
             self._load_purchases
         )
 
+    @staticmethod
+    def _parse_money_input(value: str):
+        raw = str(value or "").replace("$", "").replace("CLP", "").strip()
+        if not raw:
+            return D(0)
+        if "," in raw and "." in raw:
+            if raw.rfind(",") > raw.rfind("."):
+                raw = raw.replace(".", "").replace(",", ".")
+            else:
+                raw = raw.replace(",", "")
+        elif "," in raw:
+            raw = raw.replace(",", ".")
+        return q2(D(raw))
+
+    def _purchase_partial_payment(self):
+        pur = self._get_selected_purchase()
+        if not pur:
+            messagebox.showwarning("Compras", "Seleccione una compra.")
+            return
+        try:
+            amount = self._parse_money_input(self.var_partial_payment.get())
+        except Exception:
+            messagebox.showwarning("Compras", "Ingrese un monto válido para pagar.")
+            return
+        if amount <= 0:
+            messagebox.showwarning("Compras", "El monto a pagar debe ser mayor a 0.")
+            return
+
+        def action():
+            add_purchase_payment(
+                self.session,
+                pur,
+                amount,
+                datetime.now(),
+                "Pago parcial desde Ordenes",
+            )
+
+        self._handle_db_action(
+            action,
+            f"Pago parcial registrado para compra {pur.id}.",
+            self._load_purchases,
+        )
+        try:
+            self.var_partial_payment.set("0")
+        except Exception:
+            pass
+
     # ============================== Ventas ============================= #
     def _load_sales(self):
         rows: List[List] = []
@@ -1077,6 +1148,10 @@ class OrdersAdminView(ttk.Frame):
 
         if target == "Completada":
             self._purchase_mark_completed()
+        elif target == PARTIAL_STATE:
+            def action_partial():
+                pur.estado = PARTIAL_STATE
+            self._handle_db_action(action_partial, f"Compra {pur.id} marcada como INGRESO PARCIAL.", self._load_purchases)
         elif target == "Por pagar":
             p = self._get_selected_purchase()
             if not p:
@@ -1099,7 +1174,7 @@ class OrdersAdminView(ttk.Frame):
             self._purchase_cancel()
         elif target == "Pendiente":
             # Si estaba completada, revertimos stock
-            if cur_state.lower() in ("completada", "por pagar"):
+            if cur_state.lower() in ("completada", "por pagar", PARTIAL_STATE.lower()):
                 def action():
                     for det in pur.details:
                         received = int(getattr(det, "received_qty", 0) or 0)

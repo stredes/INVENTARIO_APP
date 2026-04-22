@@ -185,6 +185,9 @@ class Purchase(Base):
     details: Mapped[List["PurchaseDetail"]] = relationship(
         back_populates="purchase", cascade="all, delete-orphan"
     )
+    payments: Mapped[List["PurchasePayment"]] = relationship(
+        back_populates="purchase", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<Purchase id={self.id} prov={self.id_proveedor} total={self.total_compra}>"
@@ -214,6 +217,24 @@ class PurchaseDetail(Base):
 
     def __repr__(self) -> str:
         return f"<PurchaseDetail compra={self.id_compra} prod={self.id_producto} cant={self.cantidad}>"
+
+
+class PurchasePayment(Base):
+    __tablename__ = "purchase_payments"
+    __table_args__ = (
+        CheckConstraint("monto > 0", name="ck_purchase_payments_monto_pos"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id_compra: Mapped[int] = mapped_column(ForeignKey("purchases.id", ondelete="CASCADE"), nullable=False)
+    monto: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    fecha_pago: Mapped[dt] = mapped_column(DateTime, nullable=False, default=dt.utcnow)
+    nota: Mapped[Optional[str]] = mapped_column(String)
+
+    purchase: Mapped["Purchase"] = relationship(back_populates="payments")
+
+    def __repr__(self) -> str:
+        return f"<PurchasePayment compra={self.id_compra} monto={self.monto}>"
 
 
 # ====================================================
