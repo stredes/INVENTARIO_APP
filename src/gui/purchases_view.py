@@ -16,7 +16,7 @@ from src.core.inventory_manager import InventoryManager
 from src.utils.po_generator import generate_po_to_downloads
 from src.utils.quote_generator import generate_quote_to_downloads as generate_quote_downloads
 from src.utils.helpers import get_po_payment_method, get_ui_purchases_mode, set_ui_purchases_mode
-from src.utils.money import D, q2, fmt_2, mul
+from src.utils.money import D, q2, fmt_2, mul, money_sum
 from src.gui.utils.order_helpers import ensure_treeview_styling, safe_set_combobox_values
 
 IVA_RATE = Decimal("0.19")  # 19% IVA por defecto
@@ -889,6 +889,15 @@ class PurchasesView(ttk.Frame):
     def _on_confirm_purchase(self):
         """Confirma compra usando PurchaseManager (que también valida coherencia)."""
         try:
+            def parse_optional_date(value: str, label: str):
+                text = (value or "").strip()
+                if not text:
+                    return None
+                try:
+                    return datetime.strptime(text, "%d/%m/%Y")
+                except ValueError as exc:
+                    raise ValueError(f"{label} debe tener formato DD/MM/AAAA.") from exc
+
             sup = self._selected_supplier()
             if not sup:
                 self._warn("Seleccione un proveedor.")
@@ -901,6 +910,11 @@ class PurchasesView(ttk.Frame):
                 mode = self._normalize_mode((self.var_mode.get() if hasattr(self, 'var_mode') else 'Factura') or 'Factura')
             except Exception:
                 mode = 'Factura'
+
+            fecha_documento = parse_optional_date(getattr(self, 'var_fdoc', tk.StringVar()).get(), "Fecha documento")
+            fecha_contable = parse_optional_date(getattr(self, 'var_fcont', tk.StringVar()).get(), "Fecha contable")
+            fecha_vencimiento = parse_optional_date(getattr(self, 'var_fvenc', tk.StringVar()).get(), "Fecha vencimiento")
+            initial_payment_date = datetime.now()
 
             # Validación extra en UI: por si editaron manualmente la tabla
             # (la capa core también valida, pero esto mejora la UX)
@@ -919,6 +933,11 @@ class PurchasesView(ttk.Frame):
                 if initial_payment > total_preview:
                     self._warn("El monto pagado no puede superar el total de la compra.")
                     return
+                if initial_payment > 0:
+                    initial_payment_date = parse_optional_date(
+                        getattr(self, "var_initial_payment_date", tk.StringVar()).get(),
+                        "Fecha de pago",
+                    ) or datetime.now()
                 estado = "Completada" if initial_payment >= total_preview else (PARTIAL_STATE if initial_payment > 0 else "Por pagar")
                 stockpol = (getattr(self, 'var_stockpol', tk.StringVar(value='Mueve')).get() or 'Mueve')
                 apply_to_stock = stockpol.lower().startswith("mueve")
@@ -948,12 +967,10 @@ class PurchasesView(ttk.Frame):
 
             # Guardar cabecera extendida
             try:
-                from datetime import datetime
-                f = lambda s: datetime.strptime(s.strip(), "%d/%m/%Y") if s and s.strip() else None
                 pur.numero_documento = (getattr(self, 'var_numdoc', tk.StringVar()).get() or "").strip() or None
-                pur.fecha_documento = f(getattr(self, 'var_fdoc', tk.StringVar()).get())
-                pur.fecha_contable = f(getattr(self, 'var_fcont', tk.StringVar()).get())
-                pur.fecha_vencimiento = f(getattr(self, 'var_fvenc', tk.StringVar()).get())
+                pur.fecha_documento = fecha_documento
+                pur.fecha_contable = fecha_contable
+                pur.fecha_vencimiento = fecha_vencimiento
                 pur.moneda = (getattr(self, 'var_moneda', tk.StringVar()).get() or None)
                 try:
                     pur.tasa_cambio = D(getattr(self, 'var_tc', tk.StringVar(value='1')).get() or '1')
@@ -978,13 +995,11 @@ class PurchasesView(ttk.Frame):
                 except Exception:
                     pur.ajuste_impuesto = D(0)
                 if mode == "Factura" and initial_payment > 0:
-                    payment_date_text = (getattr(self, "var_initial_payment_date", tk.StringVar()).get() or "").strip()
-                    payment_date = datetime.strptime(payment_date_text, "%d/%m/%Y") if payment_date_text else datetime.now()
                     add_purchase_payment(
                         self.session,
                         pur,
                         initial_payment,
-                        payment_date,
+                        initial_payment_date,
                         "Pago inicial al registrar factura",
                     )
                 self.session.commit()

@@ -12,7 +12,7 @@ from src.erp.core.database import get_connection, init_db, DEFAULT_DB_PATH
 from src.data.database import get_session
 from src.data.models import (
     Product, Customer, Supplier,
-    Purchase, PurchaseDetail,
+    Purchase, PurchaseDetail, PurchasePayment,
     Sale, SaleDetail, SaleServiceDetail,
     Reception,
     StockEntry, StockExit,
@@ -474,7 +474,19 @@ def export_app_backup_to_xlsx(out_path: Optional[Path] = None, *, auto_open: boo
             _to_val(det.subtotal),
         ])
 
-    # 6c) Detalles de ventas
+    # 6c) Pagos parciales de compras
+    ws = wb.create_sheet("pagos_compra")
+    ws.append(["id", "id_compra", "monto", "fecha_pago", "nota"])
+    for pay in sess.query(PurchasePayment).order_by(PurchasePayment.id.asc()).all():
+        ws.append([
+            pay.id,
+            pay.id_compra,
+            _to_val(pay.monto),
+            getattr(pay, "fecha_pago", None),
+            getattr(pay, "nota", None) or "",
+        ])
+
+    # 6d) Detalles de ventas
     ws = wb.create_sheet("detalles_venta")
     ws.append(["id", "id_venta", "id_producto", "cantidad", "precio_unitario", "subtotal"])
     for det in sess.query(SaleDetail).order_by(SaleDetail.id.asc()).all():
@@ -487,7 +499,7 @@ def export_app_backup_to_xlsx(out_path: Optional[Path] = None, *, auto_open: boo
             _to_val(det.subtotal),
         ])
 
-    # 6d) Servicios manuales de ventas
+    # 6e) Servicios manuales de ventas
     ws = wb.create_sheet("servicios_venta")
     ws.append(["id", "id_venta", "descripcion", "cantidad", "precio_unitario", "subtotal", "afecto_iva"])
     for det in sess.query(SaleServiceDetail).order_by(SaleServiceDetail.id.asc()).all():
@@ -713,6 +725,7 @@ def import_app_backup_from_xlsx(xlsx_path: Path, *, reset: bool = True) -> None:
             sess.query(StockExit).delete()
             sess.query(SaleServiceDetail).delete()
             sess.query(SaleDetail).delete()
+            sess.query(PurchasePayment).delete()
             sess.query(PurchaseDetail).delete()
             try:
                 sess.query(Reception).delete()
@@ -978,6 +991,19 @@ def import_app_backup_from_xlsx(xlsx_path: Path, *, reset: bool = True) -> None:
                 pass
 
         sess.flush()
+
+        for r in _read("pagos_compra"):
+            try:
+                pay = PurchasePayment(
+                    id=int(r.get("id")),
+                    id_compra=int(r.get("id_compra")),
+                    monto=_to_float(r.get("monto")) or 0,
+                    fecha_pago=r.get("fecha_pago") or datetime.now(),
+                    nota=str(r.get("nota") or ""),
+                )
+                sess.add(pay)
+            except Exception:
+                pass
 
         for r in _read("detalles_compra"):
             try:

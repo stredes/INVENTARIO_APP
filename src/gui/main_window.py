@@ -1484,6 +1484,7 @@ class MainWindow(ttk.Frame):
             from sqlalchemy.orm import Session as _S
             from src.data.models import (
                 SaleDetail, Sale, PurchaseDetail, Purchase,
+                PurchasePayment,
                 StockEntry, StockExit, Product, Supplier, Customer, Location,
                 Reception,
             )
@@ -1494,6 +1495,7 @@ class MainWindow(ttk.Frame):
             sess.query(StockExit).delete()
             # 2) Detalles
             sess.query(SaleDetail).delete()
+            sess.query(PurchasePayment).delete()
             sess.query(PurchaseDetail).delete()
             # 3) Cabeceras hijas (recepciones) antes de compras
             try:

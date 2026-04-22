@@ -701,9 +701,7 @@ $manifest = [ordered]@{
   release_tag = $buildMeta.Tag
   repo = $repoSlug
   assets = @(
-    @{ kind = "portable"; path = (Split-Path $portableZip -Leaf) },
-    @{ kind = "build"; path = (Split-Path $buildZip -Leaf) },
-    @{ kind = "dist"; path = (Split-Path $distZip -Leaf) }
+    @{ kind = "portable"; path = (Split-Path $portableZip -Leaf) }
   )
   built_at_utc = [DateTime]::UtcNow.ToString("o")
 }
@@ -714,7 +712,7 @@ $manifestPath = Join-Path $assetsRoot "release-manifest.json"
 Write-Utf8File -Path $manifestPath -Content ($manifest | ConvertTo-Json -Depth 10)
 Write-Ok "Manifest generado: $manifestPath"
 
-$assets = @($portableZip, $buildZip, $distZip, $manifestPath)
+$assets = @($portableZip, $manifestPath)
 if ($setupExe) { $assets += $setupExe }
 
 if (-not $SkipPublish) {
