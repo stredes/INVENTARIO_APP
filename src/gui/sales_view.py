@@ -115,16 +115,18 @@ class SalesView(ttk.Frame):
         self.cmb_product = AutoCompleteCombobox(det, width=45, state="normal")
         self.cmb_product.grid(row=0, column=1, sticky="w", padx=4, pady=4)
         self.cmb_product.bind("<<ComboboxSelected>>", self._on_product_change)
+        self.var_selected_stock = tk.StringVar(value="Stock: 0")
+        ttk.Label(det, textvariable=self.var_selected_stock).grid(row=0, column=2, sticky="w", padx=(8, 14), pady=4)
 
-        ttk.Label(det, text="Cantidad:").grid(row=0, column=2, sticky="e", padx=4, pady=4)
+        ttk.Label(det, text="Cantidad:").grid(row=0, column=3, sticky="e", padx=4, pady=4)
         self.ent_qty = ttk.Entry(det, width=10)
         self.ent_qty.insert(0, "1")
-        self.ent_qty.grid(row=0, column=3, sticky="w", padx=4, pady=4)
+        self.ent_qty.grid(row=0, column=4, sticky="w", padx=4, pady=4)
 
-        ttk.Label(det, text="Precio (venta):").grid(row=0, column=4, sticky="e", padx=4, pady=4)
+        ttk.Label(det, text="Precio (venta):").grid(row=0, column=5, sticky="e", padx=4, pady=4)
         self.ent_price = ttk.Entry(det, width=12)
         self.ent_price.insert(0, "0")
-        self.ent_price.grid(row=0, column=5, sticky="w", padx=4, pady=4)
+        self.ent_price.grid(row=0, column=6, sticky="w", padx=4, pady=4)
 
         self.btn_add_item = ttk.Button(det, text="Agregar ítem", command=self._on_add_item)
         self.btn_add_item.grid(row=0, column=8, padx=8)
@@ -397,16 +399,18 @@ class SalesView(ttk.Frame):
         self.cmb_product = AutoCompleteCombobox(det, width=45, state="normal")
         self.cmb_product.grid(row=0, column=1, sticky="w", padx=4, pady=4)
         self.cmb_product.bind("<<ComboboxSelected>>", self._on_product_change)
+        self.var_selected_stock = tk.StringVar(value="Stock: 0")
+        ttk.Label(det, textvariable=self.var_selected_stock).grid(row=0, column=2, sticky="w", padx=(8, 14), pady=4)
 
-        ttk.Label(det, text="Cantidad:").grid(row=0, column=2, sticky="e", padx=4, pady=4)
+        ttk.Label(det, text="Cantidad:").grid(row=0, column=3, sticky="e", padx=4, pady=4)
         self.ent_qty = ttk.Entry(det, width=10)
         self.ent_qty.insert(0, "1")
-        self.ent_qty.grid(row=0, column=3, sticky="w", padx=4, pady=4)
+        self.ent_qty.grid(row=0, column=4, sticky="w", padx=4, pady=4)
 
-        ttk.Label(det, text="Precio (venta):").grid(row=0, column=4, sticky="e", padx=4, pady=4)
+        ttk.Label(det, text="Precio (venta):").grid(row=0, column=5, sticky="e", padx=4, pady=4)
         self.ent_price = ttk.Entry(det, width=12)
         self.ent_price.insert(0, "0")
-        self.ent_price.grid(row=0, column=5, sticky="w", padx=4, pady=4)
+        self.ent_price.grid(row=0, column=6, sticky="w", padx=4, pady=4)
 
         # (Se eliminó el campo duplicado de Dcto (%) en cabecera)
 
@@ -807,6 +811,7 @@ class SalesView(ttk.Frame):
     # -------------------- UI helpers --------------------
     def _on_product_change(self, _evt=None):
         self._fill_price_from_selected_product()
+        self._update_selected_stock()
         # Completar campos de detalle ampliado
         try:
             p = self._selected_product()
@@ -817,18 +822,30 @@ class SalesView(ttk.Frame):
                 self.var_unidad.set(unidad)
                 # Recalcular neto con el nuevo precio seleccionado
                 self._recalc_net()
+            else:
+                self.var_prod_code.set("")
+                self.var_prod_desc.set("")
         except Exception:
             pass
 
     def _fill_price_from_selected_product(self):
         p = self._selected_product()
         if not p:
+            self._update_selected_stock()
             return
         try:
             pv = D(getattr(p, "precio_venta", 0) or 0)
             if pv > 0:
                 self.ent_price.delete(0, "end")
                 self.ent_price.insert(0, fmt_2(pv))
+        except Exception:
+            pass
+
+    def _update_selected_stock(self):
+        p = self._selected_product()
+        stock = int(getattr(p, "stock_actual", 0) or 0) if p else 0
+        try:
+            self.var_selected_stock.set(f"Stock: {stock}")
         except Exception:
             pass
 
