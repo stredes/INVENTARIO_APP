@@ -4,6 +4,7 @@ import sys
 import configparser
 from pathlib import Path
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk, Menu
 from tkinter import filedialog, messagebox
 
@@ -136,6 +137,7 @@ class MainWindow(ttk.Frame):
         self._update_prompted_tag: str | None = None
         self._update_status_var = tk.StringVar(value="Actualizaciones: comprobando...")
         self._update_badge_var = tk.StringVar(value="Estado de actualización")
+        self._sidebar_nav_buttons: dict[str, ttk.Button] = {}
         self._responsive_job = None
         self._sidebar_mousewheel_bound = False
         self._sidebar_scroll_enabled = False
@@ -344,6 +346,7 @@ class MainWindow(ttk.Frame):
 
     def _build_persistent_sidebar(self) -> None:
         host = self.sidebar_content
+        self._configure_sidebar_nav_styles()
 
         brand = ttk.Frame(host, style="HomeSidebarCard.TFrame", padding=20)
         brand.grid(row=0, column=0, sticky="ew")
@@ -371,30 +374,60 @@ class MainWindow(ttk.Frame):
         ttk.Label(nav_card, text="Acciones disponibles", style="HomeSection.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
 
         nav_items = [
-            ("Inicio", self.show_home),
-            ("Productos", self.show_products),
-            ("Proveedores", self.show_suppliers),
-            ("Clientes", self.show_customers),
-            ("Compras", self.show_purchases),
-            ("Ventas", self.show_sales),
-            ("Inventario", self.show_inventory),
-            ("Órdenes", self.show_orders_admin),
-            ("Informes", self.show_report_center),
-            ("Catálogo", self.show_catalog),
-            ("Manuel", self.open_facturion),
-            ("Tutoriales", self._open_tutorial_center),
+            ("Inicio", self.show_home, True),
+            ("Productos", self.show_products, True),
+            ("Proveedores", self.show_suppliers, True),
+            ("Clientes", self.show_customers, True),
+            ("Compras", self.show_purchases, True),
+            ("Ventas", self.show_sales, True),
+            ("Inventario", self.show_inventory, True),
+            ("Órdenes", self.show_orders_admin, True),
+            ("Informes", self.show_report_center, True),
+            ("Catálogo", self.show_catalog, True),
+            ("Manuel", self.open_facturion, False),
+            ("Tutoriales", self._open_tutorial_center, False),
         ]
         row = 1
-        for label, command in nav_items:
-            ttk.Button(nav_card, text=label, style="HomeNav.TButton", command=command).grid(
+        for label, command, tracks_view in nav_items:
+            btn = ttk.Button(nav_card, text=label, style="HomeNav.TButton", command=command)
+            btn.grid(
                 row=row, column=0, sticky="ew", pady=6
             )
+            if tracks_view:
+                self._sidebar_nav_buttons[label] = btn
             row += 1
 
         ttk.Button(nav_card, text="Salir", style="HomeExit.TButton", command=self.app_root.quit).grid(
             row=row, column=0, sticky="ew", pady=(14, 0)
         )
         ttk.Frame(host, style="HomeSidebar.TFrame", height=6).grid(row=3, column=0, sticky="ew")
+
+    def _configure_sidebar_nav_styles(self) -> None:
+        style = ttk.Style(self)
+        base_font = tkfont.nametofont("TkDefaultFont")
+        family = base_font.actual("family")
+        style.configure(
+            "HomeNavActive.TButton",
+            background="#2D7D46",
+            foreground="#FFFFFF",
+            padding=(14, 12),
+            font=(family, 10, "bold"),
+        )
+        style.map(
+            "HomeNavActive.TButton",
+            background=[("active", "#369356"), ("pressed", "#24683A")],
+            foreground=[("active", "#FFFFFF"), ("pressed", "#FFFFFF")],
+        )
+
+    def _update_sidebar_active(self, tab_text: str) -> None:
+        for label, button in self._sidebar_nav_buttons.items():
+            try:
+                if label == tab_text:
+                    button.configure(text=f"▸ {label}", style="HomeNavActive.TButton")
+                else:
+                    button.configure(text=label, style="HomeNav.TButton")
+            except Exception:
+                pass
 
     def _on_sidebar_content_configure(self, _event=None) -> None:
         try:
@@ -1359,6 +1392,10 @@ class MainWindow(ttk.Frame):
             pass
         try:
             self._update_top_navigation(tab_text)
+        except Exception:
+            pass
+        try:
+            self._update_sidebar_active(tab_text)
         except Exception:
             pass
         self.status.set_message(f"Vista: {tab_text} â€” Ctrl+K para comandos")

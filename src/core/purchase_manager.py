@@ -185,14 +185,8 @@ class PurchaseManager:
         if pur.estado.lower() == "cancelada":
             return
 
-        if revert_stock and pur.estado.lower() in ("completada", "por pagar"):
-            for det in pur.details:
-                self.inventory.register_exit(
-                    product_id=det.id_producto,
-                    cantidad=det.cantidad,
-                    motivo=f"Reversa compra {purchase_id}",
-                    when=datetime.utcnow(),
-                )
+        if revert_stock:
+            self._revert_purchase_stock(purchase_id, when=datetime.utcnow())
 
         pur.estado = "Cancelada"
         self.session.commit()
@@ -207,17 +201,12 @@ class PurchaseManager:
             # nada que borrar
             return
 
-        if revert_stock and pur.estado.lower() in ("completada", "por pagar"):
-            for det in pur.details:
-                self.inventory.register_exit(
-                    product_id=det.id_producto,
-                    cantidad=det.cantidad,
-                    motivo=f"Reversa compra {purchase_id}",
-                    when=datetime.utcnow(),
-                )
+        if revert_stock:
+            self._revert_purchase_stock(purchase_id, when=datetime.utcnow())
         # Eliminar movimientos de recepciones asociadas antes de borrar recepciones
         try:
             from src.data.models import StockEntry
+            self.session.query(StockEntry).filter(StockEntry.motivo == f"Compra {purchase_id}").delete(synchronize_session=False)
             rec_ids = [rid for (rid,) in self.session.query(Reception.id).filter(Reception.id_compra == purchase_id).all()]
             if rec_ids:
                 self.session.query(StockEntry).filter(StockEntry.id_recepcion.in_(rec_ids)).delete(synchronize_session=False)
@@ -230,3 +219,40 @@ class PurchaseManager:
             pass
         self.purchases.delete(purchase_id)
         self.session.commit()
+
+    def _revert_purchase_stock(self, purchase_id: int, *, when: datetime) -> None:
+        from src.data.models import StockEntry
+
+        qty_by_product: dict[int, int] = {}
+        direct_entries = (
+            self.session.query(StockEntry)
+            .filter(StockEntry.motivo == f"Compra {purchase_id}")
+            .all()
+        )
+        for entry in direct_entries:
+            pid = int(entry.id_producto)
+            qty_by_product[pid] = qty_by_product.get(pid, 0) + int(entry.cantidad or 0)
+
+        rec_ids = [rid for (rid,) in self.session.query(Reception.id).filter(Reception.id_compra == purchase_id).all()]
+        if rec_ids:
+            recv_entries = (
+                self.session.query(StockEntry)
+                .filter(StockEntry.id_recepcion.in_(rec_ids))
+                .all()
+            )
+            for entry in recv_entries:
+                pid = int(entry.id_producto)
+                qty_by_product[pid] = qty_by_product.get(pid, 0) + int(entry.cantidad or 0)
+
+        if not qty_by_product:
+            return
+
+        for product_id, qty in qty_by_product.items():
+            if qty <= 0:
+                continue
+            self.inventory.register_exit(
+                product_id=product_id,
+                cantidad=qty,
+                motivo=f"Reversa compra {purchase_id}",
+                when=when,
+            )

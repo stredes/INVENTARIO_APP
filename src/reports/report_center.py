@@ -16,7 +16,7 @@ from src.data.database import get_session
 from src.data.models import (
     Product, Supplier, Customer,
     Purchase, PurchaseDetail, PurchasePayment, Reception,
-    Sale,
+    Sale, SaleDetail, SaleServiceDetail,
 )
 from src.gui.utils.order_helpers import format_currency
 from src.gui.widgets.grid_table import GridTable
@@ -54,6 +54,19 @@ def _range_to_datetimes(d_from: Optional[dt.datetime], d_to: Optional[dt.datetim
 
 def _fmt_money(value) -> str:
     return format_currency(value or 0)
+
+
+def _fmt_date(val: Optional[dt.datetime], with_time: bool = False) -> str:
+    if not val:
+        return ""
+    return val.strftime("%Y-%m-%d %H:%M") if with_time else val.strftime("%Y-%m-%d")
+
+
+def _parse_number(s: str) -> Optional[float]:
+    try:
+        return float((s or "").replace(".", "").replace(",", ".")) if s else None
+    except Exception:
+        return None
 
 
 def _downloads_dir() -> Path:
@@ -103,17 +116,34 @@ class ReportCenter(ttk.Frame):
 
     # Definición de informes disponibles
     REPORTS = [
-        ("stock_real", "Stock real"),
-        ("payables_docs", "Facturas o guias que debo"),
-        ("supplier_debts", "Deudas a proveedores"),
-        ("receivables_docs", "Facturas o guias pendientes que me deben"),
-        ("customer_debt", "Deuda por cliente"),
-        ("purchase_orders", "Ordenes de compra (resumen)"),
-        ("purchase_by_supplier_product", "Ordenes de compra por proveedor y producto"),
-        ("sales_period", "Ventas por periodo"),
-        ("price_list", "Lista de precios"),
-        ("investment_by_product", "Inversion monetaria por producto"),
+        ("stock_real", "Stock"),
+        ("payables_docs", "Cuentas por pagar"),
+        ("supplier_debts", "Deuda proveedores"),
+        ("receivables_docs", "Cuentas por cobrar"),
+        ("customer_debt", "Deuda clientes"),
+        ("all_purchase_orders", "OC detalle"),
+        ("all_sales_orders", "OV detalle"),
+        ("purchase_orders", "OC resumen"),
+        ("purchase_by_supplier_product", "OC por producto"),
+        ("sales_period", "Ventas resumen"),
+        ("price_list", "Lista precios"),
+        ("investment_by_product", "Inversión stock"),
     ]
+
+    REPORT_SUMMARIES = {
+        "stock_real": "Existencias actuales por producto, con unidad, SKU, precio de compra y precio de venta.",
+        "payables_docs": "Documentos de compra pendientes de pago, filtrables por proveedor, estado y periodo.",
+        "supplier_debts": "Deuda agrupada por proveedor, con total comprado, pagado, saldo y vencimiento.",
+        "receivables_docs": "Ventas pendientes de cobro, filtrables por cliente, estado y periodo.",
+        "customer_debt": "Detalle de deuda por cliente, incluyendo factura, neto, IVA, total y fecha de pago.",
+        "all_purchase_orders": "Detalle completo de OC por producto, proveedor, cantidades, recibido, subtotal y total.",
+        "all_sales_orders": "Detalle completo de OV por producto o servicio, cliente, estado, subtotal y total.",
+        "purchase_orders": "Resumen de OC por proveedor, estado, documento, fecha y total.",
+        "purchase_by_supplier_product": "Cruce de OC por proveedor y producto para revisar cantidades, precios y subtotales.",
+        "sales_period": "Resumen de ventas del periodo, con cliente, estado y total.",
+        "price_list": "Lista de precios de venta por producto y código.",
+        "investment_by_product": "Valor del stock disponible calculado desde precio de compra más IVA.",
+    }
 
     SALES_STATES = ["(Todos)", "Pagado", "Pendiente"]
     RECEIVABLE_STATES = ["(Todos)", "Pendiente"]
@@ -130,6 +160,7 @@ class ReportCenter(ttk.Frame):
         self._current_cols: List[str] = []
         self._current_rows: List[List] = []
         self._current_report_key: str = ""
+        self.var_report_summary = tk.StringVar(value="")
 
         # --------- Encabezado / selector ---------
         top = ttk.Frame(self); top.pack(fill="x", expand=False)
@@ -147,6 +178,17 @@ class ReportCenter(ttk.Frame):
         ttk.Button(top, text="Ejecutar", command=self._run_report).pack(side="right", padx=4)
         self.btn_export = ttk.Button(top, text="Exportar PDF", command=self._on_export)
         self.btn_export.pack(side="right", padx=4)
+        self.btn_export_xlsx = ttk.Button(top, text="Exportar Excel", command=self._on_export_xlsx)
+        self.btn_export_xlsx.pack(side="right", padx=4)
+
+        self.lbl_report_summary = ttk.Label(
+            self,
+            textvariable=self.var_report_summary,
+            style="HomePanelText.TLabel",
+            wraplength=920,
+            justify="left",
+        )
+        self.lbl_report_summary.pack(fill="x", pady=(8, 0))
 
         # --------- Filtros ---------
         filt = ttk.Labelframe(self, text="Filtros", padding=8)
@@ -193,22 +235,27 @@ class ReportCenter(ttk.Frame):
         idx = self.cmb_report.current() or 0
         key = self.REPORTS[idx][0]
         self._current_report_key = key
+        self.var_report_summary.set(self.REPORT_SUMMARIES.get(key, ""))
+        self._clear_report_inputs()
         self.var_party_label.set("Tercero (nombre/rut):")
         # Cambiar combo de estado segun informe
-        if key == "sales_period":
+        if key in ("sales_period", "all_sales_orders"):
             self.cmb_state["values"] = self.SALES_STATES
             try: self.cmb_state.current(0)
             except Exception: pass
+            if key == "all_sales_orders":
+                self.var_party_label.set("Cliente (nombre/rut):")
         elif key in ("receivables_docs", "customer_debt"):
             self.cmb_state["values"] = self.RECEIVABLE_STATES
             try: self.cmb_state.current(0)
             except Exception: pass
             if key == "customer_debt":
                 self.var_party_label.set("Cliente a consultar:")
-        elif key in ("purchase_orders", "purchase_by_supplier_product"):
+        elif key in ("purchase_orders", "purchase_by_supplier_product", "all_purchase_orders"):
             self.cmb_state["values"] = self.PURCH_STATES
             try: self.cmb_state.current(0)
             except Exception: pass
+            self.var_party_label.set("Proveedor (nombre/rut):")
         elif key in ("payables_docs", "supplier_debts"):
             self.cmb_state["values"] = self.PAYABLE_STATES
             try: self.cmb_state.current(0)
@@ -217,6 +264,29 @@ class ReportCenter(ttk.Frame):
             self.cmb_state["values"] = ["(Todos)"]
             try: self.cmb_state.current(0)
             except Exception: pass
+
+        self._clear_current_report_data()
+
+    def _clear_report_inputs(self) -> None:
+        for var in (
+            self.var_date_from,
+            self.var_date_to,
+            self.var_party,
+            self.var_product,
+            self.var_total_min,
+            self.var_total_max,
+        ):
+            try:
+                var.set("")
+            except Exception:
+                pass
+
+    def _clear_current_report_data(self) -> None:
+        self._current_cols, self._current_rows = [], []
+        try:
+            self.table.set_data([], [])
+        except Exception:
+            pass
 
     # ------------------------- Ejecución ------------------------- #
     def _run_report(self) -> None:
@@ -227,8 +297,12 @@ class ReportCenter(ttk.Frame):
                 self._run_stock_report()
             elif key in ("sales_period", "receivables_docs"):
                 self._run_sales_report(key)
+            elif key == "all_sales_orders":
+                self._run_all_sales_orders_report()
             elif key == "customer_debt":
                 self._run_customer_debt_report()
+            elif key == "all_purchase_orders":
+                self._run_all_purchase_orders_report()
             elif key in ("purchase_orders", "purchase_by_supplier_product", "payables_docs"):
                 self._run_purchases_report(key)
             elif key == "supplier_debts":
@@ -396,6 +470,100 @@ class ReportCenter(ttk.Frame):
             rows.append(["", "", "", "TOTAL ADEUDADO", "", "", "", "", _fmt_money(total_deuda), "", ""])
         self._current_cols, self._current_rows = cols, rows
 
+    def _run_all_sales_orders_report(self) -> None:
+        d_from, d_to = self._get_date_filters()
+        state = (self.cmb_state.get() or "").strip()
+        party_like = (self.var_party.get() or "").strip()
+        prod_like = (self.var_product.get() or "").strip()
+        tmin = _parse_number(self.var_total_min.get())
+        tmax = _parse_number(self.var_total_max.get())
+
+        q = self.session.query(Sale, Customer).join(Customer, Customer.id == Sale.id_cliente)
+        if d_from:
+            q = q.filter(Sale.fecha_venta >= d_from)
+        if d_to:
+            q = q.filter(Sale.fecha_venta <= d_to)
+        if state and state != "(Todos)":
+            if state == "Pagado":
+                q = q.filter(Sale.estado.in_(["Pagado", "Pagada", "Confirmada"]))
+            elif state == "Pendiente":
+                q = q.filter(~Sale.estado.in_(["Pagado", "Pagada", "Confirmada"]))
+            else:
+                q = q.filter(Sale.estado == state)
+        if party_like:
+            like = f"%{party_like}%"
+            q = q.filter((Customer.razon_social.ilike(like)) | (Customer.rut.ilike(like)))
+        if tmin is not None:
+            q = q.filter(Sale.total_venta >= tmin)
+        if tmax is not None:
+            q = q.filter(Sale.total_venta <= tmax)
+
+        sales = q.order_by(Sale.fecha_venta.desc(), Sale.id.desc()).all()
+        sale_ids = [int(s.id) for s, _c in sales]
+        product_rows: dict[int, list[tuple[SaleDetail, Product]]] = {}
+        service_rows: dict[int, list[SaleServiceDetail]] = {}
+        if sale_ids:
+            detail_q = (
+                self.session.query(SaleDetail, Product)
+                .join(Product, Product.id == SaleDetail.id_producto)
+                .filter(SaleDetail.id_venta.in_(sale_ids))
+            )
+            if prod_like:
+                likep = f"%{prod_like}%"
+                detail_q = detail_q.filter((Product.nombre.ilike(likep)) | (Product.sku.ilike(likep)))
+            for det, prod in detail_q.order_by(SaleDetail.id_venta.asc(), Product.nombre.asc()).all():
+                product_rows.setdefault(int(det.id_venta), []).append((det, prod))
+
+            service_q = self.session.query(SaleServiceDetail).filter(SaleServiceDetail.id_venta.in_(sale_ids))
+            if prod_like:
+                service_q = service_q.filter(SaleServiceDetail.descripcion.ilike(f"%{prod_like}%"))
+            for det in service_q.order_by(SaleServiceDetail.id_venta.asc(), SaleServiceDetail.descripcion.asc()).all():
+                service_rows.setdefault(int(det.id_venta), []).append(det)
+
+        cols = ["OV", "Fecha", "Cliente", "RUT", "Estado", "Doc", "Item", "SKU", "Cant.", "Precio", "Subtotal", "Total OV", "Nota"]
+        rows: List[List] = []
+        total_general = 0.0
+        for sale, customer in sales:
+            sid = int(sale.id)
+            detail_items = product_rows.get(sid, [])
+            service_items = service_rows.get(sid, [])
+            if prod_like and not detail_items and not service_items:
+                continue
+            total_general += float(sale.total_venta or 0)
+            base = [
+                f"OV-{sid}",
+                _fmt_date(sale.fecha_venta, True),
+                getattr(customer, "razon_social", "") or "-",
+                getattr(customer, "rut", "") or "",
+                "Pagado" if str(sale.estado or "").strip().lower() in ("pagado", "pagada", "confirmada") else "Pendiente",
+                getattr(sale, "numero_documento", "") or "",
+            ]
+            tail = [_fmt_money(sale.total_venta or 0), getattr(sale, "nota", "") or ""]
+            wrote_row = False
+            for det, prod in detail_items:
+                rows.append(base + [
+                    prod.nombre or "",
+                    prod.sku or "",
+                    float(det.cantidad or 0),
+                    _fmt_money(det.precio_unitario or 0),
+                    _fmt_money(det.subtotal or 0),
+                ] + tail)
+                wrote_row = True
+            for det in service_items:
+                rows.append(base + [
+                    det.descripcion or "Servicio",
+                    "SERV",
+                    float(det.cantidad or 0),
+                    _fmt_money(det.precio_unitario or 0),
+                    _fmt_money(det.subtotal or 0),
+                ] + tail)
+                wrote_row = True
+            if not wrote_row and not prod_like:
+                rows.append(base + ["Sin detalle", "", "", "", "", *tail])
+        if rows:
+            rows.append(["", "", "", "", "", "", "", "", "", "", "TOTAL", _fmt_money(total_general), ""])
+        self._current_cols, self._current_rows = cols, rows
+
     # ---------------------- Compras ---------------------- #
     def _purchase_paid_map(self, purchase_ids: list[int]) -> dict[int, float]:
         if not purchase_ids:
@@ -407,6 +575,70 @@ class ReportCenter(ttk.Frame):
             .all()
         )
         return {int(pid): float(total or 0) for pid, total in rows}
+
+    def _run_all_purchase_orders_report(self) -> None:
+        d_from, d_to = self._get_date_filters()
+        state = (self.cmb_state.get() or "").strip()
+        party_like = (self.var_party.get() or "").strip()
+        prod_like = (self.var_product.get() or "").strip()
+        tmin = _parse_number(self.var_total_min.get())
+        tmax = _parse_number(self.var_total_max.get())
+
+        q = (
+            self.session.query(Purchase, PurchaseDetail, Product, Supplier)
+            .join(PurchaseDetail, PurchaseDetail.id_compra == Purchase.id)
+            .join(Product, Product.id == PurchaseDetail.id_producto)
+            .join(Supplier, Supplier.id == Purchase.id_proveedor)
+        )
+        if d_from:
+            q = q.filter(Purchase.fecha_compra >= d_from)
+        if d_to:
+            q = q.filter(Purchase.fecha_compra <= d_to)
+        if state and state != "(Todos)":
+            q = q.filter(Purchase.estado == state)
+        if party_like:
+            like = f"%{party_like}%"
+            q = q.filter((Supplier.razon_social.ilike(like)) | (Supplier.rut.ilike(like)))
+        if prod_like:
+            likep = f"%{prod_like}%"
+            q = q.filter((Product.nombre.ilike(likep)) | (Product.sku.ilike(likep)))
+        if tmin is not None:
+            q = q.filter(Purchase.total_compra >= tmin)
+        if tmax is not None:
+            q = q.filter(Purchase.total_compra <= tmax)
+
+        cols = [
+            "OC", "Fecha", "Proveedor", "RUT", "Estado", "Doc", "Venc.",
+            "Producto", "SKU", "Cant.", "Recibida", "Precio", "Subtotal", "Total OC", "Politica stock",
+        ]
+        rows: List[List] = []
+        total_general = 0.0
+        seen_purchase_ids: set[int] = set()
+        for pur, det, prod, sup in q.order_by(Purchase.fecha_compra.desc(), Purchase.id.desc(), Product.nombre.asc()).all():
+            pid = int(pur.id)
+            if pid not in seen_purchase_ids:
+                total_general += float(pur.total_compra or 0)
+                seen_purchase_ids.add(pid)
+            rows.append([
+                f"OC-{pid}",
+                _fmt_date(pur.fecha_compra, True),
+                getattr(sup, "razon_social", "") or "-",
+                getattr(sup, "rut", "") or "",
+                pur.estado or "",
+                pur.numero_documento or "",
+                _fmt_date(pur.fecha_vencimiento),
+                prod.nombre or "",
+                prod.sku or "",
+                float(det.cantidad or 0),
+                float(getattr(det, "received_qty", 0) or 0),
+                _fmt_money(det.precio_unitario or 0),
+                _fmt_money(det.subtotal or 0),
+                _fmt_money(pur.total_compra or 0),
+                getattr(pur, "stock_policy", "") or "",
+            ])
+        if rows:
+            rows.append(["", "", "", "", "", "", "", "", "", "", "", "", "TOTAL", _fmt_money(total_general), ""])
+        self._current_cols, self._current_rows = cols, rows
 
     def _run_supplier_debts_report(self) -> None:
         d_from, d_to = self._get_date_filters()
@@ -616,6 +848,20 @@ class ReportCenter(ttk.Frame):
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo exportar:\n{e}")
 
+    def _on_export_xlsx(self) -> None:
+        try:
+            if not self._current_cols:
+                self._run_report()
+                self.table.set_data(self._current_cols, self._current_rows)
+            if not self._current_cols:
+                messagebox.showwarning("Exportar Excel", "No hay datos para exportar.")
+                return
+            path = self._export_current_xlsx()
+            webbrowser.open(str(path))
+            messagebox.showinfo("OK", f"Excel generado:\n{path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo exportar Excel:\n{e}")
+
     def _export_current_pdf(self) -> Path:
         idx = self.cmb_report.current() or 0
         key, report_name = self.REPORTS[idx]
@@ -627,6 +873,68 @@ class ReportCenter(ttk.Frame):
         if not pages:
             raise RuntimeError("No se pudo renderizar el PDF.")
         pages[0].save(str(out), "PDF", save_all=True, append_images=pages[1:], resolution=150)
+        return out
+
+    def _export_current_xlsx(self) -> Path:
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+        from openpyxl.utils import get_column_letter
+
+        idx = self.cmb_report.current() or 0
+        key, report_name = self.REPORTS[idx]
+        timestamp = dt.datetime.now()
+        out = _downloads_dir() / f"informe_{key}_{timestamp:%Y%m%d-%H%M%S}.xlsx"
+        company = _read_company_cfg()
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Informe"
+        max_col = max(1, len(self._current_cols))
+
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max_col)
+        ws.cell(1, 1, report_name).font = Font(bold=True, size=15, color="0D2F53")
+        ws.cell(1, 1).alignment = Alignment(horizontal="center")
+
+        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=max_col)
+        ws.cell(2, 1, company.get("name") or "Inventario App").font = Font(bold=True, color="40566B")
+        ws.cell(2, 1).alignment = Alignment(horizontal="center")
+
+        ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=max_col)
+        ws.cell(3, 1, f"Generado: {timestamp:%d/%m/%Y %H:%M} | {self._pdf_filters_text()}")
+        ws.cell(3, 1).alignment = Alignment(horizontal="center", wrap_text=True)
+
+        header_row = 5
+        head_fill = PatternFill("solid", fgColor="0D2F53")
+        head_font = Font(bold=True, color="FFFFFF")
+        thin = Side(style="thin", color="B8C6D5")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        for col_idx, title in enumerate(self._current_cols, start=1):
+            cell = ws.cell(header_row, col_idx, title)
+            cell.fill = head_fill
+            cell.font = head_font
+            cell.border = border
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        for row_idx, row in enumerate(self._current_rows, start=header_row + 1):
+            is_total = any(str(value).upper().startswith("TOTAL") for value in row)
+            for col_idx, value in enumerate(row, start=1):
+                cell = ws.cell(row_idx, col_idx, value)
+                cell.border = border
+                cell.alignment = Alignment(vertical="top", wrap_text=True)
+                if is_total:
+                    cell.fill = PatternFill("solid", fgColor="E9F2FB")
+                    cell.font = Font(bold=True)
+
+        ws.freeze_panes = "A6"
+        ws.auto_filter.ref = f"A{header_row}:{get_column_letter(max_col)}{max(header_row, header_row + len(self._current_rows))}"
+        for col_idx, title in enumerate(self._current_cols, start=1):
+            values = [str(title)]
+            values.extend(str(row[col_idx - 1]) for row in self._current_rows[:120] if col_idx - 1 < len(row))
+            width = min(max(len(v) for v in values) + 2, 42)
+            ws.column_dimensions[get_column_letter(col_idx)].width = max(width, 10)
+
+        wb.save(out)
         return out
 
     def _render_pdf_pages(self, company: dict[str, str], report_name: str, timestamp: dt.datetime) -> list[Image.Image]:

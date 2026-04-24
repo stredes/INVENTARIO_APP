@@ -143,6 +143,28 @@ def test_delete_purchase_reverts_stock_and_removes_records(session):
     assert dets == []
 
 
+def test_delete_partial_purchase_reverts_stock_and_removes_records(session):
+    supplier, p1, _ = seed_supplier_with_products(session)
+    pm = PurchaseManager(session)
+
+    purchase = pm.create_purchase(
+        supplier_id=supplier.id,
+        items=[PurchaseItem(product_id=p1.id, cantidad=6, precio_unitario=Decimal("20.00"))],
+        estado="Ingreso parcial",
+        apply_to_stock=True,
+    )
+    session.refresh(p1)
+    assert p1.stock_actual == 6
+
+    pm.delete_purchase(purchase.id, revert_stock=True)
+    session.refresh(p1)
+    assert p1.stock_actual == 0
+
+    assert session.get(Purchase, purchase.id) is None
+    dets = session.query(PurchaseDetail).filter(PurchaseDetail.id_compra == purchase.id).all()
+    assert dets == []
+
+
 def test_delete_purchase_cleans_receptions_and_entries(session):
     supplier, p1, _ = seed_supplier_with_products(session)
     pm = PurchaseManager(session)
