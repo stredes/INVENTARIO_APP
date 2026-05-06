@@ -5,16 +5,16 @@ from typing import List, Optional, Dict, Callable
 from decimal import Decimal
 
 from src.data.database import get_session
-from src.data.models import Product, Customer
+from src.data.models import Product, Customer, SalesQuote
 from src.data.repository import ProductRepository, CustomerRepository
-from src.core import SalesManager, SaleItem, ManualSaleItem
+from src.core import SalesManager, SaleItem, ManualSaleItem, SalesQuoteManager
 from src.utils.so_generator import generate_so_to_downloads
 from src.utils.quote_generator import generate_quote_to_downloads
-from src.utils.helpers import make_quote_number
+from src.utils.helpers import make_quote_number, make_so_number
 from src.gui.widgets.autocomplete_combobox import AutoCompleteCombobox
 from src.reports.sales_report_pdf import generate_sales_report_to_downloads
 from sqlalchemy import and_
-from src.utils.money import D, q2, fmt_2
+from src.utils.money import D, q0, fmt_0, parse_money
 from src.gui.utils.order_helpers import ensure_treeview_styling, safe_set_combobox_values
 
 class SalesView(ttk.Frame):
@@ -35,6 +35,7 @@ class SalesView(ttk.Frame):
 
         self.session = get_session()
         self.sm = SalesManager(self.session)
+        self.qm = SalesQuoteManager(self.session)
         self.repo_prod = ProductRepository(self.session)
         self.repo_cust = CustomerRepository(self.session)
 
@@ -43,6 +44,7 @@ class SalesView(ttk.Frame):
         self._edit_iid: Optional[str] = None
         self._simple_sales_hidden: list[tk.Misc] = []
         self._row_meta: dict[str, dict] = {}
+        self._loaded_quote_id: Optional[int] = None
 
         # ---------- Encabezado ----------
         top = ttk.Labelframe(self, text="Encabezado de venta", padding=10)
@@ -73,9 +75,6 @@ class SalesView(ttk.Frame):
         self.cmb_pago.bind("<<ComboboxSelected>>", lambda _e=None: self._sync_payment_state())
 
         self.var_numero_documento = tk.StringVar(value="")
-        ttk.Label(top, text="N° documento:").grid(row=1, column=0, sticky="e", padx=4, pady=4)
-        self.ent_numero_documento = ttk.Entry(top, textvariable=self.var_numero_documento, width=24)
-        self.ent_numero_documento.grid(row=1, column=1, sticky="w", padx=4, pady=4)
         self._sync_stock_flow()
 
         # ---------- Modo Cajero de ventas (POS) ----------
@@ -242,7 +241,7 @@ class SalesView(ttk.Frame):
 
         bottom = ttk.Frame(self)
         bottom.pack(fill="x", expand=False, pady=10)
-        self.lbl_total = ttk.Label(bottom, text="Total: 0.00", font=("", 11, "bold"))
+        self.lbl_total = ttk.Label(bottom, text="Total: $0", font=("", 11, "bold"))
         self.lbl_total.pack(side="left")
 
         self.btn_delete_item = ttk.Button(bottom, text="Eliminar ítem", style="Danger.TButton", command=self._on_delete_item)
@@ -256,8 +255,10 @@ class SalesView(ttk.Frame):
         self._btn_confirm = ttk.Button(bottom, text="Guardar venta", style="Success.TButton", command=self._on_confirm_sale)
         self._btn_confirm.pack(side="right", padx=6)
 
+        self._init_quotes_history()
         self.refresh_lookups()
         self._apply_simple_sales_layout(det)
+        self._load_quotes_history()
 
     def _apply_simple_sales_layout(self, det: ttk.Labelframe) -> None:
         """Oculta campos secundarios para un flujo corto de ventas."""
@@ -287,6 +288,80 @@ class SalesView(ttk.Frame):
         except Exception:
             pass
 
+    def _init_quotes_history(self) -> None:
+        frame = ttk.Labelframe(self, text="Historial de cotizaciones", padding=8)
+        frame.pack(fill="both", expand=False, pady=(0, 10))
+        self.quote_history_frame = frame
+
+        top = ttk.Frame(frame)
+        top.pack(fill="x", pady=(0, 6))
+        self.var_quote_context = tk.StringVar(value="Nueva cotizacion")
+        ttk.Label(top, textvariable=self.var_quote_context).pack(side="left")
+        ttk.Button(top, text="Nueva", command=self._on_new_quote).pack(side="right", padx=4)
+        ttk.Button(top, text="Eliminar", style="Danger.TButton", command=self._on_delete_quote).pack(side="right", padx=4)
+        ttk.Button(top, text="Reimprimir PDF", command=self._on_reprint_quote).pack(side="right", padx=4)
+        ttk.Button(top, text="Guardar cambios", command=self._on_save_quote_only).pack(side="right", padx=4)
+        ttk.Button(top, text="Cargar / editar", command=self._on_load_selected_quote).pack(side="right", padx=4)
+        ttk.Button(top, text="Actualizar historial", command=self._load_quotes_history).pack(side="right", padx=4)
+
+        cols = ("id", "numero", "fecha", "cliente", "total")
+        self.tree_quotes = ttk.Treeview(frame, columns=cols, show="headings", height=5)
+        for cid, text, width, anchor in [
+            ("id", "ID", 55, "center"),
+            ("numero", "N°", 90, "center"),
+            ("fecha", "Fecha", 130, "center"),
+            ("cliente", "Cliente", 300, "w"),
+            ("total", "Total", 110, "e"),
+        ]:
+            self.tree_quotes.heading(cid, text=text)
+            self.tree_quotes.column(cid, width=width, anchor=anchor)
+        vsb = ttk.Scrollbar(frame, orient="vertical", command=self.tree_quotes.yview)
+        self.tree_quotes.configure(yscrollcommand=vsb.set)
+        self.tree_quotes.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="left", fill="y")
+        self.tree_quotes.bind("<Double-1>", lambda _e: self._on_load_selected_quote())
+
+    def _set_quote_context(self, quote: Optional[SalesQuote] = None) -> None:
+        if quote is None:
+            self._loaded_quote_id = None
+            try:
+                self.var_quote_context.set("Nueva cotizacion")
+            except Exception:
+                pass
+            return
+        self._loaded_quote_id = int(quote.id)
+        try:
+            self.var_quote_context.set(f"Editando cotizacion {quote.numero}")
+        except Exception:
+            pass
+
+    def _load_quotes_history(self) -> None:
+        if not hasattr(self, "tree_quotes"):
+            return
+        for iid in self.tree_quotes.get_children():
+            self.tree_quotes.delete(iid)
+        for quote in self.qm.list_quotes():
+            cust = getattr(quote, "customer", None)
+            cliente = getattr(cust, "razon_social", "") or getattr(cust, "rut", "") or f"Cliente {quote.id_cliente}"
+            fecha = quote.fecha.strftime("%Y-%m-%d %H:%M") if getattr(quote, "fecha", None) else ""
+            self.tree_quotes.insert(
+                "",
+                "end",
+                values=(quote.id, quote.numero, fecha, cliente, self._fmt_clp(quote.total)),
+            )
+
+    def _selected_quote_id(self) -> Optional[int]:
+        if not hasattr(self, "tree_quotes"):
+            return None
+        sel = self.tree_quotes.selection()
+        if not sel:
+            return None
+        vals = self.tree_quotes.item(sel[0], "values")
+        try:
+            return int(vals[0])
+        except Exception:
+            return None
+
     def _sync_stock_flow(self) -> None:
         estado = (self.cmb_estado.get() or "Pagado").strip()
         apply = estado in self._STOCK_STATES
@@ -310,11 +385,16 @@ class SalesView(ttk.Frame):
     def _fmt_clp(value) -> str:
         """CLP con miles y sin decimales (p.ej., $1.234.567)."""
         try:
-            n = float(value or 0)
-            s = f"${n:,.0f}"
-            return s.replace(",", ".")
+            return f"${fmt_0(parse_money(value), thousands=True)}"
         except Exception:
             return "$ 0"
+
+    @staticmethod
+    def _fmt_clp_plain(value) -> str:
+        try:
+            return fmt_0(parse_money(value), thousands=True)
+        except Exception:
+            return "0"
 
     def _row_kind(self, iid: str) -> str:
         meta = self._row_meta.get(iid) or {}
@@ -518,7 +598,7 @@ class SalesView(ttk.Frame):
         # ---------- Total + Acciones ----------
         bottom = ttk.Frame(self)
         bottom.pack(fill="x", expand=False, pady=10)
-        self.lbl_total = ttk.Label(bottom, text="Total: 0.00", font=("", 11, "bold"))
+        self.lbl_total = ttk.Label(bottom, text="Total: $0", font=("", 11, "bold"))
         self.lbl_total.pack(side="left")
 
         # Estado ya está en el encabezado; no lo repetimos en el footer
@@ -598,18 +678,18 @@ class SalesView(ttk.Frame):
                 except Exception:
                     qty = 1
                 try:
-                    unit_price = D(vals[3])
+                    unit_price = parse_money(vals[3])
                 except Exception:
                     unit_price = price
                 disc_pct = 0.0
-                subtotal = fmt_2(q2(D(qty) * q2(unit_price)))
-                self.tree.item(iid_found, values=(p.id, p.nombre, qty, fmt_2(unit_price), f"{disc_pct:.1f}", subtotal))
+                subtotal = q0(D(qty) * q0(unit_price))
+                self.tree.item(iid_found, values=(p.id, p.nombre, qty, self._fmt_clp_plain(unit_price), f"{disc_pct:.1f}", self._fmt_clp_plain(subtotal)))
                 self._row_meta[iid_found] = {"kind": "product"}
             else:
                 qty = 1
                 disc_pct = 0.0
-                subtotal = fmt_2(q2(D(qty) * q2(price)))
-                iid = self.tree.insert("", "end", values=(p.id, p.nombre, qty, fmt_2(price), f"{disc_pct:.1f}", subtotal))
+                subtotal = q0(D(qty) * q0(price))
+                iid = self.tree.insert("", "end", values=(p.id, p.nombre, qty, self._fmt_clp_plain(price), f"{disc_pct:.1f}", self._fmt_clp_plain(subtotal)))
                 self._row_meta[iid] = {"kind": "product"}
 
             self._update_total()
@@ -661,13 +741,14 @@ class SalesView(ttk.Frame):
             estado = "Pagado"
             apply_to_stock = True
             create_fn = self._resolve_create_sale()
+            numero_documento = self._ensure_sale_document_number()
             sale = create_fn(
                 customer_id=cust.id,
                 items=sm_items,
                 service_items=service_items,
                 estado=estado,
                 apply_to_stock=apply_to_stock,
-                numero_documento=(self.var_numero_documento.get() or "").strip() or None,
+                numero_documento=numero_documento,
             )
 
             # 4) Generar Boleta POS (ticket 80mm) en Descargas
@@ -693,7 +774,7 @@ class SalesView(ttk.Frame):
                     })
 
                 sale_dt = getattr(sale, "fecha_venta", None) or datetime.now()
-                folio = f"VENTA-{getattr(sale, 'id', '')}"
+                folio = numero_documento
                 # Estructura de cliente compacta para el ticket
                 cust_min = {
                     "id": getattr(cust, "id", None),
@@ -716,10 +797,10 @@ class SalesView(ttk.Frame):
                     iva_percent=19.0,
                     auto_open=True,
                 )
-                self._info(f"Venta registrada y boleta generada:\n{out}")
+                self._info(f"Venta {numero_documento} registrada y boleta generada:\n{out}")
             except Exception:
                 # Si el PDF falla, al menos informar venta creada
-                self._info("Venta registrada (Pagado). No se pudo generar la boleta.")
+                self._info(f"Venta {numero_documento} registrada (Pagado). No se pudo generar la boleta.")
 
             # 5) Limpiar UI
             self._on_clear_table()
@@ -837,7 +918,7 @@ class SalesView(ttk.Frame):
             pv = D(getattr(p, "precio_venta", 0) or 0)
             if pv > 0:
                 self.ent_price.delete(0, "end")
-                self.ent_price.insert(0, fmt_2(pv))
+                self.ent_price.insert(0, self._fmt_clp_plain(pv))
         except Exception:
             pass
 
@@ -851,20 +932,20 @@ class SalesView(ttk.Frame):
 
     def _recalc_service_total(self):
         try:
-            net = q2(D(self.var_service_net.get() or 0))
+            net = q0(parse_money(self.var_service_net.get() or 0))
         except Exception:
             net = D(0)
         try:
             qty = max(0, int(float(self.var_service_qty.get() or 0)))
         except Exception:
             qty = 0
-        iva = q2(net * D("0.19"))
-        total = q2(net + iva)
-        subtotal = q2(D(qty) * total)
+        iva = q0(net * D("0.19"))
+        total = q0(net + iva)
+        subtotal = q0(D(qty) * total)
         try:
-            self.var_service_vat.set(fmt_2(iva))
-            self.var_service_price.set(fmt_2(total))
-            self.var_service_subtotal.set(fmt_2(subtotal))
+            self.var_service_vat.set(self._fmt_clp_plain(iva))
+            self.var_service_price.set(self._fmt_clp_plain(total))
+            self.var_service_subtotal.set(self._fmt_clp_plain(subtotal))
         except Exception:
             pass
 
@@ -905,7 +986,7 @@ class SalesView(ttk.Frame):
 
             # Precio: si no se indicó, usar precio_venta del producto
             try:
-                price = D(self.ent_price.get())
+                price = parse_money(self.ent_price.get())
             except Exception:
                 price = D(0)
             if price <= 0:
@@ -923,12 +1004,12 @@ class SalesView(ttk.Frame):
             disc = 0.0  # porcentaje equivalente para la columna
             eff_price = D(price)
             if desc_tipo == 'Monto':
-                eff_price = q2(D(price) - D(desc_val))
+                eff_price = q0(D(price) - D(desc_val))
                 if D(price) > 0:
                     disc = max(0.0, float((D(desc_val) / D(price)) * 100))
             else:
                 disc = max(0.0, min(100.0, float(desc_val)))
-                eff_price = q2(D(price) * D(1 - disc/100))
+                eff_price = q0(D(price) * D(1 - disc/100))
             if eff_price <= 0:
                 self._warn("El descuento deja el precio en 0 o negativo.")
                 return
@@ -939,15 +1020,15 @@ class SalesView(ttk.Frame):
                     if str(p.id) == str(self.tree.item(iid, "values")[0]):
                         self._warn("Este producto ya esta en la tabla.")
                         return
-            subtotal = q2(D(qty) * eff_price)
+            subtotal = q0(D(qty) * eff_price)
             if getattr(self, "_edit_iid", None):
                 iid = self._edit_iid
-                self.tree.item(iid, values=(p.id, p.nombre, qty, fmt_2(price), f"{disc:.1f}", fmt_2(subtotal)))
+                self.tree.item(iid, values=(p.id, p.nombre, qty, self._fmt_clp_plain(price), f"{disc:.1f}", self._fmt_clp_plain(subtotal)))
                 self._row_meta[iid] = {"kind": "product"}
                 self._exit_edit_mode()
             else:
                 iid = self.tree.insert("", "end",
-                                       values=(p.id, p.nombre, qty, fmt_2(price), f"{disc:.1f}", fmt_2(subtotal)))
+                                       values=(p.id, p.nombre, qty, self._fmt_clp_plain(price), f"{disc:.1f}", self._fmt_clp_plain(subtotal)))
                 self._row_meta[iid] = {"kind": "product"}
             self._update_total()
 
@@ -985,33 +1066,33 @@ class SalesView(ttk.Frame):
                 self._warn("La cantidad del servicio debe ser > 0.")
                 return
             try:
-                net = q2(D(self.var_service_net.get() or 0))
+                net = q0(parse_money(self.var_service_net.get() or 0))
             except Exception:
                 self._warn("Monto neto invalido para el servicio.")
                 return
             if net <= 0:
                 self._warn("Ingrese un monto neto valido (> 0) para el servicio.")
                 return
-            iva = q2(net * D("0.19"))
-            price = q2(net + iva)
+            iva = q0(net * D("0.19"))
+            price = q0(net + iva)
 
-            subtotal = q2(D(qty) * price)
+            subtotal = q0(D(qty) * price)
             edit_iid = getattr(self, "_edit_iid", None)
             if edit_iid:
                 if self._row_kind(edit_iid) != "service":
                     self._warn("La fila en edicion corresponde a un producto.")
                     return
                 iid = edit_iid
-                self.tree.item(iid, values=("SVC", desc, qty, fmt_2(price), "0.0", fmt_2(subtotal)))
+                self.tree.item(iid, values=("SVC", desc, qty, self._fmt_clp_plain(price), "0.0", self._fmt_clp_plain(subtotal)))
             else:
-                iid = self.tree.insert("", "end", values=("SVC", desc, qty, fmt_2(price), "0.0", fmt_2(subtotal)))
+                iid = self.tree.insert("", "end", values=("SVC", desc, qty, self._fmt_clp_plain(price), "0.0", self._fmt_clp_plain(subtotal)))
             self._row_meta[iid] = {
                 "kind": "service",
                 "description": desc,
                 "afecto_iva": True,
-                "net_unit": fmt_2(net),
-                "vat_unit": fmt_2(iva),
-                "gross_unit": fmt_2(price),
+                "net_unit": self._fmt_clp_plain(net),
+                "vat_unit": self._fmt_clp_plain(iva),
+                "gross_unit": self._fmt_clp_plain(price),
             }
             self._update_total()
             self.var_service_desc.set("")
@@ -1035,6 +1116,7 @@ class SalesView(ttk.Frame):
             self.tree.delete(iid)
         self._row_meta.clear()
         self._clear_editor_state()
+        self._set_quote_context(None)
         try:
             self.var_numero_documento.set("")
         except Exception:
@@ -1045,10 +1127,10 @@ class SalesView(ttk.Frame):
         total = D(0)
         for iid in self.tree.get_children():
             try:
-                total += D(self.tree.item(iid, "values")[5])
+                total += parse_money(self.tree.item(iid, "values")[5])
             except Exception:
                 pass
-        self.lbl_total.config(text=f"Total: {fmt_2(total)}")
+        self.lbl_total.config(text=f"Total: {self._fmt_clp(total)}")
 
     # ---- Edición inline por doble click ----
     def _enter_edit_mode(self):
@@ -1085,13 +1167,13 @@ class SalesView(ttk.Frame):
                 self.var_service_desc.set(str(self._row_meta.get(iid, {}).get("description") or name))
                 self.var_service_qty.set(str(qty_s))
                 meta = self._row_meta.get(iid, {}) or {}
-                gross = q2(D(price_s or 0))
-                net = q2(D(meta.get("net_unit") or (gross / D("1.19") if gross else 0)))
-                iva = q2(D(meta.get("vat_unit") or (gross - net)))
-                self.var_service_net.set(fmt_2(net))
-                self.var_service_vat.set(fmt_2(iva))
-                self.var_service_price.set(fmt_2(gross))
-                self.var_service_subtotal.set(fmt_2(D(qty_s or 0) * gross))
+                gross = q0(parse_money(price_s or 0))
+                net = q0(parse_money(meta.get("net_unit") or (gross / D("1.19") if gross else 0)))
+                iva = q0(parse_money(meta.get("vat_unit") or (gross - net)))
+                self.var_service_net.set(self._fmt_clp_plain(net))
+                self.var_service_vat.set(self._fmt_clp_plain(iva))
+                self.var_service_price.set(self._fmt_clp_plain(gross))
+                self.var_service_subtotal.set(self._fmt_clp_plain(D(qty_s or 0) * gross))
                 self._edit_iid = iid
                 self._enter_edit_mode()
                 return
@@ -1123,9 +1205,9 @@ class SalesView(ttk.Frame):
     # ---- Calcular Precio Neto (sin IVA) desde Precio Venta ----
     def _recalc_net(self):
         try:
-            price = float(self.ent_price.get() or 0)
+            price = float(parse_money(self.ent_price.get() or 0))
             neto = price / 1.19 if price else 0.0
-            self.var_monto_neto.set(float(q2(D(neto))))
+            self.var_monto_neto.set(float(q0(D(neto))))
         except Exception:
             pass
 
@@ -1155,11 +1237,11 @@ class SalesView(ttk.Frame):
                 except Exception:
                     qty_i = 0
                 try:
-                    sub_val = D(sub)
+                    sub_val = q0(parse_money(sub))
                 except Exception:
                     sub_val = D(0)
                 try:
-                    price_val = q2(D(price))
+                    price_val = q0(parse_money(price))
                 except Exception:
                     price_val = D(0)
                 items.append({
@@ -1189,16 +1271,16 @@ class SalesView(ttk.Frame):
             except Exception:
                 qty_i = 0
             try:
-                sub_val = D(sub)
+                sub_val = q0(parse_money(sub))
             except Exception:
                 sub_val = D(0)
             try:
-                price_val = q2(D(price))
+                price_val = q0(parse_money(price))
             except Exception:
                 price_val = D(0)
             # Precio efectivo: usa el subtotal ya calculado en la UI
             if qty_i > 0 and sub_val > 0:
-                price_eff = q2(sub_val / D(qty_i))
+                price_eff = q0(sub_val / D(qty_i))
             else:
                 price_eff = price_val
             items.append({
@@ -1216,6 +1298,219 @@ class SalesView(ttk.Frame):
             })
         return items
 
+    def _quote_items_for_pdf(self, quote: SalesQuote) -> List[dict]:
+        rows: List[dict] = []
+        for det in quote.details:
+            rows.append({
+                "kind": det.kind,
+                "id": det.id_producto,
+                "nombre": det.descripcion,
+                "cantidad": det.cantidad,
+                "precio": det.precio_unitario,
+                "precio_eff": det.precio_unitario,
+                "descuento_porcentaje": float(det.descuento_porcentaje or 0),
+                "subtotal": det.subtotal,
+                "codigo": det.codigo or "",
+                "unidad": det.unidad or "U",
+                "afecto_iva": bool(det.afecto_iva),
+            })
+        return rows
+
+    def _customer_dict_from_quote(self, quote: SalesQuote) -> Dict[str, Optional[str]]:
+        cust = self.session.get(Customer, quote.id_cliente)
+        if not cust:
+            raise RuntimeError("El cliente de la cotizacion ya no existe")
+        data = {
+            "id": cust.id,
+            "nombre": getattr(cust, "razon_social", "") or "",
+            "razon_social": getattr(cust, "razon_social", "") or "",
+            "rut": getattr(cust, "rut", None),
+            "contacto": cust.contacto,
+            "telefono": cust.telefono,
+            "email": cust.email,
+            "direccion": cust.direccion,
+            "pago": quote.forma_pago or "",
+        }
+        return data
+
+    def _save_current_quote(self, *, generate_pdf: bool) -> Optional[SalesQuote]:
+        items = self._collect_items()
+        if not items:
+            self._warn("Agregue al menos un item.")
+            return None
+        cust = self._get_selected_customer()
+        if not cust:
+            self._warn("Seleccione un cliente.")
+            return None
+        try:
+            notes = (self.txt_obs.get("1.0", "end").strip() or None)
+        except Exception:
+            notes = None
+        payment = None
+        try:
+            payment = self.cmb_pago.get() or None
+        except Exception:
+            pass
+
+        if self._loaded_quote_id:
+            quote = self.qm.update_quote(
+                self._loaded_quote_id,
+                customer_id=cust.id,
+                items=items,
+                notes=notes,
+                payment=payment,
+                currency="CLP",
+                price_includes_iva=True,
+            )
+        else:
+            quote = self.qm.create_quote(
+                customer_id=cust.id,
+                quote_number=make_quote_number(width=4),
+                items=items,
+                notes=notes,
+                payment=payment,
+                currency="CLP",
+                price_includes_iva=True,
+            )
+
+        if generate_pdf:
+            customer = self._get_selected_customer_dict()
+            customer.setdefault("nombre", customer.get("razon_social") or "")
+            customer["pago"] = payment or ""
+            generate_quote_to_downloads(
+                quote_number=quote.numero,
+                supplier=customer,
+                items=items,
+                currency=quote.moneda or "CLP",
+                notes=notes,
+                price_includes_iva=bool(quote.price_includes_iva),
+                auto_open=True,
+            )
+
+        self._set_quote_context(quote)
+        self._load_quotes_history()
+        return quote
+
+    def _on_new_quote(self) -> None:
+        self._on_clear_table()
+        try:
+            self.txt_obs.delete("1.0", "end")
+        except Exception:
+            pass
+
+    def _on_save_quote_only(self) -> None:
+        try:
+            quote = self._save_current_quote(generate_pdf=False)
+            if quote:
+                self._info(f"Cotizacion {quote.numero} guardada.")
+        except Exception as e:
+            self._error(f"No se pudo guardar la cotizacion:\n{e}")
+
+    def _select_customer_by_id(self, customer_id: int) -> None:
+        for idx, cust in enumerate(self.customers):
+            if int(getattr(cust, "id", 0) or 0) == int(customer_id):
+                self.cmb_customer.current(idx)
+                return
+
+    def _load_quote_into_form(self, quote: SalesQuote) -> None:
+        for iid in self.tree.get_children():
+            self.tree.delete(iid)
+        self._row_meta.clear()
+        self._clear_editor_state()
+        self._select_customer_by_id(quote.id_cliente)
+        try:
+            if quote.forma_pago:
+                self.cmb_pago.set(quote.forma_pago)
+                self._sync_payment_state()
+        except Exception:
+            pass
+        try:
+            self.txt_obs.delete("1.0", "end")
+            if quote.notas:
+                self.txt_obs.insert("1.0", quote.notas)
+        except Exception:
+            pass
+        for det in quote.details:
+            if det.kind == "service":
+                iid = self.tree.insert(
+                    "",
+                    "end",
+                values=("SVC", det.descripcion, det.cantidad, self._fmt_clp_plain(det.precio_unitario), "0.0", self._fmt_clp_plain(det.subtotal)),
+                )
+                self._row_meta[iid] = {
+                    "kind": "service",
+                    "description": det.descripcion,
+                    "afecto_iva": bool(det.afecto_iva),
+                }
+            else:
+                iid = self.tree.insert(
+                    "",
+                    "end",
+                    values=(
+                        det.id_producto or "",
+                        det.descripcion,
+                        det.cantidad,
+                        self._fmt_clp_plain(det.precio_unitario),
+                        f"{float(det.descuento_porcentaje or 0):.1f}",
+                        self._fmt_clp_plain(det.subtotal),
+                    ),
+                )
+                self._row_meta[iid] = {"kind": "product"}
+        self._set_quote_context(quote)
+        self._update_total()
+
+    def _on_load_selected_quote(self) -> None:
+        qid = self._selected_quote_id()
+        if qid is None:
+            self._warn("Seleccione una cotizacion del historial.")
+            return
+        quote = self.session.get(SalesQuote, qid)
+        if not quote:
+            self._warn("La cotizacion seleccionada ya no existe.")
+            self._load_quotes_history()
+            return
+        self._load_quote_into_form(quote)
+
+    def _on_reprint_quote(self) -> None:
+        qid = self._selected_quote_id() or self._loaded_quote_id
+        if qid is None:
+            self._warn("Seleccione una cotizacion.")
+            return
+        quote = self.session.get(SalesQuote, qid)
+        if not quote:
+            self._warn("La cotizacion seleccionada ya no existe.")
+            self._load_quotes_history()
+            return
+        try:
+            out = generate_quote_to_downloads(
+                quote_number=quote.numero,
+                supplier=self._customer_dict_from_quote(quote),
+                items=self._quote_items_for_pdf(quote),
+                currency=quote.moneda or "CLP",
+                notes=quote.notas,
+                price_includes_iva=bool(quote.price_includes_iva),
+                auto_open=True,
+            )
+            self._info(f"Cotizacion reimpresa en Descargas:\n{out}")
+        except Exception as e:
+            self._error(f"No se pudo reimprimir la cotizacion:\n{e}")
+
+    def _on_delete_quote(self) -> None:
+        qid = self._selected_quote_id() or self._loaded_quote_id
+        if qid is None:
+            self._warn("Seleccione una cotizacion.")
+            return
+        if not messagebox.askyesno("Confirmar", f"¿Eliminar cotizacion {qid}?"):
+            return
+        try:
+            self.qm.delete_quote(qid)
+            if self._loaded_quote_id == qid:
+                self._set_quote_context(None)
+            self._load_quotes_history()
+            self._info(f"Cotizacion {qid} eliminada.")
+        except Exception as e:
+            self._error(f"No se pudo eliminar la cotizacion:\n{e}")
+
     def _get_selected_customer_dict(self) -> Dict[str, Optional[str]]:
         c = self._get_selected_customer()
         if not c:
@@ -1229,6 +1524,17 @@ class SalesView(ttk.Frame):
             "email": c.email,
             "direccion": c.direccion,
         }
+
+    def _ensure_sale_document_number(self) -> str:
+        current = (self.var_numero_documento.get() or "").strip()
+        if current:
+            return current
+        try:
+            current = make_so_number(width=5)
+        except Exception:
+            current = self._stamp()
+        self.var_numero_documento.set(current)
+        return current
 
     # -------------------- Acciones Venta --------------------
     def _resolve_create_sale(self) -> Callable:
@@ -1278,20 +1584,21 @@ class SalesView(ttk.Frame):
             apply_to_stock = estado in self._STOCK_STATES
 
             create_fn = self._resolve_create_sale()
+            numero_documento = self._ensure_sale_document_number()
             create_fn(
                 customer_id=cust.id,
                 items=sm_items,
                 service_items=service_items,
                 estado=estado,
                 apply_to_stock=apply_to_stock,
-                numero_documento=(self.var_numero_documento.get() or "").strip() or None,
+                numero_documento=numero_documento,
             )
 
             self._on_clear_table()
             if apply_to_stock:
-                self._info(f"Venta registrada ({estado}) y stock descontado instantáneamente.")
+                self._info(f"Venta {numero_documento} registrada ({estado}) y stock descontado instantáneamente.")
             else:
-                self._info(f"Venta registrada ({estado}) sin afectar inventario.")
+                self._info(f"Venta {numero_documento} registrada ({estado}) sin afectar inventario.")
         except Exception as e:
             self._error(f"No se pudo confirmar la venta:\n{e}")
 
@@ -1306,12 +1613,7 @@ class SalesView(ttk.Frame):
                 cust["pago"] = self.cmb_pago.get()
             except Exception:
                 pass
-            # Número de OV seriado (00001, 00002, ...)
-            try:
-                from src.utils.helpers import make_so_number
-                so_number = make_so_number(width=5)
-            except Exception:
-                so_number = f"OV-{cust['id']}-{self._stamp()}"
+            so_number = self._ensure_sale_document_number()
             # Toma observación de la caja de texto si existe
             try:
                 notes = (self.txt_obs.get("1.0", "end").strip() or None)
@@ -1333,32 +1635,9 @@ class SalesView(ttk.Frame):
 
     def _on_generate_sales_quote(self):
         try:
-            items = self._collect_items()
-            if not items:
-                self._warn("Agregue al menos un ítem.")
-                return
-            cust = self._get_selected_customer_dict()
-            cust.setdefault("nombre", cust.get("razon_social") or "")
-            try:
-                cust["pago"] = self.cmb_pago.get()
-            except Exception:
-                pass
-            # Número de cotización seriado (0001, 0002, ...)
-            quote_number = make_quote_number(width=4)
-            try:
-                notes = (self.txt_obs.get("1.0", "end").strip() or None)
-            except Exception:
-                notes = None
-            out = generate_quote_to_downloads(
-                quote_number=quote_number,
-                supplier=cust,
-                items=items,
-                currency="CLP",
-                notes=notes,
-                price_includes_iva=True,
-                auto_open=True,
-            )
-            self._info(f"Cotización de venta creada en Descargas:\n{out}")
+            quote = self._save_current_quote(generate_pdf=True)
+            if quote:
+                self._info(f"Cotizacion {quote.numero} guardada y creada en Descargas.")
         except Exception as e:
             self._error(f"No se pudo generar la cotización:\n{e}")
 

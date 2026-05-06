@@ -4,9 +4,9 @@ from decimal import Decimal
 
 import pytest
 
-from src.core import SalesManager, SaleItem, SalesError
+from src.core import SalesManager, SaleItem, SalesError, SalesQuoteManager
 from src.core.inventory_manager import InventoryError
-from src.data.models import Customer, Product, Supplier, Sale, SaleDetail
+from src.data.models import Customer, Product, Supplier, Sale, SaleDetail, SalesQuote
 from src.utils.money import q2, money_sum
 
 
@@ -163,9 +163,64 @@ def test_update_sale_total(session):
     sm.update_sale_total(sale.id, Decimal("12345.67"))
     session.refresh(sale)
     detail = session.query(SaleDetail).filter(SaleDetail.id_venta == sale.id).one()
-    assert q2(sale.total_venta) == Decimal("12345.67")
-    assert q2(detail.subtotal) == Decimal("12345.67")
-    assert q2(detail.precio_unitario) == Decimal("6172.84")
+    assert q2(sale.total_venta) == Decimal("12346.00")
+    assert q2(detail.subtotal) == Decimal("12346.00")
+    assert q2(detail.precio_unitario) == Decimal("6173.00")
+
+
+def test_sales_quote_crud_keeps_history_without_stock_move(session):
+    customer, p1, _ = seed_customer_with_products(session)
+    qm = SalesQuoteManager(session)
+
+    quote = qm.create_quote(
+        customer_id=customer.id,
+        quote_number="0001",
+        items=[
+            {
+                "kind": "product",
+                "id": p1.id,
+                "nombre": p1.nombre,
+                "cantidad": 2,
+                "precio": Decimal("50.00"),
+                "precio_eff": Decimal("50.00"),
+                "subtotal": Decimal("100.00"),
+                "codigo": p1.sku,
+            }
+        ],
+        notes="Primera version",
+        payment="Pendiente",
+    )
+    session.refresh(p1)
+    assert p1.stock_actual == 10
+    assert quote.id is not None
+    assert q2(quote.total) == Decimal("100.00")
+    assert len(quote.details) == 1
+
+    qm.update_quote(
+        quote.id,
+        customer_id=customer.id,
+        items=[
+            {
+                "kind": "product",
+                "id": p1.id,
+                "nombre": p1.nombre,
+                "cantidad": 3,
+                "precio": Decimal("60.00"),
+                "precio_eff": Decimal("60.00"),
+                "subtotal": Decimal("180.00"),
+            }
+        ],
+        notes="Version editada",
+        payment="Pagado",
+    )
+    session.refresh(quote)
+    assert q2(quote.total) == Decimal("180.00")
+    assert quote.notas == "Version editada"
+    assert quote.details[0].cantidad == 3
+    assert session.get(SalesQuote, quote.id) is not None
+
+    qm.delete_quote(quote.id)
+    assert session.get(SalesQuote, quote.id) is None
 
 
 def test_sale_insufficient_stock_raises(session):

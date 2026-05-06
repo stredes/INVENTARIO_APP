@@ -42,6 +42,31 @@ def q0(value: NumberLike) -> Decimal:
     return D(value).quantize(Decimal("1"))
 
 
+def parse_money(value: NumberLike) -> Decimal:
+    """
+    Parse common money input formats into Decimal.
+
+    Accepts plain numbers and Chilean-style values such as
+    "1.325.365,90", "$1.325.365" or "CLP 1325365.90".
+    """
+    if isinstance(value, (int, float, Decimal)):
+        return D(value)
+    raw = str(value or "").replace("$", "").replace("CLP", "").strip()
+    raw = raw.replace(" ", "")
+    if not raw:
+        return D(0)
+    if "," in raw and "." in raw:
+        if raw.rfind(",") > raw.rfind("."):
+            raw = raw.replace(".", "").replace(",", ".")
+        else:
+            raw = raw.replace(",", "")
+    elif "," in raw:
+        raw = raw.replace(",", ".")
+    elif raw.count(".") > 1:
+        raw = raw.replace(".", "")
+    return D(raw)
+
+
 def money_sum(values: Iterable[NumberLike]) -> Decimal:
     total = Decimal(0)
     for v in values:
@@ -58,6 +83,14 @@ def mul(a: NumberLike, b: NumberLike, *, quantize_2: bool = True) -> Decimal:
 def fmt_2(value: NumberLike) -> str:
     """Format with 2 decimals as string."""
     return f"{q2(value):.2f}"
+
+
+def fmt_0(value: NumberLike, *, thousands: bool = False) -> str:
+    """Format rounded integer pesos."""
+    amount = q0(value)
+    if thousands:
+        return f"{amount:,.0f}".replace(",", ".")
+    return f"{amount:.0f}"
 
 
 def vat_breakdown(items: List[Dict[str, Any]], *, currency: str = "CLP", iva_rate: NumberLike = "0.19") -> tuple[Decimal, Decimal, Decimal]:

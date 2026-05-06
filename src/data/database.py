@@ -502,6 +502,58 @@ def _ensure_schema(engine: Engine) -> None:
         except Exception:
             pass
 
+        if not _table_exists(engine, "sales_quotes"):
+            with engine.begin() as conn:
+                conn.exec_driver_sql(
+                    """
+                    CREATE TABLE IF NOT EXISTS sales_quotes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        numero TEXT NOT NULL UNIQUE,
+                        id_cliente INTEGER NOT NULL REFERENCES customers(id),
+                        fecha DATETIME NOT NULL,
+                        total NUMERIC NOT NULL,
+                        estado TEXT NOT NULL DEFAULT 'Abierta',
+                        forma_pago TEXT,
+                        moneda TEXT NOT NULL DEFAULT 'CLP',
+                        notas TEXT,
+                        price_includes_iva INTEGER NOT NULL DEFAULT 1
+                    );
+                    """
+                )
+        if not _table_exists(engine, "sales_quote_details"):
+            with engine.begin() as conn:
+                conn.exec_driver_sql(
+                    """
+                    CREATE TABLE IF NOT EXISTS sales_quote_details (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id_cotizacion INTEGER NOT NULL REFERENCES sales_quotes(id) ON DELETE CASCADE,
+                        kind TEXT NOT NULL DEFAULT 'product',
+                        id_producto INTEGER REFERENCES products(id),
+                        descripcion TEXT NOT NULL,
+                        codigo TEXT,
+                        unidad TEXT,
+                        cantidad INTEGER NOT NULL,
+                        precio_unitario NUMERIC NOT NULL,
+                        descuento_porcentaje NUMERIC NOT NULL DEFAULT 0,
+                        subtotal NUMERIC NOT NULL,
+                        afecto_iva INTEGER NOT NULL DEFAULT 1
+                    );
+                    """
+                )
+        try:
+            _create_index_if_missing(
+                engine,
+                index_sql='CREATE INDEX IF NOT EXISTS idx_sales_quotes_cliente ON sales_quotes(id_cliente);',
+                index_name='idx_sales_quotes_cliente',
+            )
+            _create_index_if_missing(
+                engine,
+                index_sql='CREATE INDEX IF NOT EXISTS idx_sales_quote_details_quote ON sales_quote_details(id_cotizacion);',
+                index_name='idx_sales_quote_details_quote',
+            )
+        except Exception:
+            pass
+
     except Exception:
         # Evitar que un fallo de migración bloquee el arranque;
         # si necesitas depurar, eleva la excepción.

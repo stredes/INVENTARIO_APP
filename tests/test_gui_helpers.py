@@ -23,6 +23,7 @@ from src.gui.widgets.column_filter import (
 from src.gui.printer_select_dialog import _list_printers
 from src.data.database import get_engine
 from src.data.models import Supplier, Product
+from src.utils.money import fmt_0, parse_money, q0
 
 
 # ---------------------- Unit tests: pure helpers ---------------------- #
@@ -37,6 +38,12 @@ def test_calcular_precios_rounds_expected_values():
     assert monto_iva == 235
     assert precio_mas_iva == 1469
     assert precio_venta == 1983
+
+
+def test_clp_money_input_rounds_half_up_and_formats_thousands():
+    amount = q0(parse_money("1.325.365,90"))
+    assert amount == 1325366
+    assert fmt_0(amount, thousands=True) == "1.325.366"
 
 
 @pytest.mark.parametrize(

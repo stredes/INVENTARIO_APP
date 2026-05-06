@@ -17,6 +17,7 @@ from .models import (
     Sale,
     SaleDetail,
     SaleServiceDetail,
+    SalesQuoteDetail,
     Location,
 )
 
@@ -110,6 +111,7 @@ class ProductRepository(BaseRepository[Product]):
         checks = [
             self.session.query(PurchaseDetail).filter(PurchaseDetail.id_producto == product_id).count(),
             self.session.query(SaleDetail).filter(SaleDetail.id_producto == product_id).count(),
+            self.session.query(SalesQuoteDetail).filter(SalesQuoteDetail.id_producto == product_id).count(),
             self.session.query(StockEntry).filter(StockEntry.id_producto == product_id).count(),
             self.session.query(StockExit).filter(StockExit.id_producto == product_id).count(),
         ]

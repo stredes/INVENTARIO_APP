@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Sequence
 
 from tkinter import ttk
+from src.utils.money import fmt_0, parse_money
 
 from src.gui.treeview_utils import (
     apply_default_treeview_styles,
@@ -32,8 +33,6 @@ def safe_set_combobox_values(widget: ttk.Combobox, values: Sequence[str]) -> Non
 def format_currency(value) -> str:
     """Format CLP currency with thousands separator, fallback to raw string."""
     try:
-        amount = float(value or 0)
-        formatted = f"${amount:,.0f}"
-        return formatted.replace(",", ".")
+        return f"${fmt_0(parse_money(value), thousands=True)}"
     except Exception:
         return f"$ {value}"

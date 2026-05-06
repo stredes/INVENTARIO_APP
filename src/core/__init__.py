@@ -2,6 +2,7 @@ from .inventory_manager import InventoryManager, InventoryError
 from .purchase_manager import PurchaseManager, PurchaseItem, PurchaseError
 from .supplier_product_manager import SupplierProductManager, SupplierProductError
 from .sales_manager import SalesManager, SalesError, SaleItem, ManualSaleItem
+from .sales_quote_manager import SalesQuoteManager, SalesQuoteError
 
 __all__ = [
     "InventoryManager",
@@ -15,4 +16,6 @@ __all__ = [
     "SalesError",
     "SaleItem",
     "ManualSaleItem",
+    "SalesQuoteManager",
+    "SalesQuoteError",
 ]

@@ -328,6 +328,9 @@ class Customer(Base):
     sales: Mapped[List["Sale"]] = relationship(
         back_populates="customer", cascade="all, delete-orphan"
     )
+    quotes: Mapped[List["SalesQuote"]] = relationship(
+        back_populates="customer", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<Customer razon_social={self.razon_social} rut={self.rut}>"
@@ -410,4 +413,61 @@ class SaleServiceDetail(Base):
 
     def __repr__(self) -> str:
         return f"<SaleServiceDetail venta={self.id_venta} descripcion={self.descripcion!r} cant={self.cantidad}>"
+
+
+# ====================================================
+# COTIZACIONES DE VENTA
+# ====================================================
+class SalesQuote(Base):
+    __tablename__ = "sales_quotes"
+    __table_args__ = (
+        CheckConstraint("total >= 0", name="ck_sales_quotes_total_nonneg"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    numero: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    id_cliente: Mapped[int] = mapped_column(ForeignKey("customers.id"), nullable=False)
+    fecha: Mapped[dt] = mapped_column(DateTime, nullable=False, default=dt.utcnow)
+    total: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    estado: Mapped[str] = mapped_column(String, nullable=False, default="Abierta")
+    forma_pago: Mapped[Optional[str]] = mapped_column(String)
+    moneda: Mapped[str] = mapped_column(String, nullable=False, default="CLP")
+    notas: Mapped[Optional[str]] = mapped_column(String)
+    price_includes_iva: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    customer: Mapped["Customer"] = relationship(back_populates="quotes")
+    details: Mapped[List["SalesQuoteDetail"]] = relationship(
+        back_populates="quote", cascade="all, delete-orphan"
+    )
+
+    def __repr__(self) -> str:
+        return f"<SalesQuote numero={self.numero} cliente={self.id_cliente} total={self.total}>"
+
+
+class SalesQuoteDetail(Base):
+    __tablename__ = "sales_quote_details"
+    __table_args__ = (
+        CheckConstraint("cantidad > 0", name="ck_sales_quote_details_qty_pos"),
+        CheckConstraint("precio_unitario >= 0", name="ck_sales_quote_details_price_nonneg"),
+        CheckConstraint("subtotal >= 0", name="ck_sales_quote_details_subtotal_nonneg"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id_cotizacion: Mapped[int] = mapped_column(ForeignKey("sales_quotes.id", ondelete="CASCADE"), nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False, default="product")
+    id_producto: Mapped[Optional[int]] = mapped_column(ForeignKey("products.id"), nullable=True)
+    descripcion: Mapped[str] = mapped_column(String, nullable=False)
+    codigo: Mapped[Optional[str]] = mapped_column(String)
+    unidad: Mapped[Optional[str]] = mapped_column(String)
+    cantidad: Mapped[int] = mapped_column(Integer, nullable=False)
+    precio_unitario: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    descuento_porcentaje: Mapped[Decimal] = mapped_column(Numeric(7, 2), nullable=False, default=0)
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    afecto_iva: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    quote: Mapped["SalesQuote"] = relationship(back_populates="details")
+    product: Mapped[Optional["Product"]] = relationship()
+
+    def __repr__(self) -> str:
+        return f"<SalesQuoteDetail cotizacion={self.id_cotizacion} desc={self.descripcion!r}>"
 

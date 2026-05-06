@@ -17,7 +17,7 @@ from src.data.repository import (
     SaleServiceDetailRepository,
 )
 from .inventory_manager import InventoryManager
-from src.utils.money import D, mul, money_sum, q2
+from src.utils.money import D, mul, money_sum, q2, q0
 
 
 class SalesError(Exception):
@@ -242,7 +242,7 @@ class SalesManager:
         if not sale:
             raise SalesError(f"Venta id={sale_id} no existe")
 
-        total = q2(total_venta)
+        total = q0(total_venta)
         if total < 0:
             raise SalesError("El total de la venta no puede ser negativo")
 

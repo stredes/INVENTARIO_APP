@@ -12,14 +12,14 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 
 from src.utils.helpers import get_company_info, get_po_terms, get_downloads_dir, unique_path
 from src.utils.po_generator import open_file  # reutilizamos open_file
-from src.utils.money import D, q2
+from src.utils.money import D, q2, q0
 
 
 def _fmt_money(value, currency: str) -> str:
     try:
         cur = (currency or "CLP").strip().upper()
         if cur in ("CLP", "PESO CHILENO", "PESOS CHILENOS", "CHILEAN PESO", "CHILEAN PESOS"):
-            return f"{D(value):,.0f}".replace(",", ".")
+            return f"{q0(value):,.0f}".replace(",", ".")
         return f"{D(value):,.2f}"
     except Exception:
         return str(value)
