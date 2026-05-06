@@ -1373,10 +1373,10 @@ class SalesView(ttk.Frame):
     def _on_delete_sale(self):
         try:
             sid = int(self.ent_sale_id.get())
-            if not messagebox.askyesno("Confirmar", f"¿Marcar venta {sid} como Pendiente? Se revertirá stock si corresponde."):
+            if not messagebox.askyesno("Confirmar", f"¿Eliminar venta {sid}? Se revertirá stock si corresponde."):
                 return
             self.sm.delete_sale(sid, revert_stock=True)
-            self._info(f"Venta {sid} marcada como Pendiente.")
+            self._info(f"Venta {sid} eliminada.")
         except Exception as e:
             self._error(f"No se pudo eliminar:\n{e}")
 

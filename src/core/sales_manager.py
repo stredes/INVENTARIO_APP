@@ -231,11 +231,40 @@ class SalesManager:
         sale.estado = "Pendiente"
         self.session.commit()
 
+    def update_sale_total(self, sale_id: int, total_venta: Decimal) -> Sale:
+        """
+        Actualiza el monto total de una venta existente.
+
+        Esta operacion corrige la cabecera de la OV sin mover stock ni cambiar
+        cantidades. Es util para ajustes administrativos de monto.
+        """
+        sale = self.sales.get(sale_id)
+        if not sale:
+            raise SalesError(f"Venta id={sale_id} no existe")
+
+        total = q2(total_venta)
+        if total < 0:
+            raise SalesError("El total de la venta no puede ser negativo")
+
+        line_items = [*list(sale.details or []), *list(sale.service_details or [])]
+        if len(line_items) == 1:
+            if total <= 0:
+                raise SalesError("El total debe ser mayor a 0 para actualizar el detalle")
+            line = line_items[0]
+            qty = D(getattr(line, "cantidad", 1) or 1)
+            line.subtotal = total
+            line.precio_unitario = q2(total / qty)
+
+        sale.total_venta = total
+        self.session.commit()
+        self.session.refresh(sale)
+        return sale
+
     def delete_sale(self, sale_id: int, *, revert_stock: bool = True) -> None:
         """
-        **No borra físicamente**. Marca estado='Pendiente'.
-        Si estaba en un estado que **descuenta stock** y revert_stock=True,
-        reingresa stock antes de marcar como Pendiente.
+        Elimina fisicamente la venta y sus detalles.
+        Si estaba en un estado que descuenta stock y revert_stock=True,
+        reingresa stock antes de borrar.
         """
         sale = self.sales.get(sale_id)
         if not sale:
@@ -249,5 +278,5 @@ class SalesManager:
                     motivo=f"Reversa venta {sale_id}",
                     when=datetime.utcnow(),
                 )
-        sale.estado = "Pendiente"
+        self.session.delete(sale)
         self.session.commit()

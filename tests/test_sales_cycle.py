@@ -130,7 +130,7 @@ def test_cancel_sale_reverts_stock(session):
     assert str(sale.estado).lower() == "pendiente"
 
 
-def test_delete_sale_marks_eliminated_and_reverts_stock(session):
+def test_delete_sale_removes_sale_and_reverts_stock(session):
     customer, p1, _ = seed_customer_with_products(session)
     sm = SalesManager(session)
 
@@ -145,10 +145,27 @@ def test_delete_sale_marks_eliminated_and_reverts_stock(session):
 
     sm.delete_sale(sale.id, revert_stock=True)
     session.refresh(p1)
-    session.refresh(sale)
     assert p1.stock_actual == 10
-    assert str(sale.estado).lower() == "pendiente"
-    assert session.get(Sale, sale.id) is not None
+    assert session.get(Sale, sale.id) is None
+
+
+def test_update_sale_total(session):
+    customer, p1, _ = seed_customer_with_products(session)
+    sm = SalesManager(session)
+
+    sale = sm.create_sale(
+        customer_id=customer.id,
+        items=[SaleItem(product_id=p1.id, cantidad=2, precio_unitario=Decimal("50.00"))],
+        estado="Pendiente",
+        apply_to_stock=True,
+    )
+
+    sm.update_sale_total(sale.id, Decimal("12345.67"))
+    session.refresh(sale)
+    detail = session.query(SaleDetail).filter(SaleDetail.id_venta == sale.id).one()
+    assert q2(sale.total_venta) == Decimal("12345.67")
+    assert q2(detail.subtotal) == Decimal("12345.67")
+    assert q2(detail.precio_unitario) == Decimal("6172.84")
 
 
 def test_sale_insufficient_stock_raises(session):

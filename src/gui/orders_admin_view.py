@@ -1,7 +1,7 @@
 ﻿# src/gui/orders_admin_view.py
 from __future__ import annotations
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, simpledialog
 from typing import List, Optional, Callable
 from datetime import datetime
 
@@ -335,6 +335,8 @@ class OrdersAdminView(ttk.Frame):
         ttk.Button(top_v, text="Actualizar", command=self._load_sales).pack(side="left", padx=4)
         ttk.Button(top_v, text="Marcar PAGADO (descontar stock)", command=self._sale_mark_paid).pack(side="left", padx=4)
         ttk.Button(top_v, text="Marcar PENDIENTE (reversa stock)", style="Danger.TButton", command=self._sale_cancel).pack(side="left", padx=4)
+        ttk.Button(top_v, text="Editar monto", command=self._sale_edit_total).pack(side="left", padx=4)
+        ttk.Button(top_v, text="Eliminar", style="Danger.TButton", command=self._sale_delete).pack(side="left", padx=4)
         ttk.Button(top_v, text="Reimprimir OV (PDF)", command=self._sale_print_pdf).pack(side="left", padx=4)
 
         # Editor de estado
@@ -1419,6 +1421,40 @@ class OrdersAdminView(ttk.Frame):
         except Exception as ex:
             messagebox.showerror("Ventas", f"No se pudo generar el PDF:\n{ex}")
 
+    def _sale_edit_total(self):
+        sale = self._get_selected_sale()
+        if not sale:
+            messagebox.showwarning("Ventas", "Seleccione una venta.")
+            return
+
+        current = format_currency(getattr(sale, "total_venta", 0) or 0)
+        value = simpledialog.askstring(
+            "Editar monto",
+            f"Nuevo total para venta {sale.id}:",
+            initialvalue=current,
+            parent=self,
+        )
+        if value is None:
+            return
+
+        try:
+            total = self._parse_money_input(value)
+        except Exception:
+            messagebox.showwarning("Ventas", "Ingrese un monto valido.")
+            return
+        if total < 0:
+            messagebox.showwarning("Ventas", "El monto no puede ser negativo.")
+            return
+
+        def action():
+            self.sm.update_sale_total(sale.id, total)
+
+        self._handle_db_action(
+            action,
+            f"Monto de venta {sale.id} actualizado.",
+            self._load_sales,
+        )
+
     def _sale_cancel(self):
         sale = self._get_selected_sale()
         if not sale:
@@ -1447,7 +1483,7 @@ class OrdersAdminView(ttk.Frame):
 
         self._handle_db_action(
             action,
-            f"Venta {sale.id} marcada como PENDIENTE.",
+            f"Venta {sale.id} eliminada.",
             self._load_sales
         )
 
