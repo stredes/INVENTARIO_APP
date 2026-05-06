@@ -84,10 +84,13 @@ class CatalogView(ttk.Frame):
         host.columnconfigure(0, weight=1)
 
         self.preview = ttk.Label(self.canvas)
-        self._canvas_item = self.canvas.create_window(0, 0, anchor="nw", window=self.preview)
+        self._canvas_item = self.canvas.create_window(0, 0, anchor="n", window=self.preview)
         self._preview_img = None
+        self._preview_size: tuple[int, int] = (0, 0)
         self.canvas.bind("<MouseWheel>", self._on_mousewheel)
         self.canvas.bind("<Shift-MouseWheel>", self._on_shift_mousewheel)
+        self.canvas.bind("<Configure>", lambda _e: self._center_preview())
+        self.after(100, self._on_preview)
 
     def _on_generate(self) -> None:
         try:
@@ -117,11 +120,26 @@ class CatalogView(ttk.Frame):
         try:
             img = self._render_preview_image()
             self._preview_img = ImageTk.PhotoImage(img)
+            self._preview_size = (img.width, img.height)
             self.preview.configure(image=self._preview_img)
             self.canvas.itemconfigure(self._canvas_item, width=img.width, height=img.height)
-            self.canvas.configure(scrollregion=(0, 0, img.width, img.height))
+            self._center_preview()
         except Exception as e:
             messagebox.showerror("Vista previa", f"No se pudo generar la preview:\n{e}")
+
+    def _center_preview(self) -> None:
+        img_w, img_h = self._preview_size
+        try:
+            view_w = max(1, self.canvas.winfo_width())
+            view_h = max(1, self.canvas.winfo_height())
+            x = max(view_w // 2, img_w // 2)
+            y = 0
+            self.canvas.coords(self._canvas_item, x, y)
+            self.canvas.configure(
+                scrollregion=(0, 0, max(view_w, img_w), max(view_h, img_h))
+            )
+        except Exception:
+            pass
 
     def _render_preview_image(self) -> Image.Image:
         from src.data.models import Product

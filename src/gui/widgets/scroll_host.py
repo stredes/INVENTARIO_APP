@@ -42,6 +42,14 @@ class ScrollHost(ttk.Frame):
         for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
             self.bind_all(seq, self._on_mousewheel, add="+")
 
+    def __getattr__(self, name: str):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        content = self.__dict__.get("content_view")
+        if content is not None and hasattr(content, name):
+            return getattr(content, name)
+        raise AttributeError(name)
+
     # ----------------- eventos -----------------
     def _on_inner_configure(self, _e=None):
         try:
@@ -51,8 +59,10 @@ class ScrollHost(ttk.Frame):
 
     def _on_canvas_configure(self, event):
         try:
-            # Ajusta el ancho del inner al del canvas
-            self.canvas.itemconfigure(self._win, width=event.width)
+            # Ajusta el inner al viewport: usa todo el alto disponible cuando
+            # el contenido es menor, y deja scroll cuando el contenido crece.
+            min_height = max(event.height, self.inner.winfo_reqheight())
+            self.canvas.itemconfigure(self._win, width=event.width, height=min_height)
         except Exception:
             pass
 

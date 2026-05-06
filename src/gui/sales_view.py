@@ -168,8 +168,8 @@ class SalesView(ttk.Frame):
         ttk.Label(det, text="Precio Neto (sin IVA)").grid(row=2, column=6, sticky="e", padx=4, pady=4)
         ttk.Entry(det, textvariable=self.var_monto_neto, width=14, state="readonly").grid(row=2, column=7, sticky="w", padx=4, pady=4)
 
-        svc = ttk.Labelframe(self, text="Servicio manual", padding=10)
-        svc.pack(fill="x", expand=False, pady=(10, 0))
+        svc = ttk.Labelframe(self, text="Servicio manual", padding=6)
+        svc.pack(fill="x", expand=False, pady=(6, 0))
         self.service_frame = svc
         self.var_service_desc = tk.StringVar(value="")
         self.var_service_qty = tk.StringVar(value="1")
@@ -197,9 +197,9 @@ class SalesView(ttk.Frame):
 
         # ---------- Tabla ----------
         tree_frame = ttk.Frame(self)
-        tree_frame.pack(fill="both", expand=True, pady=(10, 0))
+        tree_frame.pack(fill="both", expand=True, pady=(6, 0))
         columns = ("id", "nombre", "cantidad", "precio", "dcto", "subtotal")
-        self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=10)
+        self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=12)
         for cid, text, w in [
             ("id", "ID", 70),
             ("nombre", "Producto", 320),
@@ -234,13 +234,13 @@ class SalesView(ttk.Frame):
         # ---------- Total + Acciones ----------
         # Observación (para cotización)
         obs_frame = ttk.Labelframe(self, text="Observación", padding=6)
-        obs_frame.pack(fill="x", expand=False, pady=(10, 0))
+        obs_frame.pack(fill="x", expand=False, pady=(6, 0))
         self.obs_frame = obs_frame
-        self.txt_obs = tk.Text(obs_frame, height=3, wrap="word")
+        self.txt_obs = tk.Text(obs_frame, height=2, wrap="word")
         self.txt_obs.pack(fill="x", expand=True)
 
         bottom = ttk.Frame(self)
-        bottom.pack(fill="x", expand=False, pady=10)
+        bottom.pack(fill="x", expand=False, pady=6)
         self.lbl_total = ttk.Label(bottom, text="Total: $0", font=("", 11, "bold"))
         self.lbl_total.pack(side="left")
 
@@ -250,15 +250,16 @@ class SalesView(ttk.Frame):
         self.btn_clear_items.pack(side="right", padx=6)
         self.btn_quote = ttk.Button(bottom, text="Generar Cotización (PDF)", command=self._on_generate_sales_quote)
         self.btn_quote.pack(side="right", padx=6)
+        self.btn_quote_history = ttk.Button(bottom, text="Historial cotizaciones", command=self._open_quotes_history_window)
+        self.btn_quote_history.pack(side="right", padx=6)
         self.btn_so = ttk.Button(bottom, text="Generar OV (PDF en Descargas)", command=self._on_generate_so_downloads)
         self.btn_so.pack(side="right", padx=6)
         self._btn_confirm = ttk.Button(bottom, text="Guardar venta", style="Success.TButton", command=self._on_confirm_sale)
         self._btn_confirm.pack(side="right", padx=6)
 
-        self._init_quotes_history()
+        self._quotes_window = None
         self.refresh_lookups()
         self._apply_simple_sales_layout(det)
-        self._load_quotes_history()
 
     def _apply_simple_sales_layout(self, det: ttk.Labelframe) -> None:
         """Oculta campos secundarios para un flujo corto de ventas."""
@@ -288,9 +289,9 @@ class SalesView(ttk.Frame):
         except Exception:
             pass
 
-    def _init_quotes_history(self) -> None:
-        frame = ttk.Labelframe(self, text="Historial de cotizaciones", padding=8)
-        frame.pack(fill="both", expand=False, pady=(0, 10))
+    def _init_quotes_history(self, parent: tk.Misc) -> None:
+        frame = ttk.Labelframe(parent, text="Historial de cotizaciones", padding=8)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
         self.quote_history_frame = frame
 
         top = ttk.Frame(frame)
@@ -320,6 +321,36 @@ class SalesView(ttk.Frame):
         self.tree_quotes.pack(side="left", fill="both", expand=True)
         vsb.pack(side="left", fill="y")
         self.tree_quotes.bind("<Double-1>", lambda _e: self._on_load_selected_quote())
+        self._load_quotes_history()
+
+    def _open_quotes_history_window(self) -> None:
+        try:
+            if self._quotes_window is not None and self._quotes_window.winfo_exists():
+                self._quotes_window.lift()
+                self._quotes_window.focus_set()
+                self._load_quotes_history()
+                return
+        except Exception:
+            pass
+        win = tk.Toplevel(self)
+        win.title("Historial de cotizaciones")
+        win.geometry("980x420")
+        win.minsize(760, 320)
+        self._quotes_window = win
+        self._init_quotes_history(win)
+        win.protocol("WM_DELETE_WINDOW", self._close_quotes_history_window)
+
+    def _close_quotes_history_window(self) -> None:
+        try:
+            if self._quotes_window is not None:
+                self._quotes_window.destroy()
+        except Exception:
+            pass
+        self._quotes_window = None
+        try:
+            delattr(self, "tree_quotes")
+        except Exception:
+            pass
 
     def _set_quote_context(self, quote: Optional[SalesQuote] = None) -> None:
         if quote is None:
@@ -413,7 +444,7 @@ class SalesView(ttk.Frame):
         return
 
         # ---------- Encabezado ----------
-        top = ttk.Labelframe(self, text="Encabezado de venta", padding=10)
+        top = ttk.Labelframe(self, text="Encabezado de venta", padding=6)
         top.pack(fill="x", expand=False)
 
         ttk.Label(top, text="Cliente:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
@@ -472,8 +503,8 @@ class SalesView(ttk.Frame):
             pass
 
         # ---------- Detalle ----------
-        det = ttk.Labelframe(self, text="Detalle de venta", padding=10)
-        det.pack(fill="x", expand=False, pady=(10, 0))
+        det = ttk.Labelframe(self, text="Detalle de venta", padding=6)
+        det.pack(fill="x", expand=False, pady=(6, 0))
 
         ttk.Label(det, text="Producto:").grid(row=0, column=0, sticky="e", padx=4, pady=4)
         self.cmb_product = AutoCompleteCombobox(det, width=45, state="normal")
