@@ -43,8 +43,8 @@ class OrdersAdminView(ttk.Frame):
     PUR_DET_COLS = ["ID Prod", "Producto", "Cant.", "Precio", "Subtotal"]
     PUR_DET_W    = [80, 320, 80, 110, 130]
 
-    SALE_COLS = ["ID", "Fecha", "Cliente", "Estado", "Total"]
-    SALE_W    = [70, 130, 280, 120, 120]
+    SALE_COLS = ["ID", "N° factura", "Fecha", "Cliente", "Estado", "Total"]
+    SALE_W    = [70, 120, 130, 280, 120, 120]
 
     SALE_DET_COLS = ["ID Prod", "Producto", "Cant.", "Precio", "Subtotal"]
     SALE_DET_W    = [80, 320, 80, 110, 130]
@@ -143,7 +143,7 @@ class OrdersAdminView(ttk.Frame):
                 getattr(cust, 'razon_social', '') or getattr(cust, 'rut', '') or '',
                 getattr(sale, 'estado', '') or '',
                 format_currency(getattr(sale,'total_venta',0) or 0),
-                "",
+                getattr(sale, 'numero_documento', '') or '',
             ])
             self._all_rows_meta.append(("venta", int(sale.id)))
         # Opcional: ordenar por fecha descendente (requiere parse)
@@ -1150,7 +1150,8 @@ class OrdersAdminView(ttk.Frame):
             fecha = sale.fecha_venta.strftime("%Y-%m-%d %H:%M")
             cliente = getattr(cust, "razon_social", "") or "-"
             estado = SalesManager.normalize_state(sale.estado)
-            rows.append([sale.id, fecha, cliente, estado, format_currency(sale.total_venta)])
+            factura = (getattr(sale, "numero_documento", "") or "").strip()
+            rows.append([sale.id, factura, fecha, cliente, estado, format_currency(sale.total_venta)])
             self._sale_ids.append(int(sale.id))
 
         self._set_table_data(self.tbl_sale, self.SALE_COLS, self.SALE_W, rows)
@@ -1407,7 +1408,7 @@ class OrdersAdminView(ttk.Frame):
                     })
                 except Exception:
                     continue
-            so_number = f"OV-{sale.id}"
+            so_number = (getattr(sale, "numero_documento", "") or "").strip() or f"OV-{sale.id}"
             out = generate_so_to_downloads(
                 so_number=so_number,
                 customer=customer,

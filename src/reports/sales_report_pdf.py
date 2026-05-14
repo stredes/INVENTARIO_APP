@@ -345,7 +345,7 @@ def generate_sales_report_to_downloads(
                     story.append(Paragraph(ln, styles["BodyText"]))
 
         story.append(Spacer(1, 10))
-        headers = ["ID", "Fecha", "Cliente", "Estado", "Total (CLP)"]
+        headers = ["ID", "N° factura", "Fecha", "Cliente", "Estado", "Total (CLP)"]
         data = [headers]
         total_general = 0.0
 
@@ -356,14 +356,15 @@ def generate_sales_report_to_downloads(
         rows_sorted = sorted(rows_list, key=_key)
         for r in rows_sorted:
             fid = r.get("id", "")
+            ffactura = r.get("factura") or r.get("numero_documento") or ""
             ffecha = _fmt_date_ddmmyyyy(r.get("fecha"))
             fcli = r.get("cliente", "") or ""
             fest = r.get("estado", "") or ""
             ftotal = float(r.get("total", 0.0))
             total_general += ftotal
-            data.append([str(fid), ffecha, fcli, fest, _fmt_money2(ftotal)])
+            data.append([str(fid), str(ffactura), ffecha, fcli, fest, _fmt_money2(ftotal)])
 
-        table = Table(data, colWidths=[50, 110, None, 80, 90])
+        table = Table(data, colWidths=[36, 80, 96, None, 70, 78])
         table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F0F0F0")),
             ("TEXTCOLOR",  (0, 0), (-1, 0), colors.black),
@@ -371,8 +372,9 @@ def generate_sales_report_to_downloads(
             ("FONTSIZE",   (0, 0), (-1, 0), 10),
             ("ALIGN",      (0, 0), (0, -1), "CENTER"),
             ("ALIGN",      (1, 0), (1, -1), "CENTER"),
-            ("ALIGN",      (3, 0), (3, -1), "CENTER"),
-            ("ALIGN",      (4, 0), (4, -1), "RIGHT"),
+            ("ALIGN",      (2, 0), (2, -1), "CENTER"),
+            ("ALIGN",      (4, 0), (4, -1), "CENTER"),
+            ("ALIGN",      (5, 0), (5, -1), "RIGHT"),
             ("GRID",       (0, 0), (-1, -1), 0.25, colors.grey),
             ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FBFBFB")]),
         ]))

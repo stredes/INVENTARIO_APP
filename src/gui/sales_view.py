@@ -75,6 +75,9 @@ class SalesView(ttk.Frame):
         self.cmb_pago.bind("<<ComboboxSelected>>", lambda _e=None: self._sync_payment_state())
 
         self.var_numero_documento = tk.StringVar(value="")
+        ttk.Label(top, text="N° factura:").grid(row=1, column=0, sticky="e", padx=4, pady=4)
+        self.ent_numero_documento = ttk.Entry(top, textvariable=self.var_numero_documento, width=24)
+        self.ent_numero_documento.grid(row=1, column=1, sticky="w", padx=4, pady=4)
         self._sync_stock_flow()
 
         # ---------- Modo Cajero de ventas (POS) ----------
@@ -1770,6 +1773,7 @@ class SalesView(ttk.Frame):
                 cliente = getattr(s, "cliente_nombre", None) or ""
             rows.append({
                 "id": getattr(s, "id", None),
+                "factura": getattr(s, "numero_documento", None) or "",
                 "fecha": fecha,
                 "cliente": cliente,
                 "estado": est,
@@ -1780,12 +1784,13 @@ class SalesView(ttk.Frame):
     def _open_sales_report_window(self, rows):
         win = tk.Toplevel(self)
         win.title("Informe de ventas")
-        win.geometry("860x480")
+        win.geometry("980x480")
 
-        cols = ("id", "fecha", "cliente", "estado", "total")
+        cols = ("id", "factura", "fecha", "cliente", "estado", "total")
         tree = ttk.Treeview(win, columns=cols, show="headings", height=16)
         for cid, text, w, anchor in [
             ("id", "ID", 70, "center"),
+            ("factura", "N° factura", 120, "center"),
             ("fecha", "Fecha", 160, "center"),
             ("cliente", "Cliente", 350, "w"),
             ("estado", "Estado", 120, "center"),
@@ -1816,6 +1821,7 @@ class SalesView(ttk.Frame):
             total_general += float(r.get("total", 0.0))
             tree.insert("", "end", values=(
                 r.get("id", ""),
+                r.get("factura", "") or "",
                 fecha_txt,
                 r.get("cliente", "") or "",
                 r.get("estado", "") or "",
@@ -1835,7 +1841,7 @@ class SalesView(ttk.Frame):
             out_path = out_dir / fname
             with open(out_path, "w", newline="", encoding="utf-8") as f:
                 w = csv.writer(f, delimiter=";")
-                w.writerow(["ID", "Fecha", "Cliente", "Estado", "Total"])
+                w.writerow(["ID", "N° factura", "Fecha", "Cliente", "Estado", "Total"])
                 for r in rows:
                     fval = r["fecha"]
                     ftxt = fval.strftime("%d/%m/%Y %H:%M") if hasattr(fval, "strftime") else str(fval or "")
@@ -1844,7 +1850,7 @@ class SalesView(ttk.Frame):
                         tot_i = int(round(float(r['total'] or 0)))
                     except Exception:
                         tot_i = 0
-                    w.writerow([r["id"], ftxt, r["cliente"], r["estado"], str(tot_i)])
+                    w.writerow([r["id"], r.get("factura", "") or "", ftxt, r["cliente"], r["estado"], str(tot_i)])
             self._info(f"CSV guardado en Descargas:\n{out_path}")
 
         def _export_pdf():
